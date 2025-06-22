@@ -37,3 +37,26 @@ CREATE INDEX idx_image_caption
 ON IMAGES(caption) 
 INDEXTYPE IS CTXSYS.CONTEXT
 PARAMETERS ('LEXER lexerpref4japanese SYNC (ON COMMIT) DATASTORE CTXSYS.DIRECT_DATASTORE');
+
+-- より大きなメモリを割り当て
+CREATE INDEX idx_image_caption
+ON IMAGES(caption) 
+INDEXTYPE IS CTXSYS.CONTEXT
+PARAMETERS ('LEXER lexerpref4japanese SYNC (ON COMMIT) SYNC_MEMORY 128M DATASTORE CTXSYS.DIRECT_DATASTORE');
+
+-- バックグラウンド同期の場合
+CREATE INDEX idx_image_caption
+ON IMAGES(caption) 
+INDEXTYPE IS CTXSYS.CONTEXT
+PARAMETERS ('LEXER lexerpref4japanese SYNC (EVERY "FREQ=MINUTELY;INTERVAL=1") DATASTORE CTXSYS.DIRECT_DATASTORE');
+
+-- 全文検索インデックスの同期
+BEGIN
+  ctx_ddl.sync_index('IDX_IMAGE_CAPTION');
+END;
+/
+
+-- インデックスの同期タイプとメモリ使用量を確認
+SELECT idx_name, idx_sync_type, idx_sync_memory
+FROM ctx_user_indexes 
+WHERE idx_name = 'IDX_IMAGE_CAPTION';

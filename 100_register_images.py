@@ -31,6 +31,7 @@ def get_image_caption(generative_ai_inference_client, image_data):
     3. 注目すべきポイント
     4. 画像に描かれているもののカテゴリと固有の名称
     5. 画像に描かれているテキスト
+    6. 画像に描かれている URL、IDなどの情報
     
     日本語で詳しく説明してください。
     """
@@ -47,7 +48,7 @@ def get_image_caption(generative_ai_inference_client, image_data):
     chat_request.messages = [message]
     chat_request.api_format = oci.generative_ai_inference.models.BaseChatRequest.API_FORMAT_GENERIC
     chat_request.num_generations = 1
-    chat_request.max_tokens = 600
+    chat_request.max_tokens = 1000
     chat_request.is_stream = False
     chat_request.temperature = 0.70
     chat_request.top_p = 0.7
@@ -174,6 +175,7 @@ def clean_caption(caption):
         "**注目すべきポイント**：",
         "**画像に描かれているもののカテゴリと固有の名称**：",
         "**画像に描かれているテキスト**：",
+        "**画像に描かれている URL、IDなどの情報**：",
         "この画像にはテキストは一切表示されていません。"
     ]
     

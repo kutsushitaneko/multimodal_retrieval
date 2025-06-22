@@ -41,6 +41,7 @@ def main():
     config = Config()
     db_pool = config.get_db_pool()  # コネクションプールを取得
     cohere_client = config.get_cohere_client()
+    oci_client = config.get_oci_generative_ai_client()
     search_query_generator = SearchQueryGenerator()
     
     # データベース接続監視スレッドを開始
@@ -52,7 +53,13 @@ def main():
     db_monitor_thread.start()
     
     # 各サービスを初期化
-    embedding_service = EmbeddingService(cohere_client)
+    embedding_service = EmbeddingService(
+        embed_model_provider=config.embed_model_provider,
+        embed_model_id=config.embed_model_id,
+        compartment_id=config.compartment_id,
+        cohere_client=cohere_client if config.embed_model_provider == "CohereAI" else None,
+        oci_client=oci_client if config.embed_model_provider == "OCI" else None
+    )
     database_service = DatabaseService(db_pool)  # プールを渡す
     search_service = SearchService(embedding_service, database_service, search_query_generator)
     
