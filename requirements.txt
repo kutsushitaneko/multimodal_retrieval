@@ -1,0 +1,10 @@
+cohere
+oci
+oracledb
+pillow
+numpy
+python-dotenv
+gradio
+spacy
+ginza
+ja_ginza

@@ -1,0 +1,1 @@
+CREATE USER devday25user IDENTIFIED BY "Welcome12345#";
