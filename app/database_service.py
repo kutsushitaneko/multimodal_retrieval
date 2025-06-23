@@ -81,11 +81,42 @@ class DatabaseService:
                         ORDER BY score(1) DESC
                         FETCH FIRST :3 ROWS ONLY
                     """
-                    cursor.execute(sql, [search_query, keyword_threshold, top_k])
                     
-                    executed_sql = sql.replace(":1", f"'{search_query}'") \
-                                      .replace(":2", str(keyword_threshold)) \
-                                      .replace(":3", str(top_k))
+                    try:
+                        cursor.execute(sql, [search_query, keyword_threshold, top_k])
+                    except oracledb.DatabaseError as e:
+                        error, = e.args
+                        # Oracle Text関連のエラー（DRG-50921など）をチェック
+                        if error.code in (29902, 30600) or 'DRG-' in str(e):
+                            print(f"Oracle Text検索エラー: {e}")
+                            print(f"問題のクエリ: {search_query}")
+                            
+                            # フォールバック：通常のLIKE検索を試行
+                            fallback_sql = """
+                                SELECT a.image_id, a.file_name, a.caption, a.image_data,
+                                    0 as distance
+                                FROM IMAGES a
+                                WHERE UPPER(caption) LIKE UPPER(:1)
+                                ORDER BY a.upload_date DESC
+                                FETCH FIRST :2 ROWS ONLY
+                            """
+                            
+                            # 検索クエリをLIKE検索用に変換（AND演算子を削除し、最初のキーワードのみ使用）
+                            like_query = search_query.split(' AND ')[0].replace('"', '').strip()
+                            like_pattern = f"%{like_query}%"
+                            
+                            print(f"フォールバック検索を実行: {like_pattern}")
+                            cursor.execute(fallback_sql, [like_pattern, top_k])
+                            
+                            executed_sql = fallback_sql.replace(":1", f"'%{like_query}%'") \
+                                                      .replace(":2", str(top_k))
+                            executed_sql += f"\n-- 元のOracle Text検索でエラーが発生したため、LIKE検索にフォールバック\n-- 元のクエリ: {search_query}"
+                        else:
+                            raise  # その他のデータベースエラーは再発生
+                    else:
+                        executed_sql = sql.replace(":1", f"'{search_query}'") \
+                                          .replace(":2", str(keyword_threshold)) \
+                                          .replace(":3", str(top_k))
                     
                     results = self._process_query_results(cursor, "全文検索")
                     return results, executed_sql

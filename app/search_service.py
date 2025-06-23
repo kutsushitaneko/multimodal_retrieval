@@ -17,12 +17,13 @@ class SearchService:
     def search_by_caption(self, query, search_mode="ベクトル検索", top_k=5, vector_threshold=0.5, keyword_threshold=10):
         """テキストクエリに基づいて画像のキャプションを検索"""
         executed_query = query  # デフォルトはオリジナルのクエリ
+        morphological_analysis = ""  # 形態素解析結果を追加
         
         # クエリーが空の場合
         if not query.strip():
             results, executed_sql = self.database_service.get_recent_images(top_k, 0)  # オフセット0で取得
             executed_query = "（クエリが空のためアップロード日時が新しい順に画像を表示しています）"
-            return results, executed_query, executed_sql
+            return results, executed_query, executed_sql, morphological_analysis
             
         elif search_mode == "ベクトル検索":
             # クエリの埋め込みベクトルを取得
@@ -32,28 +33,32 @@ class SearchService:
             results, executed_sql = self.database_service.search_by_caption_vector(
                 query_embedding, top_k, vector_threshold
             )
-            return results, executed_query, executed_sql
+            return results, executed_query, executed_sql, morphological_analysis
             
         else: # 全文検索
             # 検索クエリーを生成
             search_query = self.search_query_generator.generate(query)
             executed_query = search_query
             
+            # 形態素解析の詳細結果を取得
+            morphological_analysis = self.search_query_generator.get_morphological_analysis_details(query)
+            
             # 全文検索を実行
             results, executed_sql = self.database_service.search_by_fulltext(
                 search_query, top_k, keyword_threshold
             )
-            return results, executed_query, executed_sql
+            return results, executed_query, executed_sql, morphological_analysis
             
     def search_by_image_text(self, query, top_k=5, vector_threshold=0.5):
         """テキストクエリに基づいて画像の画像ベクトルを検索"""
         executed_query = query  # デフォルトはオリジナルのクエリ
+        morphological_analysis = ""  # 形態素解析結果を追加
         
         # クエリーが空の場合
         if not query.strip():
             results, executed_sql = self.database_service.get_recent_images(top_k, 0)  # オフセット0で取得
             executed_query = "（空のクエリ）"
-            return results, executed_query, executed_sql
+            return results, executed_query, executed_sql, morphological_analysis
             
         else:
             # クエリのテキスト埋め込みベクトルを取得（画像検索用）
@@ -63,12 +68,14 @@ class SearchService:
             results, executed_sql = self.database_service.search_by_image_vector(
                 query_embedding, top_k, vector_threshold
             )
-            return results, executed_query, executed_sql
+            return results, executed_query, executed_sql, morphological_analysis
             
     def search_by_image_embedding(self, uploaded_image, top_k=5, vector_threshold=0.5):
         """アップロードされた画像から画像ベクトル検索を実行"""
+        morphological_analysis = ""  # 形態素解析結果を追加（画像検索では空文字列）
+        
         if uploaded_image is None:
-            return [], "（画像がアップロードされていません）", ""
+            return [], "（画像がアップロードされていません）", "", morphological_analysis
             
         # アップロードされた画像の埋め込みベクトルを取得
         image_embedding = array.array('f', self.embedding_service.get_image_embedding(uploaded_image))
@@ -77,17 +84,17 @@ class SearchService:
         results, executed_sql = self.database_service.search_by_image_vector(
             image_embedding, top_k, vector_threshold
         )
-        return results, "（アップロードされた画像）", executed_sql
+        return results, "（アップロードされた画像）", executed_sql, morphological_analysis
         
     def hybrid_search(self, query, top_k=5, vector_threshold=0.5, keyword_threshold=10):
         """ベクトル検索と全文検索の結果を統合する"""
         # ベクトル検索の実行
-        vector_results, vector_query, vector_sql = self.search_by_caption(
+        vector_results, vector_query, vector_sql, _ = self.search_by_caption(
             query, "ベクトル検索", top_k, vector_threshold, 0
         )
         
         # 全文検索の実行
-        keyword_results, keyword_query, keyword_sql = self.search_by_caption(
+        keyword_results, keyword_query, keyword_sql, _ = self.search_by_caption(
             query, "全文検索", top_k, 0, keyword_threshold
         )
         
@@ -96,7 +103,7 @@ class SearchService:
         # ベクトル検索と全文検索の両方で結果が0件の場合、最新の画像を返す
         if len(vector_results) == 0 and len(keyword_results) == 0:
             # print("両方の検索結果が0件のため、最近の画像を表示します")
-            vector_results, _, _ = self.search_by_caption("", "ベクトル検索", top_k, 0, 0)
+            vector_results, _, _, _ = self.search_by_caption("", "ベクトル検索", top_k, 0, 0)
         
         # 結果の統合（重複を除去しつつ、両方の検索結果を保持）
         combined_results = []
@@ -125,7 +132,7 @@ class SearchService:
         if (not query or query.strip() == "") and (uploaded_image is None):
             # キャプション検索の場合、検索方法は考慮せずに最近の画像を表示
             search_mode = "ハイブリッド検索" if search_target == "キャプション" else search_method
-            results, executed_query, executed_sql = self.search_by_caption(
+            results, executed_query, executed_sql, _ = self.search_by_caption(
                 query, search_mode, top_k, vector_threshold, keyword_threshold
             )
             
@@ -156,15 +163,18 @@ class SearchService:
                     self.normalize_newlines(first_result['caption']),  # caption_text
                     {"combined_results": results, "vector_results": results, "keyword_results": []},  # state - 全文検索結果も含める
                     executed_query,  # executed_query_text
-                    executed_sql  # executed_sql_text
+                    executed_sql,  # executed_sql_text
+                    ""  # morphological_analysis_text
                 )
-            return [], [], "", "", "", [], executed_query, executed_sql
+            return [], [], "", "", "", [], executed_query, executed_sql, ""
         
         if search_target == "キャプション":
             # キャプション検索の場合は常にハイブリッド検索を使用
             combined_results, vector_results, keyword_results, executed_query, executed_sql = self.hybrid_search(
                 query, top_k, vector_threshold, keyword_threshold
             )
+            # ハイブリッド検索の場合は、全文検索部分の形態素解析結果を取得
+            morphological_analysis = self.search_query_generator.get_morphological_analysis_details(query) if query.strip() else ""
             
             # ベクトル検索と全文検索の結果をそれぞれのギャラリー用に整形
             vector_images = []
@@ -203,24 +213,26 @@ class SearchService:
                     self.normalize_newlines(first_result['caption']),  # caption_text
                     {"combined_results": combined_results, "vector_results": vector_results, "keyword_results": keyword_results},  # state - 全文検索結果も含める
                     executed_query,  # executed_query_text
-                    executed_sql  # executed_sql_text
+                    executed_sql,  # executed_sql_text
+                    morphological_analysis  # morphological_analysis_text
                 )
-            return [], [], "", "", "", [], executed_query, executed_sql
+            return [], [], "", "", "", [], executed_query, executed_sql, ""
             
         elif search_target == "画像":
             if search_method == "テキスト":
-                results, executed_query, executed_sql = self.search_by_image_text(
+                results, executed_query, executed_sql, morphological_analysis = self.search_by_image_text(
                     query, top_k, vector_threshold
                 )
             elif search_method == "画像":
                 if uploaded_image is not None:
-                    results, executed_query, executed_sql = self.search_by_image_embedding(
+                    results, executed_query, executed_sql, morphological_analysis = self.search_by_image_embedding(
                         uploaded_image, top_k, vector_threshold
                     )
                 else:
                     # 画像がアップロードされていない場合は最近の画像を表示
                     results, executed_sql = self.database_service.get_recent_images(top_k, 0)
                     executed_query = "（画像がアップロードされていないため、最近アップロードされた画像を表示しています）"
+                    morphological_analysis = ""
             
             # 結果を整形
             output_images = []
@@ -245,9 +257,10 @@ class SearchService:
                     self.normalize_newlines(first_result['caption']),  # caption_text
                     {"combined_results": results, "vector_results": results, "keyword_results": []},  # state
                     executed_query,  # executed_query_text
-                    executed_sql  # executed_sql_text
+                    executed_sql,  # executed_sql_text
+                    morphological_analysis  # morphological_analysis_text
                 )
-            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, executed_query, executed_sql
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, executed_query, executed_sql, ""
             
     def load_recent_images(self, top_k=12):
         """アプリケーション起動時に最近アップロードされた画像を表示する関数"""
@@ -269,6 +282,7 @@ class SearchService:
                 self.normalize_newlines(first_result['caption']),  # caption_text
                 {"combined_results": results, "vector_results": results, "keyword_results": []},  # state
                 "（最近のアップロード）",  # executed_query_text
-                executed_sql  # executed_sql_text
+                executed_sql,  # executed_sql_text
+                ""  # morphological_analysis_text
             )
-        return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "（画像が見つかりません）", executed_sql 
+        return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "（画像が見つかりません）", executed_sql, "" 

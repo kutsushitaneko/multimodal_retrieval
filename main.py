@@ -70,7 +70,7 @@ def main():
     # Gradioインターフェースの作成
     with gr.Blocks(title="マルチモーダル画像検索") as demo:
         gr.Markdown("# マルチモーダル画像検索")
-        gr.Markdown("画像を自然言語やアップロードした画像で検索できます。例: 「富士山と寺院」、「縞模様の猫」、「三匹の白い子猫」、「ホグワーツ魔法学校」、「上海のビル」、「2312.10997」、「search_queries_only」など")
+        gr.Markdown("画像を自然言語やアップロードした画像で検索できます。例: 「富士山と寺院」、「縞模様の猫」、「三匹の白い子猫」、「ホグワーツ魔法学校」、「上海のビル」、「2312.10997」など")
         
         state = gr.State({
             "current_page": 1,
@@ -96,7 +96,7 @@ def main():
         filename_text, similarity_text, caption_text, score_label = ui_components.create_detail_section()
         
         # クエリ詳細セクションのUIコンポーネントを作成
-        executed_query_text, execute_query_button, executed_sql_text = ui_components.create_query_detail_section()
+        executed_query_text, execute_query_button, executed_sql_text, morphological_analysis_text = ui_components.create_query_detail_section()
         
         # 高度な設定セクションのUIコンポーネントを作成
         vector_threshold, keyword_threshold, top_k_slider = ui_components.create_advanced_settings_section()
@@ -108,14 +108,14 @@ def main():
         
         ui_events.register_search_method_events(
             search_method, query_input, uploaded_image, score_label, 
-            executed_query_text, execute_query_button, search_target, query_examples
+            executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text
         )
         
         ui_events.register_search_button_events(
             search_button, query_input, uploaded_image, search_target, 
             search_method, top_k_slider, vector_threshold, keyword_threshold, 
             vector_gallery, keyword_gallery, filename_text, similarity_text, 
-            caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row
+            caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text
         )
         
         ui_events.register_execute_query_button_events(
@@ -127,13 +127,13 @@ def main():
         ui_events.register_clear_button_events(
             clear_button, query_input, uploaded_image, vector_gallery, 
             keyword_gallery, filename_text, similarity_text, caption_text, 
-            state, executed_query_text, executed_sql_text, pagination_row
+            state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text
         )
         
         ui_events.register_show_all_button_events(
             show_all_button, top_k_slider, vector_gallery, 
             keyword_gallery, filename_text, similarity_text, caption_text, 
-            state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button
+            state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text
         )
         
         ui_events.register_pagination_events(
@@ -153,7 +153,7 @@ def main():
             fn=ui_events.show_all_images,
             inputs=[top_k_slider, state],
             outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, 
-                     caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button]
+                     caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text]
         )
     
     # アプリケーションの起動

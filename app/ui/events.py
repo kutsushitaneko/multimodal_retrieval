@@ -24,7 +24,7 @@ class UIEvents:
             outputs=[executed_sql_text]
         )
         
-    def register_search_method_events(self, search_method, query_input, uploaded_image, score_label, executed_query_text, execute_query_button, search_target, query_examples):
+    def register_search_method_events(self, search_method, query_input, uploaded_image, score_label, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text):
         """検索方法変更時のイベントを登録"""
         search_method.change(
             fn=self.update_input_visibility,
@@ -38,14 +38,18 @@ class UIEvents:
             fn=self.update_query_text_interactivity,
             inputs=[search_method],
             outputs=[executed_query_text, execute_query_button]
+        ).then(
+            fn=lambda search_target, search_method: self.update_morphological_analysis_visibility(search_target, search_method, ""),
+            inputs=[search_target, search_method],
+            outputs=[morphological_analysis_text]
         )
         
-    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row):
+    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text):
         """検索ボタンのイベントを登録"""
         search_button.click(
             fn=self.clear_before_search,
             inputs=[],
-            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text]
+            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
         ).then(
             fn=self.update_gallery_labels,
             inputs=[query_input, search_method, search_target],
@@ -53,11 +57,15 @@ class UIEvents:
         ).then(
             fn=self.search_service.search_images,
             inputs=[query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold],
-            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text]
+            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
         ).then(
             fn=self.update_query_text_interactivity,
             inputs=[search_method],
             outputs=[executed_query_text, execute_query_button]
+        ).then(
+            fn=self.update_morphological_analysis_result,
+            inputs=[search_target, morphological_analysis_text],
+            outputs=[morphological_analysis_text]
         ).then(
             fn=self.hide_pagination,
             inputs=[],
@@ -80,28 +88,28 @@ class UIEvents:
             outputs=[pagination_row]
         )
         
-    def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row):
+    def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text):
         """クリアボタンのイベントを登録"""
         clear_button.click(
             fn=self.clear_results,
             inputs=[],
-            outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text]
+            outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
         ).then(
             fn=self.hide_pagination,
             inputs=[],
             outputs=[pagination_row]
         )
     
-    def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button):
+    def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text):
         """全件表示ボタンのイベントを登録"""
         show_all_button.click(
             fn=self.clear_before_search,
             inputs=[],
-            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text]
+            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
         ).then(
             fn=self.show_all_images,
             inputs=[top_k_slider, state],
-            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button]
+            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text]
         )
     
     def register_pagination_events(self, prev_button, next_button, top_k_slider, vector_gallery, page_info, state, keyword_gallery, prev_button_out, next_button_out):
@@ -311,47 +319,17 @@ class UIEvents:
             return gr.Gallery(label="検索結果", visible=True), gr.Gallery(label="", visible=False)
             
     def clear_before_search(self):
-        """検索前にギャラリーとテキスト表示をクリアする関数"""
-        # ギャラリーのコンテンツはクリアするが、表示設定は変更しない
-        return [], [], "", "", "", {
-            "current_page": 1,
-            "total_pages": 1,
-            "page_size": 0,
-            "total_image_count": 0,
-            "all_images": [],
-            "combined_results": [],
-            "vector_results": [],
-            "keyword_results": []
-        }, "", ""  # vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text
-        
+        """検索実行前にクリアする関数"""
+        return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", ""
+
     def clear_results(self):
-        """検索結果とフォームをクリアする関数"""
-        # すべてのフィールドをクリア
-        return "", None, [], [], "", "", "", {
-            "current_page": 1,
-            "total_pages": 1,
-            "page_size": 0,
-            "total_image_count": 0,
-            "all_images": [],
-            "combined_results": [],
-            "vector_results": [],
-            "keyword_results": []
-        }, "", ""  # query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text
+        """すべての結果をクリアする関数"""
+        return "", None, [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", ""
         
     def clear_before_custom_search(self):
-        """カスタム検索前に結果表示をクリアするがクエリテキストは維持する関数"""
-        # 表示フィールドのみクリア（クエリテキストは保持）
-        return [], "", "", "", {
-            "current_page": 1,
-            "total_pages": 1,
-            "page_size": 0,
-            "total_image_count": 0,
-            "all_images": [],
-            "combined_results": [],
-            "vector_results": [],
-            "keyword_results": []
-        }, "", ""  # vector_gallery, filename_text, similarity_text, caption_text, state, executed_sql_text, executed_query_text
-    
+        """カスタム検索実行前にクリアする関数"""
+        return [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", ""
+        
     def show_all_images(self, top_k, state_data=None):
         """全件表示ボタンの処理を行う関数"""
         # state_dataがNoneの場合は初期化
@@ -422,7 +400,8 @@ class UIEvents:
                 gr.update(visible=True),  # pagination_row
                 page_info_text,  # page_info
                 prev_button,  # prev_button
-                next_button   # next_button
+                next_button,   # next_button
+                gr.Textbox(visible=False)  # morphological_analysis_text - 全件表示では非表示
             )
         
         return [], gr.Gallery(visible=False), "", "", "", {
@@ -434,7 +413,7 @@ class UIEvents:
             "combined_results": [],
             "vector_results": [],
             "keyword_results": []
-        }, "（画像が見つかりません）", executed_sql, gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False)
+        }, "（画像が見つかりません）", executed_sql, gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), gr.Textbox(visible=False)
     
     def prev_page(self, top_k, state_data=None):
         """前のページに移動する関数"""
@@ -653,4 +632,30 @@ class UIEvents:
                 lines=8,
                 show_copy_button=True,
                 container=True
-            ) 
+            )
+
+    def update_morphological_analysis_visibility(self, search_target, search_method, morphological_analysis=""):
+        """形態素解析結果の表示/非表示を制御する関数"""
+        # 形態素解析結果があり、かつキャプション検索の場合のみ表示
+        should_show = bool(morphological_analysis and morphological_analysis.strip())
+        return gr.Markdown(
+            label="全文検索：形態素解析結果",
+            show_label=True,
+            container=True,
+            visible=should_show,
+            value=morphological_analysis if should_show else "",
+            elem_id="morphological_analysis"
+        )
+        
+    def update_morphological_analysis_result(self, search_target, morphological_analysis):
+        """検索結果の形態素解析結果を処理する関数"""
+        # キャプション検索で形態素解析結果がある場合のみ表示
+        should_show = search_target == "キャプション" and bool(morphological_analysis and morphological_analysis.strip())
+        return gr.Markdown(
+            label="全文検索：形態素解析結果",
+            show_label=True,
+            container=True,
+            visible=should_show,
+            value=morphological_analysis if should_show else "",
+            elem_id="morphological_analysis"
+        ) 

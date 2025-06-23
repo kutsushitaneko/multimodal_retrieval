@@ -8,6 +8,7 @@ embeddings/
 ecimages/
 output/
 prompts/
+memo/
 .env
 temp/
 samples/
