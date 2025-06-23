@@ -81,7 +81,7 @@ REMOTE_SERVER_PORT=8899
 ## 実行方法
 
 ```bash
-python main.py
+uv run main.py
 ```
 
 アプリケーションは`.env`ファイルの設定に従って、ローカルまたはリモートモードで起動します。 
