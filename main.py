@@ -1,6 +1,7 @@
 import gradio as gr
 import time
 import threading
+import uuid
 from app.config import Config
 from app.embedding_service import EmbeddingService
 from app.database_service import DatabaseService  
@@ -8,12 +9,22 @@ from app.search_service import SearchService
 from app.ui.components import UIComponents
 from app.ui.events import UIEvents
 from app.search_query_generator import SearchQueryGenerator
+from app.cleanup_service import CleanupService
 import os
 
-# Gradioの一時ディレクトリを設定
-temp_dir = os.path.join(os.getcwd(), "temp")
-os.makedirs(temp_dir, exist_ok=True)
-os.environ['GRADIO_TEMP_DIR'] = temp_dir
+def create_session_temp_dir():
+    """セッション固有の一時ディレクトリを作成
+    
+    マルチセッション環境でファイル名衝突を防ぐため、
+    各セッションに固有のディレクトリを作成します。
+    
+    Returns:
+        str: セッション固有の一時ディレクトリパス
+    """
+    session_id = str(uuid.uuid4())[:8]  # 短縮版UUIDを使用
+    temp_dir = os.path.join(os.getcwd(), "temp", f"session_{session_id}")
+    os.makedirs(temp_dir, exist_ok=True)
+    return temp_dir
 
 def check_db_connection(config, db_pool, interval=60):
     """定期的にデータベース接続の健全性をチェックするバックグラウンドスレッド"""
@@ -37,6 +48,33 @@ def check_db_connection(config, db_pool, interval=60):
         time.sleep(interval)
 
 def main():
+    # ベースの一時ディレクトリを作成（セッション固有ディレクトリの親）
+    base_temp_dir = os.path.join(os.getcwd(), "temp")
+    os.makedirs(base_temp_dir, exist_ok=True)
+    
+    # Gradio用の一時ディレクトリをカレントディレクトリ内に作成
+    gradio_temp_dir = os.path.join(base_temp_dir, "gradio")
+    os.makedirs(gradio_temp_dir, exist_ok=True)
+    
+    # 書き込み権限を確認
+    try:
+        test_file = os.path.join(gradio_temp_dir, "test_write_permission")
+        with open(test_file, 'w') as f:
+            f.write("test")
+        os.remove(test_file)
+        print(f"✅ Gradio一時ディレクトリの書き込み権限確認完了: {gradio_temp_dir}")
+    except Exception as e:
+        print(f"❌ Gradio一時ディレクトリ権限エラー: {e}")
+        raise
+    
+    # Gradioの一時ディレクトリを環境変数で指定
+    os.environ['GRADIO_TEMP_DIR'] = gradio_temp_dir
+    print(f"📁 Gradio一時ディレクトリを設定しました: {gradio_temp_dir}")
+    
+    # 一時ディレクトリクリーンアップサービスを開始
+    cleanup_service = CleanupService(base_temp_dir, max_age_hours=24)
+    cleanup_service.start_cleanup_thread(interval_minutes=120)  # 2時間ごとにクリーンアップ
+    
     # 設定と基本サービスを初期化
     config = Config()
     db_pool = config.get_db_pool()  # コネクションプールを取得
@@ -71,6 +109,15 @@ def main():
     with gr.Blocks(title="マルチモーダル画像検索") as demo:
         gr.Markdown("# マルチモーダル画像検索")
         gr.Markdown("画像を自然言語やアップロードした画像で検索できます。例: 「富士山と寺院」、「縞模様の猫」、「三匹の白い子猫」、「ホグワーツ魔法学校」、「上海のビル」、「2312.10997」など")
+        
+        # セッション固有の一時ディレクトリを設定
+        def setup_session_temp_dir():
+            session_temp_dir = create_session_temp_dir()
+            # このセッション用の環境変数を設定（ただし、実際にはGradioが内部的に管理）
+            return session_temp_dir
+        
+        # 隠しステートでセッション固有の設定を管理
+        session_temp_dir = gr.State(setup_session_temp_dir)
         
         state = gr.State({
             "current_page": 1,

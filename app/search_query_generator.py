@@ -1,11 +1,12 @@
 import re
 import spacy
 import ginza
+from .nlp_service import NLPService
 
 class SearchQueryGenerator:
     def __init__(self):
-        # GiNZAのモデルをロード
-        self.nlp = spacy.load("ja_ginza")
+        # NLPServiceを使用してspaCyモデルを取得（シングルトンパターン）
+        self.nlp_service = NLPService()
         
         # 色の形容詞変換マップ
         self.color_adj_to_noun = {
@@ -94,14 +95,14 @@ class SearchQueryGenerator:
             'だ', 'である', 'です', 'ます', 'した', 'する'
         }
         
-        # 複合語の停止語（名詞が含まれる場合は常に除去）
+        # 複合語の停止語（名詞が含まれる場合は常に除去） - 方法論的表現など
         self.compound_stopwords = [
             '使い方', '利用方法', '活用方法', '使用方法', '操作方法', '設定方法',
             '導入方法', '実装方法', 'やり方', '仕方', '進め方', '考え方', '見方',
             '捉え方', '取り組み方', '方法', '手法', '手段', '手順',
             'について', 'に関して', 'に対して', 'において', 'に関する', 'に対する', 'における',
             'を説明', 'を紹介', 'を解説', 'を記述', 'を示す', 'を表示', 'を表現', 'を教えて',
-            'してください', 'してみて', 'してみる', 'していく', 'している', 'します', 'しました', 'して',
+            'してください', 'してみて', 'してみる', 'していく', 'している', 'します', 'しました', 
             '教えて', '説明して', '紹介して', '解説して', '記述して', '示して', '表示して', '表現して',
             # 詳細度に関する修飾語
             '具体的', '具体的な', '具体的に', '詳しく', '詳細に', 'より詳しく', 'もっと詳しく'
@@ -137,7 +138,8 @@ class SearchQueryGenerator:
         original_query = query
         
         # 簡易形態素解析で名詞が含まれているかチェック
-        doc = self.nlp(query)
+        nlp = self.nlp_service.get_nlp()
+        doc = nlp(query)
         has_nouns = any(token.pos_ in ['NOUN', 'PROPN'] for token in doc)
         
         # 複合語の停止語を先に除去（形態素解析前に処理）
@@ -228,7 +230,8 @@ class SearchQueryGenerator:
         doc = None
         if query.strip():
             try:
-                doc = self.nlp(query)
+                nlp = self.nlp_service.get_nlp()
+                doc = nlp(query)
             except Exception as e:
                 print(f"形態素解析エラー: {e}")
                 doc = None
@@ -392,7 +395,8 @@ class SearchQueryGenerator:
         keywords = []  # 特殊文字処理で追加されるキーワード
         
         # 簡易形態素解析で名詞が含まれているかチェック
-        doc = self.nlp(query)
+        nlp = self.nlp_service.get_nlp()
+        doc = nlp(query)
         has_nouns = any(token.pos_ in ['NOUN', 'PROPN'] for token in doc)
         
         # 複合語の停止語を先に除去（形態素解析前に処理）
@@ -492,7 +496,8 @@ class SearchQueryGenerator:
         doc = None
         if query.strip():
             try:
-                doc = self.nlp(query)
+                nlp = self.nlp_service.get_nlp()
+                doc = nlp(query)
             except Exception as e:
                 morphological_details.append(f"❌ **形態素解析エラー:** `{e}`")
                 return "\n".join(morphological_details)
