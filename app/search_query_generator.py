@@ -56,7 +56,7 @@ class SearchQueryGenerator:
                            'わけ', 'はず', 'ため', 'つもり', 'よう', 'の', 'ため', 
                            'ほど', 'まま', 'くらい', 'ぐらい', 'かぎり'}
         
-        # 除外語リスト（sql/create_stoplist.sqlで定義されたものと同じ）
+        # 停止語リスト（sql/create_stoplist.sqlで定義されたものと同じ）
         self.stopwords = {
             # 助詞・助動詞
             'は', 'が', 'を', 'に', 'で', 'と', 'から', 'まで', 'です', 'ます', 'である', 'ですか', 'ですよ', 'ですね', 
@@ -67,8 +67,8 @@ class SearchQueryGenerator:
             'もの', 'こと', 'とき', '場合', '内容', '説明', '情報', '状況', '結果', '仕様', '使用', '使用例', 
             '利用', '利用例', '活用', '活用例', '例', '例文', '例示', '機能', '詳細', '課題', '課題点', '問題', '問題点', '解決', '解決策',
             '可能','可能性','不可能','困難','理由','意義','意味','効果','効果的','効能','構成','構造','表現','カテゴリ','カテゴリー','範疇','クラス',
-            'クラスタ','クラスター','分類','累計','類型','形式','フォーマット',
-            # ドメイン固有の除外語（IT）
+            'クラスタ','クラスター','分類','累計','類型','形式','フォーマット','軽減','削減','低減','削除','増強','増大','改善','向上','推進','加速','強化','原則','減速',
+            # ドメイン固有の停止語（IT）
             'データ', 'システム', 'ソフトウェア', 'ハードウェア', 'ネットワーク', 'セキュリティ', 'データベース', 
             'アプリ', 'アプリケーション', 'ツール', 'サービス', 'ソリューション', 'パラメータ', 'パラメーター', 
             'コンピュータ', 'コンピューター', 'サーバ', 'サーバー', 'スマホ', 'スマートフォン', 'モバイル', 
@@ -79,15 +79,11 @@ class SearchQueryGenerator:
             '11.', '12.', '13.', '14.', '15.', '16.', '17.', '18.', '19.', '20.',
             # SNS関連記号
             '@',
-            # アプリ固有の除外語（LLMの応答）
-            '注目すべきポイント', '全体的な印象や特徴', '画像に何が写っているか', '画像に描かれているテキスト',
-            '画像に描かれているもののカテゴリと固有の名称', '画像に描かれている URL、IDなどの情報',
-            'この画像にはテキストは一切含まれていません。',
-            # 英語の除外語
+            # 英語の停止語
             'the', 'and', 'this', 'that', 'is', 'are', 'was', 'were', 'has', 'have'
         }
         
-        # 基本的な除外語（単独で意味を持たない語）
+        # 基本的な停止語（単独で意味を持たない語）
         self.basic_stopwords = {
             'の', 'を', 'に', 'が', 'は', 'で', 'と', 'から', 'まで', 'より', 'へ',
             'この', 'その', 'あの', 'どの', 'これ', 'それ', 'あれ', 'どれ',
@@ -95,7 +91,7 @@ class SearchQueryGenerator:
             'だ', 'である', 'です', 'ます', 'した', 'する'
         }
         
-        # 複合語の除外語（名詞が含まれる場合は常に除去）
+        # 複合語の停止語（名詞が含まれる場合は常に除去）
         self.compound_stopwords = [
             '使い方', '利用方法', '活用方法', '使用方法', '操作方法', '設定方法',
             '導入方法', '実装方法', 'やり方', '仕方', '進め方', '考え方', '見方',
@@ -103,7 +99,9 @@ class SearchQueryGenerator:
             'について', 'に関して', 'に対して', 'において', 'に関する', 'に対する', 'における',
             'を説明', 'を紹介', 'を解説', 'を記述', 'を示す', 'を表示', 'を表現', 'を教えて',
             'してください', 'してみて', 'してみる', 'していく', 'している', 'します', 'しました', 'して',
-            '教えて', '説明して', '紹介して', '解説して', '記述して', '示して', '表示して', '表現して'
+            '教えて', '説明して', '紹介して', '解説して', '記述して', '示して', '表示して', '表現して',
+            # 詳細度に関する修飾語
+            '具体的', '具体的な', '具体的に', '詳しく', '詳細に', 'より詳しく', 'もっと詳しく'
         ]
         
         # 文脈依存で除外する語（複合語の一部では保持、単独では除外）
@@ -115,7 +113,7 @@ class SearchQueryGenerator:
         # 論文IDパターン（日本語文字と隣接しないことを保証）
         self.paper_id_pattern = re.compile(r'(?<!\d)\d{4}\.\d{4,5}(?!\d)')
         
-        # バージョン番号パターン（より具体的なパターンを先に処理）
+        # バージョン番号パターン
         self.version_pattern = re.compile(r'v?\d+\.\d+(?:\.\d+)*')
         
         # ファイル名パターン（拡張子付きファイル名）
@@ -124,7 +122,7 @@ class SearchQueryGenerator:
         # 英数記号の連続パターン（一般的な識別子など）
         self.alphanumeric_pattern = re.compile(r'\b[A-Za-z0-9_-]+\b')
         
-        # メールアドレスパターン（よりシンプルに）
+        # メールアドレスパターン
         self.email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
 
     def generate(self, query):
@@ -139,8 +137,8 @@ class SearchQueryGenerator:
         doc = self.nlp(query)
         has_nouns = any(token.pos_ in ['NOUN', 'PROPN'] for token in doc)
         
-        # 複合語の除外語を先に除去（形態素解析前に処理）
-        # 名詞が含まれる場合は複合語除外語を除去、名詞のみの場合はクエリが空にならないよう注意
+        # 複合語の停止語を先に除去（形態素解析前に処理）
+        # 名詞が含まれる場合は複合語停止語を除去、名詞のみの場合はクエリが空にならないよう注意
         removed_compounds = []
         for compound_stop in self.compound_stopwords:
             # 単純な文字列置換（日本語では単語境界が複雑なため）
@@ -276,7 +274,7 @@ class SearchQueryGenerator:
                                 keywords.append(f"({doc[i-1].text}{token.text} OR {num_text}{token.text})")
                             continue
                         
-                        # 文脈に依存する除外語の処理
+                        # 文脈に依存する停止語の処理
                         if token.text in self.context_dependent_excludes:
                             # 複合語の一部かチェック（前後のトークンとの依存関係を確認）
                             is_part_of_compound = False
@@ -319,9 +317,9 @@ class SearchQueryGenerator:
                         if token.text in self.color_adj_to_noun:
                             keywords.append(self.color_adj_to_noun[token.text])
                         elif token.text not in self.stopwords:
-                            # 色形容詞以外で除外語でない場合のみ、元のテキストを使用
+                            # 色形容詞以外で停止語でない場合のみ、元のテキストを使用
                             keywords.append(token.text)
-                        # 色形容詞以外のADJで除外語の場合は採用しない
+                        # 色形容詞以外のADJで停止語の場合は採用しない
                     # VERBは全て採用しない
             
             # 最後に残っている連続部分を処理
@@ -331,7 +329,7 @@ class SearchQueryGenerator:
         
         # print("抽出されたキーワード:", keywords)
         
-        # 除外語の最終フィルタリング（単語単体で除外語に含まれているものを除外）
+        # 停止語の最終フィルタリング（単語単体で停止語に含まれているものを除外）
         filtered_keywords = []
         for keyword in keywords:
             # 中カッコ完全一致検索、論理グループ、英数記号の連続は除外対象外
@@ -394,8 +392,8 @@ class SearchQueryGenerator:
         doc = self.nlp(query)
         has_nouns = any(token.pos_ in ['NOUN', 'PROPN'] for token in doc)
         
-        # 複合語の除外語を先に除去（形態素解析前に処理）
-        # 名詞が含まれる場合は複合語除外語を除去、名詞のみの場合はクエリが空にならないよう注意
+        # 複合語の停止語を先に除去（形態素解析前に処理）
+        # 名詞が含まれる場合は複合語停止語を除去、名詞のみの場合はクエリが空にならないよう注意
         removed_compounds = []
         for compound_stop in self.compound_stopwords:
             # 単純な文字列置換（日本語では単語境界が複雑なため）
@@ -406,15 +404,15 @@ class SearchQueryGenerator:
         # 余分な空白を削除
         query = ' '.join(query.split())
         
-        # 複合語除外語の除去結果を表示
+        # 複合語停止語の除去結果を表示
         if removed_compounds:
-            morphological_details.append("### 🚫 複合語除外語の除去")
-            if has_nouns:
-                morphological_details.append("- **理由:** 名詞が含まれるため、方法論的表現を除去")
+            morphological_details.append("### 🚫 複合語停止語の除去")
+            morphological_details.append("**処理概要:** 名詞・固有名詞が含まれるクエリで、方法論的表現を自動除去")
+            morphological_details.append("**効果:** 検索範囲を拡大し、「使い方」「説明」などの記載がない文書も検索対象に")
+            morphological_details.append("")
+            morphological_details.append("**除去された表現:**")
             for compound in removed_compounds:
-                morphological_details.append(f"- **除去:** `{compound}`")
-                reason = "名詞と併用時の検索ノイズ除去" if has_nouns else "検索ノイズとなる複合語表現"
-                morphological_details.append(f"- **理由:** {reason}")
+                morphological_details.append(f"- `{compound}` （検索ノイズとなるため除去）")
             morphological_details.append("")
         
         # URLを先に処理（特殊パターンよりも優先）
@@ -528,7 +526,7 @@ class SearchQueryGenerator:
                             adopted = True
                         else:
                             status = "❌ 助数詞のため除外"
-                    # 文脈に依存する除外語の処理
+                    # 文脈に依存する停止語の処理
                     elif token.text in self.context_dependent_excludes:
                         # 複合語の一部かチェック（前後のトークンとの依存関係を確認）
                         is_part_of_compound = False
@@ -555,13 +553,13 @@ class SearchQueryGenerator:
                         
                         # 複合語の一部でない場合のみ除外
                         if not is_part_of_compound:
-                            status = "🚫 文脈依存除外語のため除外"
+                            status = "🚫 文脈依存停止語のため除外"
                         else:
                             status = "✅ 複合語の一部として採用"
                             adopted = True
-                    # 除外語チェック
+                    # 停止語チェック
                     elif token.text in self.stopwords:
-                        status = "⛔ 除外語のため除外"
+                        status = "⛔ 停止語のため除外"
                     # 形式名詞チェック
                     elif token.text in self.formal_nouns:
                         status = "❌ 形式名詞のため除外"
@@ -586,7 +584,7 @@ class SearchQueryGenerator:
                         status = f"🔄 色形容詞 → `{self.color_adj_to_noun[token.text]}`に変換"
                         adopted = True
                     elif token.text in self.stopwords:
-                        status = "⛔ 除外語のため除外"
+                        status = "⛔ 停止語のため除外"
                     else:
                         status = "❌ 色形容詞以外のため除外"
                 elif token.pos_ == "VERB":
@@ -610,8 +608,8 @@ class SearchQueryGenerator:
             morphological_details.append("- **SYM**: 記号")
             morphological_details.append("- **PUNCT**: 句読点")
             morphological_details.append("")
-            morphological_details.append("#### ⛔ 除外語フィルタリング")
-            morphological_details.append("- **除外語**: 一般的すぎてノイズとなる語（助詞、指示語、汎用名詞など）")
+            morphological_details.append("#### ⛔ 停止語フィルタリング")
+            morphological_details.append("- **停止語**: 一般的すぎてノイズとなる語（助詞、指示語、汎用名詞など）")
             morphological_details.append("- 例: 'は', 'が', 'これ', 'システム', 'データ'など")
         
         elif query.strip():
