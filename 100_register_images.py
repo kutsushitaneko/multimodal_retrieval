@@ -25,13 +25,16 @@ def get_image_caption(generative_ai_inference_client, image_data):
     PROMPT = """
     この画像を詳しく分析してください。
     
-    以下の観点から教えてください：
+    以下の観点で画像を分析してください。
     1. 画像に何が写っているか
     2. 全体的な印象や特徴
     3. 注目すべきポイント
     4. 画像に描かれているもののカテゴリと固有の名称
     5. 画像に描かれているテキスト
+    6. 画像に描かれている URL、IDなどの情報
+    7. 画像が説明、紹介しようとしている内容
     
+    テキストはすべて抽出してください。
     日本語で詳しく説明してください。
     """
     content1 = oci.generative_ai_inference.models.TextContent()
@@ -47,7 +50,7 @@ def get_image_caption(generative_ai_inference_client, image_data):
     chat_request.messages = [message]
     chat_request.api_format = oci.generative_ai_inference.models.BaseChatRequest.API_FORMAT_GENERIC
     chat_request.num_generations = 1
-    chat_request.max_tokens = 600
+    chat_request.max_tokens = 1000
     chat_request.is_stream = False
     chat_request.temperature = 0.70
     chat_request.top_p = 0.7
@@ -166,36 +169,43 @@ def is_image_registered(db_connection, file_name):
         cursor.close()
 
 def clean_caption(caption):
-    """キャプションから不要な行を削除する関数"""
+    """キャプションから不要な文字列を削除する関数"""
     # 削除対象の文字列リスト
     remove_patterns = [
+        "以下に、画像の内容を詳しく分析します。",
         "**画像に何が写っているか**：",
+        "画像に何が写っているか",
         "**全体的な印象や特徴**：",
+        "全体的な印象や特徴",
         "**注目すべきポイント**：",
+        "注目すべきポイント",
         "**画像に描かれているもののカテゴリと固有の名称**：",
+        "画像に描かれているもののカテゴリと固有の名称",
         "**画像に描かれているテキスト**：",
-        "この画像にはテキストは一切表示されていません。"
+        "画像に描かれているテキスト",
+        "**画像に描かれている URL、IDなどの情報**：",
+        "画像に描かれている URL、IDなどの情報",
+        "**画像が説明・紹介しようとしている内容**：",
+        "画像が説明・紹介しようとしている内容",
+        "この画像にはテキストは一切表示されていません。",
+        "画像内には URL や ID、その他の特定の情報は含まれていません。",
+        "具体的には以下の内容です：",
+        "画像内のテキストは以下の通りです。",
     ]
     
-    # キャプションを行ごとに分割
-    lines = caption.split('\n')
+    # 各削除対象文字列を順次削除
+    cleaned_caption = caption
+    for pattern in remove_patterns:
+        cleaned_caption = cleaned_caption.replace(pattern, "")
     
-    # 削除対象の文字列を含まない行のみを保持
-    cleaned_lines = []
-    for line in lines:
-        line_stripped = line.strip()
-        should_remove = False
-        
-        for pattern in remove_patterns:
-            if pattern in line_stripped:
-                should_remove = True
-                break
-        
-        if not should_remove and line_stripped:  # 空行も除去
-            cleaned_lines.append(line_stripped)
+    # 複数の連続する改行を単一の改行に置換
+    import re
+    cleaned_caption = re.sub(r'\n\s*\n', '\n', cleaned_caption)
     
-    # 行を結合して返す
-    return '\n'.join(cleaned_lines)
+    # 先頭と末尾の空白・改行を削除
+    cleaned_caption = cleaned_caption.strip()
+    
+    return cleaned_caption
 
 def insert_image_to_db(generative_ai_inference_client, mllm_client, cohere_client, db_connection, image_data, file_name):
     """画像とその説明文をOracle Databaseに挿入"""
@@ -203,6 +213,20 @@ def insert_image_to_db(generative_ai_inference_client, mllm_client, cohere_clien
     
     # キャプションをクリーニング
     caption = clean_caption(raw_caption)
+    
+    # VARCHAR2(4000)の制限を確実に適用（バイト数ベース）
+    caption_bytes = caption.encode('utf-8')
+    if len(caption_bytes) > 4000:
+        # バイト数で切り詰め、文字境界を考慮
+        truncated_bytes = caption_bytes[:4000]
+        # 不完全なUTF-8文字を避けるため、最後の文字境界まで戻る
+        while len(truncated_bytes) > 0:
+            try:
+                caption = truncated_bytes.decode('utf-8')
+                break
+            except UnicodeDecodeError:
+                truncated_bytes = truncated_bytes[:-1]
+        print(f"警告: キャプションが4000バイトを超えたため切り詰めました。元のバイト数: {len(caption_bytes)}, 文字数: {len(clean_caption(raw_caption))}")
     
     # 画像とテキストの埋め込みベクトルを取得（プロバイダーに応じて切り替え）
     if EMBED_MODEL_PROVIDER == "OCI":

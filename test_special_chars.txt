@@ -1,0 +1,101 @@
+# 特殊文字処理機能テストクエリ集
+# 以下のクエリをmain.pyのGradioインターフェースで順番にテストしてください
+
+## 1. ファイル名パターン
+config.json
+script.py
+my_file.txt
+data.csv
+image.png
+style.css
+main.js
+README.md
+
+## 2. アンダースコア区切り識別子
+user_name
+API_KEY
+file_path
+database_connection
+search_query
+user_profile
+system_config
+
+## 3. メールアドレス
+user@example.com
+admin@domain.org
+test@gmail.com
+support@company.co.jp
+
+## 4. パス形式（スラッシュ区切り）
+api/v1/users
+src/main/java
+app/components/ui
+docs/api/reference
+images/thumbnails/small
+
+## 5. バージョン番号
+v1.2.3
+2.0.1
+3.14.159
+v0.9.8
+
+## 6. 関数呼び出し
+function()
+getData()
+processImage()
+calculateScore()
+
+## 7. キー=値形式
+key=value
+type=json
+status=active
+mode=production
+
+## 8. ポート付きホスト
+localhost:3000
+server:8080
+api.example.com:443
+database:5432
+
+## 9. 複合パターン（複数の特殊文字）
+my-app_v1.2.3
+user@example.com:8080
+api/v1/users.json
+config_file.yaml
+test-data_v2.csv
+
+## 10. 日本語と特殊文字の組み合わせ
+設定ファイル config.json
+ユーザー名 user_name
+データベース接続 database_connection
+APIキー API_KEY
+
+## 11. URL（既存機能との組み合わせ確認）
+https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16
+https://docs.oracle.com/database/
+https://github.com/user/repository
+
+## 12. 停止語除外との組み合わせ
+これは config.json です
+その user_name について
+この API_KEY を使用
+
+## 13. エラーケース（以前問題だったパターン）
+yuji-arakawa
+function()
+user@domain
+path/to/file
+
+## 14. 境界ケース
+a.b
+x_y
+1:2
+k=v
+f()
+
+## テスト手順:
+1. 上記のクエリを一つずつGradioインターフェースに入力
+2. 「形態素解析結果を表示」をONにして詳細を確認
+3. 検索結果が返ることを確認（ヒット数は0件でも構いません）
+4. エラーが発生しないことを確認
+5. 生成されたクエリが適切にAND結合されていることを確認 

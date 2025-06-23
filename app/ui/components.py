@@ -44,7 +44,7 @@ class UIComponents:
                                         "ホグワーツ魔法学校", 
                                         "上海のビル", 
                                         "2312.10997", 
-                                        "search_queries_only"
+                                        "https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16"
                                     ],
                                     inputs=query_input,
                                     label="検索クエリの例"
@@ -142,6 +142,15 @@ class UIComponents:
                 )
                 execute_query_button = gr.Button("このクエリを実行", visible=False, scale=1)
 
+            # 形態素解析結果表示のコンポーネント（初期状態では非表示）
+            morphological_analysis_text = gr.Markdown(
+                label="全文検索：形態素解析結果",
+                show_label=True,
+                container=True,
+                visible=False,
+                elem_id="morphological_analysis"
+            )
+
             with gr.Row():
                 # 初期状態ではデフォルトの8行表示を使用
                 # 検索対象選択のイベントハンドラーで後から動的に更新
@@ -154,7 +163,7 @@ class UIComponents:
                     container=True
                 )
                 
-        return executed_query_text, execute_query_button, executed_sql_text
+        return executed_query_text, execute_query_button, executed_sql_text, morphological_analysis_text
         
     def create_advanced_settings_section(self):
         """高度な設定セクションのUIコンポーネントを作成"""

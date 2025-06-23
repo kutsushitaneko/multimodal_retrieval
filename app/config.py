@@ -22,7 +22,9 @@ class Config:
             "OCI_CONFIG_PROFILE",
             "OCI_REGION",
             "OCI_COMPARTMENT_ID",
-            "MLLM_MODEL_ID"
+            "MLLM_MODEL_ID",
+            "EMBED_MODEL_PROVIDER",
+            "EMBED_MODEL_ID"
         ]
         
         # 環境変数の存在確認
@@ -30,6 +32,11 @@ class Config:
         for var in required_env_vars:
             if not os.getenv(var):
                 missing_vars.append(var)
+        
+        # CohereAI APIキーをプロバイダーに応じて必須にする
+        embed_provider = os.getenv("EMBED_MODEL_PROVIDER")
+        if embed_provider == "CohereAI" and not os.getenv("COHERE_API_KEY"):
+            missing_vars.append("COHERE_API_KEY")
         
         if missing_vars:
             print("エラー: 以下の環境変数が設定されていません:")
@@ -54,6 +61,10 @@ class Config:
         
         self.compartment_id = os.getenv("OCI_COMPARTMENT_ID") 
         self.mllm_model_id = os.getenv("MLLM_MODEL_ID")
+        
+        # 埋め込みモデルの設定
+        self.embed_model_provider = os.getenv("EMBED_MODEL_PROVIDER")
+        self.embed_model_id = os.getenv("EMBED_MODEL_ID")
         
         # アプリケーション実行環境の設定
         self.app_mode = os.getenv("APP_MODE", "local").lower()
@@ -80,6 +91,14 @@ class Config:
     def get_cohere_client(self):
         # Cohereクライアントを初期化
         return cohere.Client(api_key=self.cohere_api_key) 
+    
+    def get_oci_generative_ai_client(self):
+        # OCI Generative AI クライアントを初期化
+        return oci.generative_ai_inference.GenerativeAiInferenceClient(
+            config=self.oci_config, 
+            retry_strategy=oci.retry.NoneRetryStrategy(), 
+            timeout=(10, 240)
+        )
     
     def get_db_pool(self):
         # コネクションプールを生成
