@@ -56,7 +56,7 @@ class SearchQueryGenerator:
                            'わけ', 'はず', 'ため', 'つもり', 'よう', 'の', 'ため', 
                            'ほど', 'まま', 'くらい', 'ぐらい', 'かぎり'}
         
-        # 停止語リスト（sql/create_stoplist.sqlで定義されたものと同じ）
+        # 除外語リスト（sql/create_stoplist.sqlで定義されたものと同じ）
         self.stopwords = {
             # 助詞・助動詞
             'は', 'が', 'を', 'に', 'で', 'と', 'から', 'まで', 'です', 'ます', 'である', 'ですか', 'ですよ', 'ですね', 
@@ -64,92 +64,152 @@ class SearchQueryGenerator:
             # 指示語
             'これ', 'それ', 'あれ', 'どれ', 'ここ', 'そこ', 'あそこ', 'どこ', 'こう', 'そう', 'どう', 'あの',
             # 一般的すぎる名詞
-            'もの', 'こと', 'とき', '場合', '内容', '説明', '情報', '方法', '状況', '結果', '仕様', '使用', '使用方法', '使用例',
-            '利用', '利用方法', '利用例', '活用', '活用方法', '活用例', '例', '例文', '例示', '機能',
-            # ドメイン固有の停止語（IT）
+            'もの', 'こと', 'とき', '場合', '内容', '説明', '情報', '状況', '結果', '仕様', '使用', '使用例', 
+            '利用', '利用例', '活用', '活用例', '例', '例文', '例示', '機能', '詳細', '課題', '課題点', '問題', '問題点', '解決', '解決策',
+            '可能','可能性','不可能','困難','理由','意義','意味','効果','効果的','効能','構成','構造','表現','カテゴリ','カテゴリー','範疇','クラス',
+            'クラスタ','クラスター','分類','累計','類型','形式','フォーマット',
+            # ドメイン固有の除外語（IT）
             'データ', 'システム', 'ソフトウェア', 'ハードウェア', 'ネットワーク', 'セキュリティ', 'データベース', 
             'アプリ', 'アプリケーション', 'ツール', 'サービス', 'ソリューション', 'パラメータ', 'パラメーター', 
             'コンピュータ', 'コンピューター', 'サーバ', 'サーバー', 'スマホ', 'スマートフォン', 'モバイル', 
-            'モバイルアプリ', 'モバイルアプリケーション', 'デバイス', 'コード', 'プログラム', 'サンプル',
+            'モバイルアプリ', 'モバイルアプリケーション', 'デバイス', 'コード', 'プログラム', 'サンプル', 'アーキテクチャ',
+            'アーキ','パターン','実装','プログラミング','コーディング',
             # マークダウンなど
             '###', '**', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.', '10.',
             '11.', '12.', '13.', '14.', '15.', '16.', '17.', '18.', '19.', '20.',
             # SNS関連記号
             '@',
-            # アプリ固有の停止語（LLMの応答）
+            # アプリ固有の除外語（LLMの応答）
             '注目すべきポイント', '全体的な印象や特徴', '画像に何が写っているか', '画像に描かれているテキスト',
             '画像に描かれているもののカテゴリと固有の名称', '画像に描かれている URL、IDなどの情報',
             'この画像にはテキストは一切含まれていません。',
-            # 英語の停止語
+            # 英語の除外語
             'the', 'and', 'this', 'that', 'is', 'are', 'was', 'were', 'has', 'have'
         }
         
+        # 基本的な除外語（単独で意味を持たない語）
+        self.basic_stopwords = {
+            'の', 'を', 'に', 'が', 'は', 'で', 'と', 'から', 'まで', 'より', 'へ',
+            'この', 'その', 'あの', 'どの', 'これ', 'それ', 'あれ', 'どれ',
+            'ここ', 'そこ', 'あそこ', 'どこ',
+            'だ', 'である', 'です', 'ます', 'した', 'する'
+        }
+        
+        # 複合語の除外語（名詞が含まれる場合は常に除去）
+        self.compound_stopwords = [
+            '使い方', '利用方法', '活用方法', '使用方法', '操作方法', '設定方法',
+            '導入方法', '実装方法', 'やり方', '仕方', '進め方', '考え方', '見方',
+            '捉え方', '取り組み方', '方法', '手法', '手段', '手順',
+            'について', 'に関して', 'に対して', 'において', 'に関する', 'に対する', 'における',
+            'を説明', 'を紹介', 'を解説', 'を記述', 'を示す', 'を表示', 'を表現', 'を教えて',
+            'してください', 'してみて', 'してみる', 'していく', 'している', 'します', 'しました', 'して',
+            '教えて', '説明して', '紹介して', '解説して', '記述して', '示して', '表示して', '表現して'
+        ]
+        
+        # 文脈依存で除外する語（複合語の一部では保持、単独では除外）
+        self.context_dependent_excludes = {'方式', '工程', '流れ', '過程', '段階', '方'}
+        
         # URLパターンの正規表現（英数字、記号のみを含むように修正）
-        self.url_pattern = re.compile(r'https?://[a-zA-Z0-9\-._~:/?#[\]@!$&\'()*+,;=]+')
+        self.url_pattern = re.compile(r'https?://[a-zA-Z0-9\-._~:/?#\[\]@!$&\'()*+,;=]+')
+        
+        # 論文IDパターン（日本語文字と隣接しないことを保証）
+        self.paper_id_pattern = re.compile(r'(?<!\d)\d{4}\.\d{4,5}(?!\d)')
+        
+        # バージョン番号パターン（より具体的なパターンを先に処理）
+        self.version_pattern = re.compile(r'v?\d+\.\d+(?:\.\d+)*')
+        
+        # ファイル名パターン（拡張子付きファイル名）
+        self.filename_pattern = re.compile(r'\b[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+\b')
+        
+        # 英数記号の連続パターン（一般的な識別子など）
+        self.alphanumeric_pattern = re.compile(r'\b[A-Za-z0-9_-]+\b')
+        
+        # メールアドレスパターン（よりシンプルに）
+        self.email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
 
     def generate(self, query):
         """全文検索用のクエリーを生成する関数"""
-        keywords = []
-        compound_parts = []
+        if not query.strip():
+            return ""
         
         # URLを最初に処理（特殊パターンよりも優先）
         original_query = query
         
+        # 簡易形態素解析で名詞が含まれているかチェック
+        doc = self.nlp(query)
+        has_nouns = any(token.pos_ in ['NOUN', 'PROPN'] for token in doc)
+        
+        # 複合語の除外語を先に除去（形態素解析前に処理）
+        # 名詞が含まれる場合は複合語除外語を除去、名詞のみの場合はクエリが空にならないよう注意
+        removed_compounds = []
+        for compound_stop in self.compound_stopwords:
+            # 単純な文字列置換（日本語では単語境界が複雑なため）
+            if compound_stop in query:
+                removed_compounds.append(compound_stop)
+                query = query.replace(compound_stop, '')
+        
+        # 余分な空白を削除
+        query = ' '.join(query.split())
+        
+        # クエリが空になった場合は空文字列を返す（SQL発行を防ぐ）
+        if not query.strip():
+            return ""
+        
+        keywords = []
+        compound_parts = []
+        
         # URLを抽出
         urls = self.url_pattern.findall(query)
         if urls:
-            # URLの検索方法を特殊文字の有無で決定
+            # すべてのURLを中カッコ完全一致検索で処理
             for url in urls:
-                # 特殊文字（アンダースコア・ハイフン）を含む場合
-                if '_' in url or '-' in url:
-                    # 完全一致検索は失敗するため、部分一致検索のみ
-                    url_without_protocol = re.sub(r'^https?://', '', url)
-                    segments = url_without_protocol.replace('/', ' AND ').replace('_', ' AND ').replace('-', ' AND ')
-                    keywords.append(segments)
-                else:
-                    # 特殊文字を含まない場合は完全一致検索
-                    escaped_url = f'"{url}"'
-                    keywords.append(escaped_url)
+                # 中カッコで囲んだ完全一致検索（特殊文字を含むURLも対応）
+                # URL内の中カッコをエスケープしてから全体を中カッコで囲む
+                escaped_content = url.replace('{', '\\{').replace('}', '\\}')
+                escaped_url = f'{{{escaped_content}}}'
+                keywords.append(escaped_url)
             
             # URL部分をクエリから削除
             query = self.url_pattern.sub('', query)
         
         # 論文IDパターン（arXiv ID: YYYY.NNNNN 形式）を先に処理
-        arxiv_pattern = r'\b\d{4}\.\d{4,5}\b'
+        arxiv_pattern = r'(?<!\d)\d{4}\.\d{4,5}(?!\d)'
         arxiv_matches = list(re.finditer(arxiv_pattern, query))
         for match in reversed(arxiv_matches):
             arxiv_id = match.group()
-            # 論文IDは引用符で囲んだ完全一致検索のみ（Oracle Text検証で正常動作確認済み）
-            keywords.append(f'"{arxiv_id}"')
+            # 論文IDも中カッコ完全一致検索で統一
+            # 論文ID内の中カッコをエスケープしてから全体を中カッコで囲む
+            escaped_content = arxiv_id.replace('{', '\\{').replace('}', '\\}')
+            keywords.append(f'{{{escaped_content}}}')
             
             # クエリから削除
             query = query[:match.start()] + query[match.end():]
 
         # その他の特殊文字を含む識別子を検出して処理
         special_patterns = [
-            # メールアドレスパターン（最優先で処理）
-            (r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b', lambda m: ' AND '.join([part for part in re.split(r'[@.\-_]', m.group()) if part])),
+            # バージョン番号（v1.2.3形式）- 中カッコ完全一致検索（より具体的なパターンを先に処理）
+            (r'\bv[0-9]+\.[0-9]+(?:\.[0-9]+)*\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # アンダースコア区切りの識別子（論文ID以外）
-            (r'\b[a-zA-Z][a-zA-Z0-9]*_[a-zA-Z0-9_]+\b', lambda m: ' AND '.join(m.group().split('_'))),
+            # メールアドレスパターン - 中カッコ完全一致検索
+            (r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # ファイル名パターン（拡張子付き）- 論文IDと重複しないようにアルファベット必須
-            (r'\b[a-zA-Z][a-zA-Z0-9_-]*\.[a-zA-Z0-9]{1,4}\b', lambda m: ' AND '.join(m.group().replace('.', ' ').replace('_', ' ').replace('-', ' ').split())),
+            # アンダースコア区切りの識別子（論文ID以外）- 中カッコ完全一致検索
+            (r'\b[a-zA-Z][a-zA-Z0-9]*_[a-zA-Z0-9_]+\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # パス形式（スラッシュ区切り）- URLではない場合のみ
-            (r'\b[a-zA-Z0-9_-]+/[a-zA-Z0-9/_-]+\b', lambda m: ' AND '.join(m.group().split('/'))),
+            # ファイル名パターン（拡張子付き）- 中カッコ完全一致検索
+            (r'\b[a-zA-Z][a-zA-Z0-9_-]*\.[a-zA-Z0-9]{1,4}\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # バージョン番号（v1.2.3形式）- 必ずvプレフィックス必須
-            (r'\bv[0-9]+\.[0-9]+(?:\.[0-9]+)*\b', lambda m: ' AND '.join([part for part in re.split(r'[v.]', m.group()) if part])),
+            # パス形式（スラッシュ区切り）- 中カッコ完全一致検索
+            (r'\b[a-zA-Z0-9_-]+/[a-zA-Z0-9/_-]+\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # API関数形式（function()）
-            (r'\b[a-zA-Z][a-zA-Z0-9]*\(\)\b', lambda m: m.group().replace('()', '')),
+            # API関数形式（function()）- 中カッコ完全一致検索
+            (r'\b[a-zA-Z][a-zA-Z0-9]*\(\)\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # キー=値形式
-            (r'\b[a-zA-Z][a-zA-Z0-9]*=[a-zA-Z0-9]+\b', lambda m: ' AND '.join(m.group().split('='))),
+            # キー=値形式 - 中カッコ完全一致検索
+            (r'\b[a-zA-Z][a-zA-Z0-9]*=[a-zA-Z0-9]+\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # ポート番号付きホスト
-            (r'\b[a-zA-Z0-9.-]+:\d+\b', lambda m: ' AND '.join(m.group().split(':'))),
+            # ポート番号付きホスト - 中カッコ完全一致検索
+            (r'\b[a-zA-Z0-9.-]+:\d+\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
         ]
         
         # 特殊パターンを検出してキーワードに追加し、クエリから削除
@@ -215,6 +275,36 @@ class SearchQueryGenerator:
                                 # 漢数字とアラビア数字の形式をOR条件で結合
                                 keywords.append(f"({doc[i-1].text}{token.text} OR {num_text}{token.text})")
                             continue
+                        
+                        # 文脈に依存する除外語の処理
+                        if token.text in self.context_dependent_excludes:
+                            # 複合語の一部かチェック（前後のトークンとの依存関係を確認）
+                            is_part_of_compound = False
+                            
+                            # 前のトークンとの関係をチェック
+                            if i > 0:
+                                prev_token = doc[i-1]
+                                if (prev_token.pos_ in ["NOUN", "PROPN"] and 
+                                    token.dep_ in ["compound", "nmod"] and 
+                                    prev_token.text not in self.stopwords):
+                                    is_part_of_compound = True
+                            
+                            # 後のトークンとの関係をチェック
+                            if i + 1 < len(doc):
+                                next_token = doc[i+1]
+                                if (next_token.pos_ in ["NOUN", "PROPN"] and 
+                                    next_token.dep_ in ["compound", "nmod"] and 
+                                    next_token.text not in self.stopwords):
+                                    is_part_of_compound = True
+                            
+                            # 固有名詞（人名など）の場合は保持
+                            if token.pos_ == "PROPN":
+                                is_part_of_compound = True
+                            
+                            # 複合語の一部でない場合のみ除外
+                            if not is_part_of_compound:
+                                continue
+                        
                         if token.text not in self.formal_nouns and token.dep_ != "fixed" and token.text not in self.stopwords and token.text != '@':
                             keywords.append(token.text)
                     elif token.pos_ == "NUM":
@@ -229,9 +319,9 @@ class SearchQueryGenerator:
                         if token.text in self.color_adj_to_noun:
                             keywords.append(self.color_adj_to_noun[token.text])
                         elif token.text not in self.stopwords:
-                            # 色形容詞以外で停止語でない場合のみ、元のテキストを使用
+                            # 色形容詞以外で除外語でない場合のみ、元のテキストを使用
                             keywords.append(token.text)
-                        # 色形容詞以外のADJで停止語の場合は採用しない
+                        # 色形容詞以外のADJで除外語の場合は採用しない
                     # VERBは全て採用しない
             
             # 最後に残っている連続部分を処理
@@ -241,11 +331,11 @@ class SearchQueryGenerator:
         
         # print("抽出されたキーワード:", keywords)
         
-        # 停止語の最終フィルタリング（単語単体で停止語に含まれているものを除外）
+        # 除外語の最終フィルタリング（単語単体で除外語に含まれているものを除外）
         filtered_keywords = []
         for keyword in keywords:
-            # 引用符で囲まれたURL、論理グループ、英数記号の連続は除外対象外
-            if (keyword.startswith('"') and keyword.endswith('"')) or \
+            # 中カッコ完全一致検索、論理グループ、英数記号の連続は除外対象外
+            if (keyword.startswith('{') and keyword.endswith('}')) or \
                (keyword.startswith('(') and keyword.endswith(')') and ' OR ' in keyword):
                 filtered_keywords.append(keyword)
             # @記号は検索ノイズになるため除外
@@ -270,8 +360,8 @@ class SearchQueryGenerator:
             escaped_keywords = []
             for keyword in keywords:
                 if keyword.strip():  # 空のキーワードを除外
-                    # 既に引用符で囲まれているURL（Oracle Text用）はそのまま
-                    if keyword.startswith('"') and keyword.endswith('"'):
+                    # 中カッコ完全一致検索のキーワードはそのまま
+                    if keyword.startswith('{') and keyword.endswith('}'):
                         escaped_keywords.append(keyword)
                     # 論理グループの括弧を含むキーワードかどうかを判定
                     elif keyword.startswith('(') and keyword.endswith(')') and ' OR ' in keyword:
@@ -300,6 +390,33 @@ class SearchQueryGenerator:
         original_query = query  # 元のクエリを保存
         keywords = []  # 特殊文字処理で追加されるキーワード
         
+        # 簡易形態素解析で名詞が含まれているかチェック
+        doc = self.nlp(query)
+        has_nouns = any(token.pos_ in ['NOUN', 'PROPN'] for token in doc)
+        
+        # 複合語の除外語を先に除去（形態素解析前に処理）
+        # 名詞が含まれる場合は複合語除外語を除去、名詞のみの場合はクエリが空にならないよう注意
+        removed_compounds = []
+        for compound_stop in self.compound_stopwords:
+            # 単純な文字列置換（日本語では単語境界が複雑なため）
+            if compound_stop in query:
+                removed_compounds.append(compound_stop)
+                query = query.replace(compound_stop, '')
+        
+        # 余分な空白を削除
+        query = ' '.join(query.split())
+        
+        # 複合語除外語の除去結果を表示
+        if removed_compounds:
+            morphological_details.append("### 🚫 複合語除外語の除去")
+            if has_nouns:
+                morphological_details.append("- **理由:** 名詞が含まれるため、方法論的表現を除去")
+            for compound in removed_compounds:
+                morphological_details.append(f"- **除去:** `{compound}`")
+                reason = "名詞と併用時の検索ノイズ除去" if has_nouns else "検索ノイズとなる複合語表現"
+                morphological_details.append(f"- **理由:** {reason}")
+            morphological_details.append("")
+        
         # URLを先に処理（特殊パターンよりも優先）
         # URLを抽出
         urls = self.url_pattern.findall(query)
@@ -307,61 +424,52 @@ class SearchQueryGenerator:
             morphological_details.append("### 🔗 URL検出と処理")
             for i, url in enumerate(urls):
                 morphological_details.append(f"- **URL {i+1}:** `{url}`")
-                morphological_details.append(f"- **完全一致検索:** `\"{url}\"`")
-                
-                # 特殊文字を含む場合の追加処理を表示
-                if '_' in url or '-' in url:
-                    url_without_protocol = re.sub(r'^https?://', '', url)
-                    segments = url_without_protocol.replace('/', ' AND ').replace('_', ' AND ').replace('-', ' AND ')
-                    if segments != url_without_protocol:
-                        morphological_details.append(f"- **部分一致検索:** `{segments}`")
-                        morphological_details.append(f"- **理由:** アンダースコア・ハイフンをAND検索に変換")
-                else:
-                    morphological_details.append(f"- **処理:** 完全一致のみ")
+                morphological_details.append(f"- **中カッコ完全一致検索:** `{{{url}}}`")
+                morphological_details.append(f"- **理由:** Oracle Textの中カッコ機能で特殊文字を含むURLも完全一致検索可能")
             morphological_details.append("")  # 空行を追加
             # URL部分をクエリから削除
             query = self.url_pattern.sub('', query)
         
         # 論文IDパターン（arXiv ID: YYYY.NNNNN 形式）を先に処理
-        arxiv_pattern = r'\b\d{4}\.\d{4,5}\b'
+        arxiv_pattern = r'(?<!\d)\d{4}\.\d{4,5}(?!\d)'
         arxiv_matches = list(re.finditer(arxiv_pattern, query))
         if arxiv_matches:
             morphological_details.append("### 📄 論文ID検出と処理")
             for i, match in enumerate(reversed(arxiv_matches)):
                 arxiv_id = match.group()
                 morphological_details.append(f"- **論文ID {i+1}:** `{arxiv_id}`")
-                morphological_details.append(f"- **完全一致検索:** `\"{arxiv_id}\"`")
-                morphological_details.append(f"- **理由:** Oracle Textでピリオド付き数字列は正常に検索可能（エスケープ不要）")
-                keywords.append(f'"{arxiv_id}"')
+                morphological_details.append(f"- **中カッコ完全一致検索:** `{{{arxiv_id}}}`")
+                morphological_details.append(f"- **理由:** Oracle Textの中カッコ機能で論文IDも他の識別子と統一して正確に検索")
+                keywords.append(f'{{{arxiv_id}}}')
                 # クエリから削除（後ろから処理）
                 query = query[:match.start()] + query[match.end():]
             morphological_details.append("")
 
         # その他の特殊文字を含む識別子を検出して処理
         special_patterns = [
-            # メールアドレスパターン（最優先で処理）
-            (r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b', lambda m: ' AND '.join([part for part in re.split(r'[@.\-_]', m.group()) if part])),
+            # バージョン番号（v1.2.3形式）- 中カッコ完全一致検索（より具体的なパターンを先に処理）
+            (r'\bv[0-9]+\.[0-9]+(?:\.[0-9]+)*\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # アンダースコア区切りの識別子（論文ID以外）
-            (r'\b[a-zA-Z][a-zA-Z0-9]*_[a-zA-Z0-9_]+\b', lambda m: ' AND '.join(m.group().split('_'))),
+            # メールアドレスパターン - 中カッコ完全一致検索
+            (r'\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # ファイル名パターン（拡張子付き）- 論文IDと重複しないようにアルファベット必須
-            (r'\b[a-zA-Z][a-zA-Z0-9_-]*\.[a-zA-Z0-9]{1,4}\b', lambda m: ' AND '.join(m.group().replace('.', ' ').replace('_', ' ').replace('-', ' ').split())),
+            # アンダースコア区切りの識別子（論文ID以外）- 中カッコ完全一致検索
+            (r'\b[a-zA-Z][a-zA-Z0-9]*_[a-zA-Z0-9_]+\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # パス形式（スラッシュ区切り）- URLではない場合のみ
-            (r'\b[a-zA-Z0-9_-]+/[a-zA-Z0-9/_-]+\b', lambda m: ' AND '.join(m.group().split('/'))),
+            # ファイル名パターン（拡張子付き）- 中カッコ完全一致検索
+            (r'\b[a-zA-Z][a-zA-Z0-9_-]*\.[a-zA-Z0-9]{1,4}\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # バージョン番号（v1.2.3形式）- 必ずvプレフィックス必須
-            (r'\bv[0-9]+\.[0-9]+(?:\.[0-9]+)*\b', lambda m: ' AND '.join([part for part in re.split(r'[v.]', m.group()) if part])),
+            # パス形式（スラッシュ区切り）- 中カッコ完全一致検索
+            (r'\b[a-zA-Z0-9_-]+/[a-zA-Z0-9/_-]+\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # API関数形式（function()）
-            (r'\b[a-zA-Z][a-zA-Z0-9]*\(\)\b', lambda m: m.group().replace('()', '')),
+            # API関数形式（function()）- 中カッコ完全一致検索
+            (r'\b[a-zA-Z][a-zA-Z0-9]*\(\)\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # キー=値形式
-            (r'\b[a-zA-Z][a-zA-Z0-9]*=[a-zA-Z0-9]+\b', lambda m: ' AND '.join(m.group().split('='))),
+            # キー=値形式 - 中カッコ完全一致検索
+            (r'\b[a-zA-Z][a-zA-Z0-9]*=[a-zA-Z0-9]+\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
             
-            # ポート番号付きホスト
-            (r'\b[a-zA-Z0-9.-]+:\d+\b', lambda m: ' AND '.join(m.group().split(':'))),
+            # ポート番号付きホスト - 中カッコ完全一致検索
+            (r'\b[a-zA-Z0-9.-]+:\d+\b', lambda m: f'{{{m.group().replace("{", "\\{").replace("}", "\\}")}}}'),
         ]
         
         # 特殊パターンを検出してキーワードに追加し、クエリから削除
@@ -375,7 +483,7 @@ class SearchQueryGenerator:
                     morphological_details.append(f"### 🔧 特殊文字処理")
                     morphological_details.append(f"- **検出:** `{original}`")
                     morphological_details.append(f"- **変換:** `{processed}`")
-                    morphological_details.append(f"- **理由:** Oracle Textの日本語レクサーで期待した動作となるように変換")
+                    morphological_details.append(f"- **理由:** Oracle Textの中カッコ完全一致検索で特殊文字を含む識別子も正確に検索")
                     morphological_details.append("")
                     query = query[:match.start()] + query[match.end():]
         
@@ -420,9 +528,40 @@ class SearchQueryGenerator:
                             adopted = True
                         else:
                             status = "❌ 助数詞のため除外"
-                    # 停止語チェック
+                    # 文脈に依存する除外語の処理
+                    elif token.text in self.context_dependent_excludes:
+                        # 複合語の一部かチェック（前後のトークンとの依存関係を確認）
+                        is_part_of_compound = False
+                        
+                        # 前のトークンとの関係をチェック
+                        if i > 0:
+                            prev_token = doc[i-1]
+                            if (prev_token.pos_ in ["NOUN", "PROPN"] and 
+                                token.dep_ in ["compound", "nmod"] and 
+                                prev_token.text not in self.stopwords):
+                                is_part_of_compound = True
+                        
+                        # 後のトークンとの関係をチェック
+                        if i + 1 < len(doc):
+                            next_token = doc[i+1]
+                            if (next_token.pos_ in ["NOUN", "PROPN"] and 
+                                next_token.dep_ in ["compound", "nmod"] and 
+                                next_token.text not in self.stopwords):
+                                is_part_of_compound = True
+                        
+                        # 固有名詞（人名など）の場合は保持
+                        if token.pos_ == "PROPN":
+                            is_part_of_compound = True
+                        
+                        # 複合語の一部でない場合のみ除外
+                        if not is_part_of_compound:
+                            status = "🚫 文脈依存除外語のため除外"
+                        else:
+                            status = "✅ 複合語の一部として採用"
+                            adopted = True
+                    # 除外語チェック
                     elif token.text in self.stopwords:
-                        status = "⛔ 停止語のため除外"
+                        status = "⛔ 除外語のため除外"
                     # 形式名詞チェック
                     elif token.text in self.formal_nouns:
                         status = "❌ 形式名詞のため除外"
@@ -447,7 +586,7 @@ class SearchQueryGenerator:
                         status = f"🔄 色形容詞 → `{self.color_adj_to_noun[token.text]}`に変換"
                         adopted = True
                     elif token.text in self.stopwords:
-                        status = "⛔ 停止語のため除外"
+                        status = "⛔ 除外語のため除外"
                     else:
                         status = "❌ 色形容詞以外のため除外"
                 elif token.pos_ == "VERB":
@@ -471,9 +610,8 @@ class SearchQueryGenerator:
             morphological_details.append("- **SYM**: 記号")
             morphological_details.append("- **PUNCT**: 句読点")
             morphological_details.append("")
-            morphological_details.append("#### ⛔ 停止語フィルタリング")
-            morphological_details.append("- **停止語**: 一般的すぎてノイズとなる語（助詞、指示語、汎用名詞など）")
-            morphological_details.append("- `sql/create_stoplist.sql`で定義された単語は検索クエリから除外")
+            morphological_details.append("#### ⛔ 除外語フィルタリング")
+            morphological_details.append("- **除外語**: 一般的すぎてノイズとなる語（助詞、指示語、汎用名詞など）")
             morphological_details.append("- 例: 'は', 'が', 'これ', 'システム', 'データ'など")
         
         elif query.strip():

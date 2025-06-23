@@ -79,6 +79,7 @@ BEGIN
   ctx_ddl.add_stopword('multilingual_stoplist', '使用');
   ctx_ddl.add_stopword('multilingual_stoplist', '使用方法');
   ctx_ddl.add_stopword('multilingual_stoplist', '使用例');
+  ctx_ddl.add_stopword('multilingual_stoplist', '使い方');
   ctx_ddl.add_stopword('multilingual_stoplist', '利用');
   ctx_ddl.add_stopword('multilingual_stoplist', '利用方法');
   ctx_ddl.add_stopword('multilingual_stoplist', '利用例');
@@ -88,6 +89,8 @@ BEGIN
   ctx_ddl.add_stopword('multilingual_stoplist', '例');
   ctx_ddl.add_stopword('multilingual_stoplist', '例文');
   ctx_ddl.add_stopword('multilingual_stoplist', '例示');
+  ctx_ddl.add_stopword('multilingual_stoplist', '機能');
+  ctx_ddl.add_stopword('multilingual_stoplist', '詳細');
 
   -- ドメイン固有の停止後（IT）
   ctx_ddl.add_stopword('multilingual_stoplist', 'データ');
