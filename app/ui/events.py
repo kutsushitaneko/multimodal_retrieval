@@ -665,7 +665,10 @@ class UIEvents:
     def register_upload_edit_events(self, upload_image, filename_input, generate_caption_button, search_image_button, clear_button_upload,
                                     display_image, generated_caption, editable_caption, regenerate_caption_button, 
                                     update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
-                                    delete_accordion, confirm_delete_checkbox, delete_button):
+                                    delete_accordion, confirm_delete_checkbox, delete_button,
+                                    prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, 
+                                    prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
+                                    confirm_prompt_delete_checkbox, delete_prompt_button):
         """アップロード・編集機能のイベントを登録"""
         
         # ファイル名自動表示機能
@@ -686,7 +689,7 @@ class UIEvents:
         # キャプション生成ボタン
         generate_caption_button.click(
             fn=self.generate_caption_from_upload,
-            inputs=[upload_image, filename_input],
+            inputs=[upload_image, filename_input, prompt_template_dropdown],
             outputs=[generated_caption, editable_caption, status_message, image_id_state, original_caption_state]
         ).then(
             fn=self.update_upload_button_states_after_generation,
@@ -716,7 +719,7 @@ class UIEvents:
             outputs=[update_database_button]
         ).then(
             fn=self.regenerate_caption,
-            inputs=[display_image, image_id_state],
+            inputs=[display_image, image_id_state, prompt_template_dropdown],
             outputs=[editable_caption, status_message]
         ).then(
             fn=self.enable_database_button_after_regeneration,
@@ -778,6 +781,44 @@ class UIEvents:
                     generate_caption_button, search_image_button, regenerate_caption_button, 
                     update_database_button, cancel_edit_button, confirm_delete_checkbox, delete_button]
         )
+        
+        # プロンプトテンプレート選択
+        prompt_template_dropdown.change(
+            fn=self.load_prompt_template,
+            inputs=[prompt_template_dropdown],
+            outputs=[current_prompt_display, prompt_edit_textbox, prompt_status_message]
+        )
+        
+        # プロンプト保存ボタン
+        save_prompt_button.click(
+            fn=self.save_prompt_template,
+            inputs=[prompt_name_input, prompt_edit_textbox],
+            outputs=[prompt_template_dropdown, prompt_status_message]
+        )
+        
+        # プロンプト編集取消ボタン
+        cancel_prompt_edit_button.click(
+            fn=self.cancel_prompt_edit,
+            inputs=[prompt_template_dropdown],
+            outputs=[prompt_edit_textbox, prompt_status_message]
+        )
+        
+        # プロンプト削除確認チェックボックス
+        confirm_prompt_delete_checkbox.change(
+            fn=self.update_prompt_delete_button_state,
+            inputs=[confirm_prompt_delete_checkbox],
+            outputs=[delete_prompt_button]
+        )
+        
+        # プロンプト削除ボタン
+        delete_prompt_button.click(
+            fn=self.delete_prompt_template,
+            inputs=[prompt_template_dropdown],
+            outputs=[prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, prompt_status_message, confirm_prompt_delete_checkbox, delete_prompt_button]
+        )
+        
+        # アプリ起動時にプロンプトテンプレートのリストを更新（削除）
+        # 代わりに、UIコンポーネント作成時に初期化されます
         
     def update_upload_button_states_on_upload(self, uploaded_file, filename):
         """画像アップロード時のボタン状態更新"""
@@ -902,12 +943,28 @@ class UIEvents:
                 uploaded_image = Image.open(image_path)
                 
                 # 画像データをバイト配列に変換
+                # RGBA形式の場合はRGB形式に変換（JPEG形式はアルファチャンネルをサポートしないため）
+                if uploaded_image.mode in ('RGBA', 'LA'):
+                    # 白い背景に合成
+                    background = Image.new('RGB', uploaded_image.size, (255, 255, 255))
+                    if uploaded_image.mode == 'RGBA':
+                        background.paste(uploaded_image, mask=uploaded_image.split()[-1])  # アルファチャンネルをマスクとして使用
+                    else:  # LA (Luminance + Alpha)
+                        background.paste(uploaded_image, mask=uploaded_image.split()[-1])
+                    uploaded_image = background
+                elif uploaded_image.mode not in ('RGB', 'L'):
+                    # その他のモードもRGBに変換
+                    uploaded_image = uploaded_image.convert('RGB')
+                    
                 buffered = BytesIO()
                 uploaded_image.save(buffered, format="JPEG")
                 image_data = buffered.getvalue()
                 
                 # 編集されたキャプションを使用して登録
                 caption_to_register = edited_caption if edited_caption.strip() else generated_caption
+                
+                # キャプションを4000バイト以内に制限（データベース制限対応）
+                caption_to_register = database_service._truncate_caption_safely(caption_to_register, 4000)
                 
                 # エンベディングを生成
                 pil_image = Image.open(BytesIO(image_data))
@@ -957,7 +1014,7 @@ class UIEvents:
                     return generated_caption, edited_caption, f"画像 {filename} のキャプションが編集されていません。", original_caption, gr.Button("データベース更新", interactive=True, variant="primary"), image_id
                     
                 # データベース更新
-                success = database_service.update_image_caption(image_id, edited_caption)
+                success = database_service.update_image_caption(embedding_service, image_id, edited_caption)
                 
                 if success:
                     return edited_caption, edited_caption, f"✅ 画像ID {image_id} のキャプションが正常に更新されました。", edited_caption, gr.Button("データベース更新", interactive=True, variant="primary"), image_id
@@ -993,7 +1050,7 @@ class UIEvents:
             timestamp = int(time.time())
             return f"uploaded_image_{timestamp}.jpg"
 
-    def generate_caption_from_upload(self, uploaded_file, filename):
+    def generate_caption_from_upload(self, uploaded_file, filename, selected_prompt_template="デフォルト"):
         """アップロードされたファイルからキャプションを生成（データベース登録なし）"""
         if uploaded_file is None:
             return "", "", "❌ 画像をアップロードしてください。", None, ""
@@ -1014,6 +1071,19 @@ class UIEvents:
             uploaded_image = Image.open(image_path)
             
             # 画像データをバイト配列に変換
+            # RGBA形式の場合はRGB形式に変換（JPEG形式はアルファチャンネルをサポートしないため）
+            if uploaded_image.mode in ('RGBA', 'LA'):
+                # 白い背景に合成
+                background = Image.new('RGB', uploaded_image.size, (255, 255, 255))
+                if uploaded_image.mode == 'RGBA':
+                    background.paste(uploaded_image, mask=uploaded_image.split()[-1])  # アルファチャンネルをマスクとして使用
+                else:  # LA (Luminance + Alpha)
+                    background.paste(uploaded_image, mask=uploaded_image.split()[-1])
+                uploaded_image = background
+            elif uploaded_image.mode not in ('RGB', 'L'):
+                # その他のモードもRGBに変換
+                uploaded_image = uploaded_image.convert('RGB')
+                
             buffered = BytesIO()
             uploaded_image.save(buffered, format="JPEG")
             image_data = buffered.getvalue()
@@ -1026,9 +1096,12 @@ class UIEvents:
             config = Config()
             oci_client = config.get_oci_generative_ai_client()
             
+            # 選択されたプロンプトテンプレートを読み込み
+            custom_prompt = self.get_current_prompt(selected_prompt_template)
+            
             # キャプションを生成（データベースには登録しない）
             caption = database_service.get_image_caption(
-                oci_client, image_data, config.mllm_model_id, config.compartment_id
+                oci_client, image_data, config.mllm_model_id, config.compartment_id, custom_prompt
             )
             
             return caption, caption, f"✅ キャプションを生成しました。", None, caption
@@ -1056,15 +1129,29 @@ class UIEvents:
             print(f"画像検索エラー: {e}")
             return None, "", "", f"❌ エラーが発生しました: {str(e)}", None, ""
 
-    def regenerate_caption(self, display_image, image_id):
+    def regenerate_caption(self, display_image, image_id, selected_prompt_template="デフォルト"):
         """キャプションを再生成（編集側にのみ新しいキャプションを表示）"""
         if display_image is None:
             return "", "❌ 画像が表示されていません。"
             
         try:
             # 画像データをバイト配列に変換
+            # RGBA形式の場合はRGB形式に変換（JPEG形式はアルファチャンネルをサポートしないため）
+            processed_image = display_image
+            if processed_image.mode in ('RGBA', 'LA'):
+                # 白い背景に合成
+                background = Image.new('RGB', processed_image.size, (255, 255, 255))
+                if processed_image.mode == 'RGBA':
+                    background.paste(processed_image, mask=processed_image.split()[-1])  # アルファチャンネルをマスクとして使用
+                else:  # LA (Luminance + Alpha)
+                    background.paste(processed_image, mask=processed_image.split()[-1])
+                processed_image = background
+            elif processed_image.mode not in ('RGB', 'L'):
+                # その他のモードもRGBに変換
+                processed_image = processed_image.convert('RGB')
+                
             buffered = BytesIO()
-            display_image.save(buffered, format="JPEG")
+            processed_image.save(buffered, format="JPEG")
             image_data = buffered.getvalue()
             
             # データベースサービスを通じてキャプションを生成
@@ -1075,8 +1162,11 @@ class UIEvents:
             config = Config()
             oci_client = config.get_oci_generative_ai_client()
             
+            # 選択されたプロンプトテンプレートを読み込み
+            custom_prompt = self.get_current_prompt(selected_prompt_template)
+            
             new_caption = database_service.get_image_caption(
-                oci_client, image_data, config.mllm_model_id, config.compartment_id
+                oci_client, image_data, config.mllm_model_id, config.compartment_id, custom_prompt
             )
             
             # 右側（編集可能なキャプション）にのみ新しいキャプションを表示
@@ -1158,4 +1248,121 @@ class UIEvents:
             gr.Button(interactive=False),   # cancel_edit_button
             gr.Checkbox(value=False, interactive=True),  # confirm_delete_checkbox
             gr.Button(interactive=False)    # delete_button
-        ) 
+        )
+    
+    # プロンプト関連のメソッド
+    def load_prompt_template(self, template_name):
+        """プロンプトテンプレートを読み込み"""
+        from app.prompt_service import PromptService
+        
+        prompt_service = PromptService()
+        prompt_text = prompt_service.load_template(template_name)
+        
+        if prompt_text:
+            return prompt_text, prompt_text, f"プロンプトテンプレート '{template_name}' を読み込みました。"
+        else:
+            return "", "", f"❌ プロンプトテンプレート '{template_name}' の読み込みに失敗しました。"
+    
+    def save_prompt_template(self, template_name, prompt_text):
+        """プロンプトテンプレートを保存"""
+        from app.prompt_service import PromptService
+        
+        if not template_name or not template_name.strip():
+            return gr.update(), "❌ プロンプト名を入力してください。"
+        
+        if not prompt_text or not prompt_text.strip():
+            return gr.update(), "❌ プロンプトの内容を入力してください。"
+        
+        prompt_service = PromptService()
+        success = prompt_service.save_template(template_name.strip(), prompt_text.strip())
+        
+        if success:
+            # テンプレートリストを更新（ただし、値は変更せず選択肢のみ更新）
+            template_names = prompt_service.get_template_names()
+            return gr.update(choices=template_names), f"✅ プロンプトテンプレート '{template_name}' を保存しました。"
+        else:
+            return gr.update(), f"❌ プロンプトテンプレート '{template_name}' の保存に失敗しました。"
+    
+    def cancel_prompt_edit(self, current_template_name):
+        """プロンプト編集を取消"""
+        from app.prompt_service import PromptService
+        
+        prompt_service = PromptService()
+        original_prompt = prompt_service.load_template(current_template_name)
+        
+        if original_prompt:
+            return original_prompt, "プロンプト編集を取り消しました。"
+        else:
+            return "", "元のプロンプトの読み込みに失敗しました。"
+    
+    def update_prompt_template_list(self, prompt_template_dropdown, current_prompt_display, prompt_edit_textbox):
+        """プロンプトテンプレートのリストを更新"""
+        from app.prompt_service import PromptService
+        
+        prompt_service = PromptService()
+        template_names = prompt_service.get_template_names()
+        default_template_name = prompt_service.get_default_template_name()
+        
+        # デフォルトプロンプトを読み込み
+        default_prompt = prompt_service.load_template(default_template_name)
+        
+        # コンポーネントを直接更新
+        prompt_template_dropdown.choices = template_names
+        prompt_template_dropdown.value = default_template_name
+        current_prompt_display.value = default_prompt or ""
+        prompt_edit_textbox.value = default_prompt or ""
+    
+    def get_current_prompt(self, template_name):
+        """現在選択されているプロンプトテンプレートを取得"""
+        from app.prompt_service import PromptService
+        
+        prompt_service = PromptService()
+        return prompt_service.load_template(template_name)
+    
+    def update_prompt_delete_button_state(self, confirm_delete):
+        """プロンプト削除確認チェックボックスの状態に応じて削除ボタンを有効化"""
+        return gr.Button(interactive=confirm_delete)
+    
+    def delete_prompt_template(self, current_template_name):
+        """プロンプトテンプレートを削除"""
+        from app.prompt_service import PromptService
+        
+        prompt_service = PromptService()
+        
+        # デフォルトテンプレートの削除を防止
+        if current_template_name == prompt_service.get_default_template_name():
+            return (
+                gr.update(),  # prompt_template_dropdown（変更なし）
+                gr.update(),  # current_prompt_display（変更なし）
+                gr.update(),  # prompt_edit_textbox（変更なし）
+                "❌ デフォルトプロンプトは削除できません。",  # prompt_status_message
+                gr.Checkbox(value=False, interactive=True),  # confirm_prompt_delete_checkbox（リセット）
+                gr.Button(interactive=False)  # delete_prompt_button（無効化）
+            )
+        
+        # プロンプトテンプレートを削除
+        success = prompt_service.delete_template(current_template_name)
+        
+        if success:
+            # テンプレートリストを更新し、デフォルトテンプレートを選択
+            template_names = prompt_service.get_template_names()
+            default_template_name = prompt_service.get_default_template_name()
+            default_prompt = prompt_service.load_template(default_template_name)
+            
+            return (
+                gr.update(choices=template_names, value=default_template_name),  # prompt_template_dropdown
+                default_prompt or "",  # current_prompt_display
+                default_prompt or "",  # prompt_edit_textbox
+                f"✅ プロンプトテンプレート '{current_template_name}' を削除しました。",  # prompt_status_message
+                gr.Checkbox(value=False, interactive=True),  # confirm_prompt_delete_checkbox（リセット）
+                gr.Button(interactive=False)  # delete_prompt_button（無効化）
+            )
+        else:
+            return (
+                gr.update(),  # prompt_template_dropdown（変更なし）
+                gr.update(),  # current_prompt_display（変更なし）
+                gr.update(),  # prompt_edit_textbox（変更なし）
+                f"❌ プロンプトテンプレート '{current_template_name}' の削除に失敗しました。",  # prompt_status_message
+                gr.Checkbox(value=False, interactive=True),  # confirm_prompt_delete_checkbox（リセット）
+                gr.Button(interactive=False)  # delete_prompt_button（無効化）
+            ) 

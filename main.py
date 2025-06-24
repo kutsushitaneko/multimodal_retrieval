@@ -216,14 +216,20 @@ def main():
                 (upload_image, filename_input, generate_caption_button, search_image_button, clear_button_upload,
                  display_image, generated_caption, editable_caption, regenerate_caption_button, 
                  update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
-                 delete_accordion, confirm_delete_checkbox, delete_button) = ui_components.create_upload_edit_section()
+                 delete_accordion, confirm_delete_checkbox, delete_button,
+                 prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, 
+                 prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
+                 confirm_prompt_delete_checkbox, delete_prompt_button) = ui_components.create_upload_edit_section()
                 
                 # アップロード・編集機能のイベントを登録
                 ui_events.register_upload_edit_events(
                     upload_image, filename_input, generate_caption_button, search_image_button, clear_button_upload,
                     display_image, generated_caption, editable_caption, regenerate_caption_button, 
                     update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
-                    delete_accordion, confirm_delete_checkbox, delete_button
+                    delete_accordion, confirm_delete_checkbox, delete_button,
+                    prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, 
+                    prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
+                    confirm_prompt_delete_checkbox, delete_prompt_button
                 )
     
     # アプリケーションの起動

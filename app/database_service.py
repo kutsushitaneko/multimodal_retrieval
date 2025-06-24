@@ -39,26 +39,43 @@ class DatabaseService:
         # 最大リトライ回数に達した場合
         raise last_error
         
-    def get_image_caption(self, mllm_client, image_data, mllm_model_id, compartment_id):
+    def get_image_caption(self, mllm_client, image_data, mllm_model_id, compartment_id, custom_prompt=None):
         """画像データからキャプションを生成する関数"""
-        PROMPT = """
-        この画像を詳しく分析してください。
-        
-        以下の観点で画像を分析してください。
-        1. 画像に何が写っているか
-        2. 全体的な印象や特徴
-        3. 注目すべきポイント
-        4. 画像に描かれているもののカテゴリと固有の名称
-        5. 画像に描かれているテキスト
-        6. 画像に描かれている URL、IDなどの情報
-        7. 画像が説明、紹介しようとしている内容
-        
-        テキストはすべて抽出してください。
-        日本語で詳しく説明してください。
-        """
+        if custom_prompt:
+            PROMPT = custom_prompt
+        else:
+            PROMPT = """
+            この画像を詳しく分析してください。
+            
+            以下の観点で画像を分析してください。
+            1. 画像に何が写っているか
+            2. 全体的な印象や特徴
+            3. 注目すべきポイント
+            4. 画像に描かれているもののカテゴリと固有の名称
+            5. 画像に描かれているテキスト
+            6. 画像に描かれている URL、IDなどの情報
+            7. 画像が説明、紹介しようとしている内容
+            
+            テキストはすべて抽出してください。
+            日本語で詳しく説明してください。
+            """
         
         # 画像データをBase64エンコードしてData URLに変換
         img = Image.open(BytesIO(image_data))
+        
+        # RGBA形式の場合はRGB形式に変換（JPEG形式はアルファチャンネルをサポートしないため）
+        if img.mode in ('RGBA', 'LA'):
+            # 白い背景に合成
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'RGBA':
+                background.paste(img, mask=img.split()[-1])  # アルファチャンネルをマスクとして使用
+            else:  # LA (Luminance + Alpha)
+                background.paste(img, mask=img.split()[-1])
+            img = background
+        elif img.mode not in ('RGB', 'L'):
+            # その他のモードもRGBに変換
+            img = img.convert('RGB')
+        
         buffered = BytesIO()
         img.save(buffered, format="JPEG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
@@ -99,8 +116,8 @@ class DatabaseService:
                 if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
                     for content in choice.message.content:
                         if hasattr(content, 'text'):
-                            # VARCHAR2(4000)の制限を考慮して、キャプションを4000文字以内に切り詰める
-                            raw_caption = content.text[:4000] if len(content.text) > 4000 else content.text
+                            # VARCHAR2(4000)の制限を考慮して、キャプションを4000バイト以内に切り詰める
+                            raw_caption = self._truncate_caption_safely(content.text, 4000)
                             return self._clean_caption(raw_caption)
         
         # すべての方法が失敗した場合
@@ -144,6 +161,34 @@ class DatabaseService:
         
         return cleaned_caption
 
+    def _truncate_caption_safely(self, text, max_bytes):
+        """テキストを指定したバイト数以内に安全に切り詰める（文字境界を考慮）"""
+        if not text:
+            return text
+            
+        # テキストをUTF-8でエンコード
+        text_bytes = text.encode('utf-8')
+        
+        # 指定バイト数以下の場合はそのまま返す
+        if len(text_bytes) <= max_bytes:
+            return text
+        
+        # 指定バイト数で切り詰め
+        truncated_bytes = text_bytes[:max_bytes]
+        
+        # 不完全なUTF-8文字を避けるため、最後の有効な文字境界まで戻る
+        while len(truncated_bytes) > 0:
+            try:
+                truncated_text = truncated_bytes.decode('utf-8')
+                print(f"警告: キャプションが{max_bytes}バイトを超えたため切り詰めました。元のバイト数: {len(text_bytes)}, 切り詰め後: {len(truncated_bytes)}")
+                return truncated_text
+            except UnicodeDecodeError:
+                # 最後のバイトを削除して再試行
+                truncated_bytes = truncated_bytes[:-1]
+        
+        # 何らかの理由で全て削除された場合は空文字を返す
+        return ""
+
     def is_image_registered(self, file_name):
         """画像が既にデータベースに登録されているかチェック"""
         def operation():
@@ -158,24 +203,13 @@ class DatabaseService:
         
         return self._execute_with_retry(operation)
 
-    def insert_image_to_db(self, embedding_service, mllm_client, mllm_model_id, compartment_id, image_data, file_name):
+    def insert_image_to_db(self, embedding_service, mllm_client, mllm_model_id, compartment_id, image_data, file_name, custom_prompt=None):
         """画像とその説明文をOracle Databaseに挿入"""
         # キャプションを生成
-        caption = self.get_image_caption(mllm_client, image_data, mllm_model_id, compartment_id)
+        caption = self.get_image_caption(mllm_client, image_data, mllm_model_id, compartment_id, custom_prompt)
         
         # VARCHAR2(4000)の制限を確実に適用（バイト数ベース）
-        caption_bytes = caption.encode('utf-8')
-        if len(caption_bytes) > 4000:
-            # バイト数で切り詰め、文字境界を考慮
-            truncated_bytes = caption_bytes[:4000]
-            # 不完全なUTF-8文字を避けるため、最後の文字境界まで戻る
-            while len(truncated_bytes) > 0:
-                try:
-                    caption = truncated_bytes.decode('utf-8')
-                    break
-                except UnicodeDecodeError:
-                    truncated_bytes = truncated_bytes[:-1]
-            print(f"警告: キャプションが4000バイトを超えたため切り詰めました。元のバイト数: {len(caption_bytes)}")
+        caption = self._truncate_caption_safely(caption, 4000)
         
         # 画像とテキストの埋め込みベクトルを取得
         pil_image = Image.open(BytesIO(image_data))
@@ -212,15 +246,7 @@ class DatabaseService:
     def update_image_caption(self, embedding_service, image_id, new_caption):
         """画像のキャプションを更新"""
         # VARCHAR2(4000)の制限を確実に適用
-        caption_bytes = new_caption.encode('utf-8')
-        if len(caption_bytes) > 4000:
-            truncated_bytes = caption_bytes[:4000]
-            while len(truncated_bytes) > 0:
-                try:
-                    new_caption = truncated_bytes.decode('utf-8')
-                    break
-                except UnicodeDecodeError:
-                    truncated_bytes = truncated_bytes[:-1]
+        new_caption = self._truncate_caption_safely(new_caption, 4000)
         
         # 新しいキャプションの埋め込みベクトルを生成
         caption_embedding = array.array('f', embedding_service.get_text_embedding(new_caption, "search_document"))
