@@ -135,21 +135,6 @@ class UIComponents:
                     # ステータス表示
                     status_message = gr.Markdown("")
                 
-                # イメージの削除アコーディオン（デフォルトでクローズ）
-                with gr.Accordion("イメージの削除", open=False, visible=False) as delete_accordion:
-                    gr.Markdown("⚠️ **危険な操作**: この画像をデータベースから完全に削除します。この操作は元に戻せません。")
-                    with gr.Row():
-                        confirm_delete_checkbox = gr.Checkbox(
-                            label="削除することを確認しました",
-                            value=False,
-                            interactive=True
-                        )
-                    delete_button = gr.Button(
-                        "🗑️ データベースから削除",
-                        variant="stop",
-                        interactive=False
-                    )
-                
                 # プロンプトの編集セクション（デフォルトでクローズ）
                 with gr.Accordion("プロンプトの設定と編集", open=False) as settings_accordion:
                         # プロンプトテンプレートの初期化
@@ -239,6 +224,21 @@ class UIComponents:
                         
                         # プロンプト操作のステータス
                         prompt_status_message = gr.Markdown("")
+                
+                # イメージの削除アコーディオン（デフォルトでクローズ）
+                with gr.Accordion("イメージの削除", open=False, visible=False) as delete_accordion:
+                    gr.Markdown("⚠️ **危険な操作**: この画像をデータベースから完全に削除します。この操作は元に戻せません。")
+                    with gr.Row():
+                        confirm_delete_checkbox = gr.Checkbox(
+                            label="削除することを確認しました",
+                            value=False,
+                            interactive=True
+                        )
+                    delete_button = gr.Button(
+                        "🗑️ データベースから削除",
+                        variant="stop",
+                        interactive=False
+                    )
                 
         # 隠し状態でimage_idと元のキャプションを管理
         image_id_state = gr.State(value=None)
