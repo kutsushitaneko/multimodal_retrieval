@@ -130,78 +130,101 @@ def main():
             "keyword_results": []
         })
         
-        # 検索セクションのUIコンポーネントを作成
-        search_target, search_method, query_input, uploaded_image, search_button, clear_button, show_all_button, query_examples = ui_components.create_search_section()
-        
-        # 検索結果セクションのUIコンポーネントを作成
-        vector_gallery, keyword_gallery = ui_components.create_results_section()
-        
-        # ページングセクションのUIコンポーネントを作成
-        pagination_row, prev_button, page_info, next_button = ui_components.create_pagination_section()
-        
-        # 画像詳細セクションのUIコンポーネントを作成
-        filename_text, similarity_text, caption_text, score_label = ui_components.create_detail_section()
-        
-        # クエリ詳細セクションのUIコンポーネントを作成
-        executed_query_text, execute_query_button, executed_sql_text, morphological_analysis_text = ui_components.create_query_detail_section()
-        
-        # 高度な設定セクションのUIコンポーネントを作成
-        vector_threshold, keyword_threshold, top_k_slider = ui_components.create_advanced_settings_section()
-        
-        # 各種イベントを登録
-        ui_events.register_search_target_events(
-            search_target, search_method, query_input, uploaded_image, query_examples, executed_sql_text
-        )
-        
-        ui_events.register_search_method_events(
-            search_method, query_input, uploaded_image, score_label, 
-            executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text
-        )
-        
-        ui_events.register_search_button_events(
-            search_button, query_input, uploaded_image, search_target, 
-            search_method, top_k_slider, vector_threshold, keyword_threshold, 
-            vector_gallery, keyword_gallery, filename_text, similarity_text, 
-            caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text
-        )
-        
-        ui_events.register_execute_query_button_events(
-            execute_query_button, executed_query_text, top_k_slider, keyword_threshold,
-            vector_gallery, filename_text, similarity_text, caption_text, 
-            state, executed_query_text, executed_sql_text, pagination_row
-        )
-        
-        ui_events.register_clear_button_events(
-            clear_button, query_input, uploaded_image, vector_gallery, 
-            keyword_gallery, filename_text, similarity_text, caption_text, 
-            state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text
-        )
-        
-        ui_events.register_show_all_button_events(
-            show_all_button, top_k_slider, vector_gallery, 
-            keyword_gallery, filename_text, similarity_text, caption_text, 
-            state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text
-        )
-        
-        ui_events.register_pagination_events(
-            prev_button, next_button, top_k_slider, vector_gallery, page_info, state, keyword_gallery, prev_button, next_button
-        )
-        
-        ui_events.register_gallery_selection_events(
-            vector_gallery, keyword_gallery, state, 
-            filename_text, similarity_text, caption_text
-        )
-        
-        # アプリケーションの初期読み込み時のイベントを登録
-        demo.load(
-            fn=lambda: None,
-            outputs=None
-        ).then(
-            fn=ui_events.show_all_images,
-            inputs=[top_k_slider, state],
-            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, 
-                     caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text]
-        )
+        # タブ機能を追加
+        with gr.Tabs():
+            # タブ1: 検索機能
+            with gr.Tab("検索"):
+                # 検索セクションのUIコンポーネントを作成
+                search_target, search_method, query_input, uploaded_image, search_button, clear_button, show_all_button, query_examples = ui_components.create_search_section()
+                
+                # 検索結果セクションのUIコンポーネントを作成
+                vector_gallery, keyword_gallery = ui_components.create_results_section()
+                
+                # ページングセクションのUIコンポーネントを作成
+                pagination_row, prev_button, page_info, next_button = ui_components.create_pagination_section()
+                
+                # 画像詳細セクションのUIコンポーネントを作成
+                filename_text, similarity_text, caption_text, score_label = ui_components.create_detail_section()
+                
+                # クエリ詳細セクションのUIコンポーネントを作成
+                executed_query_text, execute_query_button, executed_sql_text, morphological_analysis_text = ui_components.create_query_detail_section()
+                
+                # 高度な設定セクションのUIコンポーネントを作成
+                vector_threshold, keyword_threshold, top_k_slider = ui_components.create_advanced_settings_section()
+                
+                # 各種イベントを登録
+                ui_events.register_search_target_events(
+                    search_target, search_method, query_input, uploaded_image, query_examples, executed_sql_text
+                )
+                
+                ui_events.register_search_method_events(
+                    search_method, query_input, uploaded_image, score_label, 
+                    executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text
+                )
+                
+                ui_events.register_search_button_events(
+                    search_button, query_input, uploaded_image, search_target, 
+                    search_method, top_k_slider, vector_threshold, keyword_threshold, 
+                    vector_gallery, keyword_gallery, filename_text, similarity_text, 
+                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text
+                )
+                
+                ui_events.register_execute_query_button_events(
+                    execute_query_button, executed_query_text, top_k_slider, keyword_threshold,
+                    vector_gallery, filename_text, similarity_text, caption_text, 
+                    state, executed_query_text, executed_sql_text, pagination_row
+                )
+                
+                ui_events.register_clear_button_events(
+                    clear_button, query_input, uploaded_image, vector_gallery, 
+                    keyword_gallery, filename_text, similarity_text, caption_text, 
+                    state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text
+                )
+                
+                ui_events.register_show_all_button_events(
+                    show_all_button, top_k_slider, vector_gallery, 
+                    keyword_gallery, filename_text, similarity_text, caption_text, 
+                    state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text
+                )
+                
+                ui_events.register_pagination_events(
+                    prev_button, next_button, top_k_slider, vector_gallery, page_info, state, keyword_gallery, prev_button, next_button
+                )
+                
+                ui_events.register_gallery_selection_events(
+                    vector_gallery, keyword_gallery, state, 
+                    filename_text, similarity_text, caption_text
+                )
+                
+                # アプリケーションの初期読み込み時のイベントを登録
+                demo.load(
+                    fn=lambda: None,
+                    outputs=None
+                ).then(
+                    fn=ui_events.show_all_images,
+                    inputs=[top_k_slider, state],
+                    outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, 
+                             caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text]
+                )
+            
+            # タブ2: アップロード・編集機能
+            with gr.Tab("イメージ管理"):
+                gr.Markdown("## 画像のアップロード・キャプション生成・編集・画像の削除")
+                gr.Markdown("画像をアップロードしてキャプションを生成したり、既存の画像のキャプションを編集、画像の削除ができます。")
+                
+                # アップロード・編集セクションのUIコンポーネントを作成
+                (upload_image, filename_input, generate_caption_button, search_image_button, clear_button_upload,
+                 display_image, generated_caption, editable_caption, regenerate_caption_button, 
+                 update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
+                 delete_accordion, confirm_delete_checkbox, delete_button) = ui_components.create_upload_edit_section()
+                
+                # アップロード・編集機能のイベントを登録
+                ui_events.register_upload_edit_events(
+                    upload_image, filename_input, generate_caption_button, search_image_button, clear_button_upload,
+                    display_image, generated_caption, editable_caption, regenerate_caption_button, 
+                    update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
+                    delete_accordion, confirm_delete_checkbox, delete_button
+                )
     
     # アプリケーションの起動
     launch_config = config.get_launch_config()

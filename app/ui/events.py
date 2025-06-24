@@ -1,6 +1,8 @@
 import gradio as gr
 from PIL import Image
 import math
+import time
+from io import BytesIO
 
 class UIEvents:
     """UIイベントを管理するクラス"""
@@ -658,4 +660,502 @@ class UIEvents:
             visible=should_show,
             value=morphological_analysis if should_show else "",
             elem_id="morphological_analysis"
+        )
+
+    def register_upload_edit_events(self, upload_image, filename_input, generate_caption_button, search_image_button, clear_button_upload,
+                                    display_image, generated_caption, editable_caption, regenerate_caption_button, 
+                                    update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
+                                    delete_accordion, confirm_delete_checkbox, delete_button):
+        """アップロード・編集機能のイベントを登録"""
+        
+        # ファイル名自動表示機能
+        upload_image.change(
+            fn=self.extract_filename_from_upload,
+            inputs=[upload_image],
+            outputs=[filename_input]
+        ).then(
+            fn=self.display_uploaded_image,
+            inputs=[upload_image],
+            outputs=[display_image]
+        ).then(
+            fn=self.update_upload_button_states_on_upload,
+            inputs=[upload_image, filename_input],
+            outputs=[filename_input, generate_caption_button, search_image_button, regenerate_caption_button, update_database_button, cancel_edit_button]
+        )
+        
+        # キャプション生成ボタン
+        generate_caption_button.click(
+            fn=self.generate_caption_from_upload,
+            inputs=[upload_image, filename_input],
+            outputs=[generated_caption, editable_caption, status_message, image_id_state, original_caption_state]
+        ).then(
+            fn=self.update_upload_button_states_after_generation,
+            inputs=[],
+            outputs=[generate_caption_button, regenerate_caption_button, update_database_button, cancel_edit_button]
+        )
+        
+        # 画像検索ボタン
+        search_image_button.click(
+            fn=self.search_image_by_filename,
+            inputs=[filename_input],
+            outputs=[display_image, generated_caption, editable_caption, status_message, image_id_state, original_caption_state]
+        ).then(
+            fn=self.update_upload_button_states_after_search,
+            inputs=[image_id_state],
+            outputs=[regenerate_caption_button, update_database_button, cancel_edit_button]
+        ).then(
+            fn=self.show_delete_accordion_if_existing_image,
+            inputs=[image_id_state],
+            outputs=[delete_accordion]
+        )
+        
+        # キャプション再生成ボタン
+        regenerate_caption_button.click(
+            fn=self.disable_database_button_during_regeneration,
+            inputs=[],
+            outputs=[update_database_button]
+        ).then(
+            fn=self.regenerate_caption,
+            inputs=[display_image, image_id_state],
+            outputs=[editable_caption, status_message]
+        ).then(
+            fn=self.enable_database_button_after_regeneration,
+            inputs=[],
+            outputs=[update_database_button]
+        )
+        
+        # データベース更新ボタン
+        update_database_button.click(
+            fn=self.update_database_with_registration_and_update,
+            inputs=[generated_caption, editable_caption, image_id_state, upload_image, filename_input, original_caption_state],
+            outputs=[generated_caption, editable_caption, status_message, original_caption_state, update_database_button, image_id_state]
+        ).then(
+            fn=self.show_delete_accordion_after_registration,
+            inputs=[image_id_state],
+            outputs=[delete_accordion]
+        )
+        
+        # 編集取消ボタン
+        cancel_edit_button.click(
+            fn=self.cancel_edit,
+            inputs=[original_caption_state],
+            outputs=[editable_caption, status_message]
+        )
+        
+        # クリアボタン
+        clear_button_upload.click(
+            fn=self.clear_upload_tab,
+            inputs=[],
+            outputs=[upload_image, filename_input, display_image, generated_caption, editable_caption, 
+                    status_message, image_id_state, original_caption_state, 
+                    generate_caption_button, search_image_button, regenerate_caption_button, 
+                    update_database_button, cancel_edit_button, delete_accordion, confirm_delete_checkbox, delete_button]
+        )
+        
+        # ファイル名入力時の状態更新
+        filename_input.change(
+            fn=self.update_upload_button_states_on_filename_input,
+            inputs=[upload_image, filename_input],
+            outputs=[search_image_button]
+        )
+        
+        # 削除確認チェックボックス
+        confirm_delete_checkbox.change(
+            fn=self.update_delete_button_state,
+            inputs=[confirm_delete_checkbox],
+            outputs=[delete_button]
+        )
+        
+        # 削除ボタン
+        delete_button.click(
+            fn=self.delete_image_from_database,
+            inputs=[image_id_state, filename_input],
+            outputs=[status_message, delete_accordion, image_id_state]
+        ).then(
+            fn=self.clear_after_delete,
+            inputs=[],
+            outputs=[display_image, generated_caption, editable_caption, 
+                    generate_caption_button, search_image_button, regenerate_caption_button, 
+                    update_database_button, cancel_edit_button, confirm_delete_checkbox, delete_button]
+        )
+        
+    def update_upload_button_states_on_upload(self, uploaded_file, filename):
+        """画像アップロード時のボタン状態更新"""
+        if uploaded_file is not None:
+            # 画像がアップロードされた場合
+            return (
+                gr.Textbox(interactive=False),  # ファイル名を編集不可
+                gr.Button(interactive=True),    # キャプション生成をイネーブル
+                gr.Button(interactive=False),   # 画像検索をディスエーブル
+                gr.Button(interactive=False),   # キャプション再生成をディスエーブル
+                gr.Button(interactive=False),   # データベース更新をディスエーブル
+                gr.Button(interactive=False)    # 編集取消をディスエーブル
+            )
+        else:
+            # 画像がない場合は全ボタンをディスエーブル
+            return (
+                gr.Textbox(interactive=True),   # ファイル名を編集可能
+                gr.Button(interactive=False),   # キャプション生成をディスエーブル
+                gr.Button(interactive=False),   # 画像検索をディスエーブル
+                gr.Button(interactive=False),   # キャプション再生成をディスエーブル
+                gr.Button(interactive=False),   # データベース更新をディスエーブル
+                gr.Button(interactive=False)    # 編集取消をディスエーブル
+            )
+            
+    def update_upload_button_states_on_filename_input(self, uploaded_file, filename):
+        """ファイル名入力時のボタン状態更新"""
+        if uploaded_file is None and filename and filename.strip():
+            # 画像未アップロードでファイル名が入力されている場合
+            return gr.Button(interactive=True)  # 画像検索をイネーブル
+        else:
+            return gr.Button(interactive=False)  # 画像検索をディスエーブル
+            
+    def update_upload_button_states_after_generation(self):
+        """キャプション生成後のボタン状態更新"""
+        return (
+            gr.Button(interactive=False),   # キャプション生成をディスエーブル
+            gr.Button(interactive=True),    # キャプション再生成をイネーブル
+            gr.Button("データベースへ登録", interactive=True, variant="primary"),    # データベース登録をイネーブル
+            gr.Button(interactive=True)     # 編集取消をイネーブル
+        )
+        
+    def update_upload_button_states_after_search(self, image_id):
+        """画像検索後のボタン状態更新"""
+        if image_id is not None:
+            # 検索成功時（既存画像）
+            return (
+                gr.Button(interactive=True),    # キャプション再生成をイネーブル
+                gr.Button("データベース更新", interactive=True, variant="primary"),    # データベース更新をイネーブル
+                gr.Button(interactive=True)     # 編集取消をイネーブル
+            )
+        else:
+            # 検索失敗時
+            return (
+                gr.Button(interactive=False),   # キャプション再生成をディスエーブル
+                gr.Button(interactive=False),   # データベース更新をディスエーブル
+                gr.Button(interactive=False)    # 編集取消をディスエーブル
+            )
+            
+    def clear_upload_tab(self):
+        """アップロードタブの全コンポーネントをクリア"""
+        return (
+            None,                           # upload_image
+            "",                             # filename_input
+            None,                           # display_image
+            "",                             # generated_caption
+            "",                             # editable_caption
+            "",                             # status_message
+            None,                           # image_id_state
+            "",                             # original_caption_state
+            gr.Button(interactive=False),   # generate_caption_button
+            gr.Button(interactive=False),   # search_image_button
+            gr.Button(interactive=False),   # regenerate_caption_button
+            gr.Button("データベースへ登録", interactive=False, variant="primary"),   # update_database_button
+            gr.Button(interactive=False),   # cancel_edit_button
+            gr.update(visible=False),       # delete_accordion
+            gr.Checkbox(value=False, interactive=True),  # confirm_delete_checkbox
+            gr.Button(interactive=False)    # delete_button
+        )
+        
+    def cancel_edit(self, original_caption):
+        """編集を取消して元のキャプションを復元"""
+        return (
+            original_caption,               # editable_caption
+            "編集を取り消しました。"        # status_message
+        )
+        
+    def update_database_with_registration_and_update(self, generated_caption, edited_caption, image_id, uploaded_file, filename_input, original_caption):
+        """データベースへの新規登録または更新を行う"""
+        filename = filename_input
+        if not filename:
+            return generated_caption, edited_caption, "❌ ファイル名を入力してください。", original_caption, gr.Button("データベースへ登録", interactive=True, variant="primary"), image_id
+            
+        try:
+            from app.database_service import DatabaseService
+            from app.config import Config
+            
+            config = Config()
+            db_pool = config.get_db_pool()
+            database_service = DatabaseService(db_pool)
+            embedding_service = self.search_service.embedding_service
+            
+            if image_id is None:
+                # 新規登録の場合
+                if uploaded_file is None:
+                    return generated_caption, edited_caption, "❌ 画像をアップロードしてください。", original_caption, gr.Button("データベースへ登録", interactive=True, variant="primary"), image_id
+                    
+                # 既に登録されているかチェック
+                if database_service.is_image_registered(filename):
+                    return generated_caption, edited_caption, f"⚠️ ファイル名 '{filename}' は既に登録されています。", original_caption, gr.Button("データベースへ登録", interactive=True, variant="primary"), image_id
+                
+                # 新規登録処理
+                from PIL import Image
+                from io import BytesIO
+                
+                if hasattr(uploaded_file, 'name'):
+                    image_path = uploaded_file.name
+                elif isinstance(uploaded_file, str):
+                    image_path = uploaded_file
+                else:
+                    return generated_caption, edited_caption, "❌ ファイル形式が不正です。", original_caption, gr.Button("データベースへ登録", interactive=True, variant="primary"), image_id
+                    
+                uploaded_image = Image.open(image_path)
+                
+                # 画像データをバイト配列に変換
+                buffered = BytesIO()
+                uploaded_image.save(buffered, format="JPEG")
+                image_data = buffered.getvalue()
+                
+                # 編集されたキャプションを使用して登録
+                caption_to_register = edited_caption if edited_caption.strip() else generated_caption
+                
+                # エンベディングを生成
+                pil_image = Image.open(BytesIO(image_data))
+                image_embedding = embedding_service.get_image_embedding(pil_image)
+                caption_embedding = embedding_service.get_text_embedding(caption_to_register, "search_document")
+                
+                # データベースに直接挿入
+                def operation():
+                    with database_service.db_pool.acquire() as conn:
+                        cursor = conn.cursor()
+                        try:
+                            cursor.execute("""
+                                INSERT INTO IMAGES (file_name, caption, caption_embedding, image_data, image_embedding)
+                                VALUES (:1, :2, :3, :4, :5)
+                            """, (
+                                filename,
+                                caption_to_register,
+                                caption_embedding,
+                                image_data,
+                                image_embedding
+                            ))
+                            
+                            conn.commit()
+                            print(f"画像 '{filename}' が正常に挿入されました。")
+                            return True
+                        finally:
+                            cursor.close()
+                
+                import array
+                image_embedding = array.array('f', image_embedding)
+                caption_embedding = array.array('f', caption_embedding)
+                
+                success = database_service._execute_with_retry(operation)
+                
+                if success:
+                    # 登録された画像のIDを取得
+                    new_image = database_service.get_image_by_filename(filename)
+                    new_image_id = new_image['image_id'] if new_image else None
+                    return caption_to_register, caption_to_register, f"✅ 画像 '{filename}' をデータベースに登録しました。", caption_to_register, gr.Button("データベース更新", interactive=True, variant="primary"), new_image_id
+                else:
+                    return generated_caption, edited_caption, "❌ データベースへの登録に失敗しました。", original_caption, gr.Button("データベースへ登録", interactive=True, variant="primary"), None
+                    
+            else:
+                # 既存画像の更新の場合
+                # キャプションが変更されているかチェック
+                if generated_caption.strip() == edited_caption.strip():
+                    return generated_caption, edited_caption, f"画像 {filename} のキャプションが編集されていません。", original_caption, gr.Button("データベース更新", interactive=True, variant="primary"), image_id
+                    
+                # データベース更新
+                success = database_service.update_image_caption(image_id, edited_caption)
+                
+                if success:
+                    return edited_caption, edited_caption, f"✅ 画像ID {image_id} のキャプションが正常に更新されました。", edited_caption, gr.Button("データベース更新", interactive=True, variant="primary"), image_id
+                else:
+                    return generated_caption, edited_caption, "❌ データベースの更新に失敗しました。", original_caption, gr.Button("データベース更新", interactive=True, variant="primary"), image_id
+                    
+        except Exception as e:
+            return generated_caption, edited_caption, f"❌ エラーが発生しました: {str(e)}", original_caption, gr.Button("データベースへ登録", interactive=True, variant="primary"), image_id
+
+    def extract_filename_from_upload(self, uploaded_file):
+        """アップロードされたファイルのファイル名を抽出"""
+        if uploaded_file is None:
+            return ""
+        
+        try:
+            import os
+            # Gradioのファイルコンポーネントからファイル名を抽出
+            if hasattr(uploaded_file, 'name') and uploaded_file.name:
+                # ファイルパスからファイル名のみを抽出
+                return os.path.basename(uploaded_file.name)
+            elif isinstance(uploaded_file, str):
+                # パス文字列の場合
+                return os.path.basename(uploaded_file)
+            else:
+                # デフォルトのファイル名を生成
+                import time
+                timestamp = int(time.time())
+                return f"uploaded_image_{timestamp}.jpg"
+        except Exception as e:
+            print(f"ファイル名抽出エラー: {e}")
+            # エラーの場合はタイムスタンプベースのファイル名を生成
+            import time
+            timestamp = int(time.time())
+            return f"uploaded_image_{timestamp}.jpg"
+
+    def generate_caption_from_upload(self, uploaded_file, filename):
+        """アップロードされたファイルからキャプションを生成（データベース登録なし）"""
+        if uploaded_file is None:
+            return "", "", "❌ 画像をアップロードしてください。", None, ""
+            
+        if not filename:
+            return "", "", "❌ ファイル名を入力してください。", None, ""
+        
+        try:
+            # ファイルパスからPIL画像を読み込み
+            from PIL import Image
+            if hasattr(uploaded_file, 'name'):
+                image_path = uploaded_file.name
+            elif isinstance(uploaded_file, str):
+                image_path = uploaded_file
+            else:
+                return "", "", "❌ ファイル形式が不正です。", None, ""
+                
+            uploaded_image = Image.open(image_path)
+            
+            # 画像データをバイト配列に変換
+            buffered = BytesIO()
+            uploaded_image.save(buffered, format="JPEG")
+            image_data = buffered.getvalue()
+            
+            # データベースサービスを通じてキャプションのみを生成
+            database_service = self.search_service.database_service
+            
+            # 設定を取得
+            from app.config import Config
+            config = Config()
+            oci_client = config.get_oci_generative_ai_client()
+            
+            # キャプションを生成（データベースには登録しない）
+            caption = database_service.get_image_caption(
+                oci_client, image_data, config.mllm_model_id, config.compartment_id
+            )
+            
+            return caption, caption, f"✅ キャプションを生成しました。", None, caption
+                
+        except Exception as e:
+            print(f"キャプション生成エラー: {e}")
+            return "", "", f"❌ エラーが発生しました: {str(e)}", None, ""
+
+    def search_image_by_filename(self, filename):
+        """ファイル名で画像を検索"""
+        if not filename:
+            return None, "", "", "❌ ファイル名を入力してください。", None, ""
+            
+        try:
+            database_service = self.search_service.database_service
+            result = database_service.get_image_by_filename(filename)
+            
+            if result:
+                return (result['image'], result['caption'], result['caption'], 
+                        f"✅ ファイル名 '{filename}' の画像を取得しました。", result['image_id'], result['caption'])
+            else:
+                return None, "", "", f"❌ ファイル名 '{filename}' の画像が見つかりませんでした。", None, ""
+                
+        except Exception as e:
+            print(f"画像検索エラー: {e}")
+            return None, "", "", f"❌ エラーが発生しました: {str(e)}", None, ""
+
+    def regenerate_caption(self, display_image, image_id):
+        """キャプションを再生成（編集側にのみ新しいキャプションを表示）"""
+        if display_image is None:
+            return "", "❌ 画像が表示されていません。"
+            
+        try:
+            # 画像データをバイト配列に変換
+            buffered = BytesIO()
+            display_image.save(buffered, format="JPEG")
+            image_data = buffered.getvalue()
+            
+            # データベースサービスを通じてキャプションを生成
+            database_service = self.search_service.database_service
+            
+            # 設定を取得
+            from app.config import Config
+            config = Config()
+            oci_client = config.get_oci_generative_ai_client()
+            
+            new_caption = database_service.get_image_caption(
+                oci_client, image_data, config.mllm_model_id, config.compartment_id
+            )
+            
+            # 右側（編集可能なキャプション）にのみ新しいキャプションを表示
+            # 左側は変更しないので出力対象から除外
+            return new_caption, "✅ キャプションを再生成しました。"
+            
+        except Exception as e:
+            print(f"キャプション再生成エラー: {e}")
+            return "", f"❌ エラーが発生しました: {str(e)}"
+
+    def disable_database_button_during_regeneration(self):
+        """キャプション再生成中にデータベース更新ボタンを無効化"""
+        return gr.update(interactive=False)
+
+    def enable_database_button_after_regeneration(self):
+        """キャプション再生成後にデータベース更新ボタンを有効化"""
+        return gr.update(interactive=True)
+        
+    def display_uploaded_image(self, uploaded_file):
+        """アップロードされた画像を表示"""
+        if uploaded_file is None:
+            return None
+            
+        try:
+            from PIL import Image
+            
+            # ファイルパスからPIL画像を読み込み
+            if hasattr(uploaded_file, 'name'):
+                image_path = uploaded_file.name
+            elif isinstance(uploaded_file, str):
+                image_path = uploaded_file
+            else:
+                return None
+                
+            uploaded_image = Image.open(image_path)
+            return uploaded_image
+            
+        except Exception as e:
+            print(f"画像表示エラー: {e}")
+            return None
+
+    def show_delete_accordion_if_existing_image(self, image_id):
+        """既存画像がある場合に削除アコーディオンを表示"""
+        return gr.update(visible=True) if image_id else gr.update(visible=False)
+
+    def show_delete_accordion_after_registration(self, image_id):
+        """新規登録後に削除アコーディオンを表示"""
+        return gr.update(visible=True) if image_id else gr.update(visible=False)
+
+    def update_delete_button_state(self, confirm_delete):
+        """削除確認チェックボックスの状態に応じて削除ボタンを有効化"""
+        return gr.Button(interactive=confirm_delete)
+
+    def delete_image_from_database(self, image_id, filename):
+        """データベースから画像を削除"""
+        if image_id:
+            try:
+                database_service = self.search_service.database_service
+                success = database_service.delete_image(image_id)
+                if success:
+                    return "✅ 画像を削除しました。", gr.update(visible=False), None
+                else:
+                    return "❌ データベースからの削除に失敗しました。", gr.update(visible=False), None
+            except Exception as e:
+                return f"❌ エラーが発生しました: {str(e)}", gr.update(visible=False), None
+        else:
+            return "❌ 画像IDが指定されていません。", gr.update(visible=False), None
+
+    def clear_after_delete(self):
+        """削除後にアップロードタブの全コンポーネントをクリア"""
+        return (
+            None,                           # display_image
+            "",                             # generated_caption
+            "",                             # editable_caption
+            gr.Button(interactive=False),   # generate_caption_button
+            gr.Button(interactive=False),   # search_image_button
+            gr.Button(interactive=False),   # regenerate_caption_button
+            gr.Button("データベースへ登録", interactive=False, variant="primary"),   # update_database_button
+            gr.Button(interactive=False),   # cancel_edit_button
+            gr.Checkbox(value=False, interactive=True),  # confirm_delete_checkbox
+            gr.Button(interactive=False)    # delete_button
         ) 

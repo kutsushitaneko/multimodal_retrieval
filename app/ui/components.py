@@ -65,6 +65,99 @@ class UIComponents:
                     show_all_button = gr.Button("全件表示")
                     
         return search_target, search_method, query_input, uploaded_image, search_button, clear_button, show_all_button, query_examples
+
+    def create_upload_edit_section(self):
+        """アップロード・編集セクションのUIコンポーネントを作成"""
+        with gr.Row():
+            with gr.Column(scale=1):
+                # 画像アップロード（ファイル名情報も取得できるように変更）
+                upload_image = gr.File(
+                    label="画像をアップロード",
+                    file_types=["image"],
+                    file_count="single"
+                )
+                
+                # ファイル名入力（コピーボタン追加）
+                filename_input = gr.Textbox(
+                    label="ファイル名",
+                    placeholder="ファイル名を入力してください（例: image001.jpg）",
+                    interactive=True,
+                    show_copy_button=True
+                )
+                
+                # ボタン群
+                with gr.Row():
+                    generate_caption_button = gr.Button("キャプション生成", variant="primary", interactive=False)
+                    search_image_button = gr.Button("画像を検索", interactive=False)
+                    clear_button = gr.Button("クリア")
+                
+                # 表示画像
+                display_image = gr.Image(
+                    label="表示画像",
+                    type="pil",
+                    height=400,
+                    width=400,
+                    interactive=False
+                )
+                
+            with gr.Column(scale=1):
+                # 左側：生成されたキャプション（読み取り専用）
+                with gr.Group():
+                    gr.Markdown("### 生成されたキャプション")
+                    generated_caption = gr.Textbox(
+                        label="",
+                        lines=12,
+                        interactive=False,
+                        show_copy_button=True,
+                        placeholder="キャプションがここに表示されます"
+                    )
+                    
+                    # キャプション再生成ボタンを生成されたキャプションの下に配置
+                    regenerate_caption_button = gr.Button("キャプション再生成", interactive=False)
+                    
+            with gr.Column(scale=1):
+                # 右側：編集可能なキャプション
+                with gr.Group():
+                    gr.Markdown("### キャプションの編集")
+                    editable_caption = gr.Textbox(
+                        label="",
+                        lines=12,
+                        interactive=True,
+                        show_copy_button=True,
+                        placeholder="キャプションを編集してください"
+                    )
+                    
+                    # データベース更新と編集取消ボタンをキャプション編集の下に配置
+                    with gr.Row():
+                        update_database_button = gr.Button("データベースへ登録", variant="primary", interactive=False)
+                        cancel_edit_button = gr.Button("編集を取消", interactive=False)
+                    
+                    # ステータス表示
+                    status_message = gr.Markdown("")
+                    
+                    # 削除機能をアコーディオン内に配置（右下）
+                    with gr.Accordion("イメージの削除", open=False, visible=False) as delete_accordion:
+                        gr.Markdown("⚠️ **危険な操作**: この画像をデータベースから完全に削除します。この操作は元に戻せません。")
+                        with gr.Row():
+                            confirm_delete_checkbox = gr.Checkbox(
+                                label="削除することを確認しました",
+                                value=False,
+                                interactive=True
+                            )
+                        delete_button = gr.Button(
+                            "🗑️ データベースから削除",
+                            variant="stop",
+                            interactive=False
+                        )
+                    
+        # 隠し状態でimage_idと元のキャプションを管理
+        image_id_state = gr.State(value=None)
+        original_caption_state = gr.State(value="")
+        
+        return (upload_image, filename_input, generate_caption_button, search_image_button, clear_button,
+                display_image, generated_caption, editable_caption, regenerate_caption_button, 
+                update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
+                delete_accordion, confirm_delete_checkbox, delete_button)
         
     def create_results_section(self):
         """検索結果セクションのUIコンポーネントを作成"""
