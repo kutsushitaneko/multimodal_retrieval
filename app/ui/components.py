@@ -298,20 +298,20 @@ class UIComponents:
             with gr.Row():        
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("**ファイル名：**")
-                        filename_text = gr.Textbox(show_label=False, interactive=False, container=False)
-                        score_label = gr.Markdown("**コサイン類似度：**")
-                        similarity_text = gr.Textbox(show_label=False, interactive=False, container=False)
+                        filename_text = gr.Textbox(show_label=True, label="ファイル名", interactive=False, container=True, show_copy_button=True)
+                        similarity_text = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True)
                     with gr.Row():
                         caption_text = gr.Textbox(
-                            show_label=False,
+                            show_label=True,
+                            label="キャプション",
                             interactive=False,
                             lines=10,
+                            container=True,
                             show_copy_button=True,
-                            placeholder="説明"
+                            placeholder="キャプションがここに表示されます"
                         )
                 
-        return filename_text, similarity_text, caption_text, score_label
+        return filename_text, similarity_text, caption_text
         
     def create_query_detail_section(self):
         """クエリ詳細セクションのUIコンポーネントを作成"""
@@ -323,6 +323,7 @@ class UIComponents:
                     show_label=True,
                     interactive=False,
                     container=True,
+                    show_copy_button=True,
                     scale=4,
                     lines=2
                 )
@@ -333,6 +334,7 @@ class UIComponents:
                 label="全文検索：形態素解析結果",
                 show_label=True,
                 container=True,
+                show_copy_button=True,
                 visible=False,
                 elem_id="morphological_analysis"
             )

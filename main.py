@@ -144,7 +144,7 @@ def main():
                 pagination_row, prev_button, page_info, next_button = ui_components.create_pagination_section()
                 
                 # 画像詳細セクションのUIコンポーネントを作成
-                filename_text, similarity_text, caption_text, score_label = ui_components.create_detail_section()
+                filename_text, similarity_text, caption_text = ui_components.create_detail_section()
                 
                 # クエリ詳細セクションのUIコンポーネントを作成
                 executed_query_text, execute_query_button, executed_sql_text, morphological_analysis_text = ui_components.create_query_detail_section()
@@ -158,7 +158,7 @@ def main():
                 )
                 
                 ui_events.register_search_method_events(
-                    search_method, query_input, uploaded_image, score_label, 
+                    search_method, query_input, uploaded_image, similarity_text, 
                     executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text
                 )
                 

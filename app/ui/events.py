@@ -26,7 +26,7 @@ class UIEvents:
             outputs=[executed_sql_text]
         )
         
-    def register_search_method_events(self, search_method, query_input, uploaded_image, score_label, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text):
+    def register_search_method_events(self, search_method, query_input, uploaded_image, similarity_text, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text):
         """検索方法変更時のイベントを登録"""
         search_method.change(
             fn=self.update_input_visibility,
@@ -35,7 +35,7 @@ class UIEvents:
         ).then(
             fn=self.update_score_label,
             inputs=[search_method],
-            outputs=[score_label]
+            outputs=[similarity_text]
         ).then(
             fn=self.update_query_text_interactivity,
             inputs=[search_method],
@@ -137,7 +137,7 @@ class UIEvents:
             # stateの構造を確認
             if state_data is None:
                 print("警告: state_dataがNoneです")
-                return "", "", "", gr.Gallery(selected_index=None)
+                return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
                 
             # state_dataから直接ベクトル検索結果を取得
             vector_results = state_data.get("vector_results", [])
@@ -146,7 +146,7 @@ class UIEvents:
             # インデックスが有効かチェック
             if len(vector_results) <= evt.index:
                 print(f"警告: 無効なインデックス - vector_results長さ={len(vector_results)}, インデックス={evt.index}")
-                return "", "", "", gr.Gallery(selected_index=None)
+                return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
                 
             # ベクトル検索結果を取得
             selected_result = vector_results[evt.index]
@@ -163,8 +163,11 @@ class UIEvents:
             # キャプションを表示
             caption = self.search_service.normalize_newlines(selected_result['caption'])
             
+            # ベクトル検索の場合はコサイン類似度のラベルで表示
+            similarity_textbox = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=score_text)
+            
             # ドキュメントに基づいた方法で、選択状態のみをリセットしたギャラリーコンポーネントを返す
-            return file_name, score_text, caption, gr.Gallery(
+            return file_name, similarity_textbox, caption, gr.Gallery(
                 selected_index=None,
             )
             
@@ -177,7 +180,7 @@ class UIEvents:
             # state_dataの構造を確認
             if state_data is None:
                 print("警告: state_dataがNoneです")
-                return "", "", "", gr.Gallery(selected_index=None)
+                return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
                 
             # state_dataから直接全文検索結果を取得
             keyword_results = state_data.get("keyword_results", [])
@@ -190,13 +193,13 @@ class UIEvents:
             # 全文検索結果が0件の場合
             if len(keyword_results) == 0:
                 # print("警告: 全文検索結果が0件です")
-                return "", "", "", gr.Gallery(selected_index=None)
+                return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
                 
             # evt.indexが全文検索結果の範囲内かチェック
             if evt.index >= len(keyword_results):
                 print(f"警告: インデックスが範囲外です - インデックス={evt.index}, 結果数={len(keyword_results)}")
                 # インデックスが範囲外の場合はエラーを返す
-                return "", "", "", gr.Gallery(selected_index=None)
+                return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
             
             try:
                 # 選択された全文検索結果を直接取得
@@ -214,12 +217,15 @@ class UIEvents:
                 # キャプションを表示
                 caption = self.search_service.normalize_newlines(selected_result['caption'])
                 
+                # 全文検索の場合はスコアのラベルで表示
+                similarity_textbox = gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=score_text)
+                
                 # 選択を解除して返す
-                return file_name, score_text, caption, gr.Gallery(selected_index=None)
+                return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None)
             except Exception as e:
                 print(f"エラー発生: {str(e)}")
                 # エラーが発生した場合は空の値を返す
-                return "", "", "", gr.Gallery(selected_index=None)
+                return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
             
         vector_gallery.select(
             fn=handle_vector_selection,
@@ -272,9 +278,9 @@ class UIEvents:
     def update_score_label(self, search_method):
         """検索方法に応じてスコアラベルを更新する関数"""
         if search_method == "全文検索":
-            return gr.Markdown("**スコア：**")
+            return gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True)
         else:
-            return gr.Markdown("**コサイン類似度：**")
+            return gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True)
             
     def update_query_text_interactivity(self, search_method):
         """検索方法に応じてクエリテキストボックスの編集可能性とボタンの表示を切り替える関数"""
