@@ -65,6 +65,192 @@ class UIComponents:
                     show_all_button = gr.Button("全件表示")
                     
         return search_target, search_method, query_input, uploaded_image, search_button, clear_button, show_all_button, query_examples
+
+    def create_upload_edit_section(self):
+        """アップロード・編集セクションのUIコンポーネントを作成"""
+        with gr.Row():
+            with gr.Column(scale=1):
+                # 画像アップロード（ファイル名情報も取得できるように変更）
+                upload_image = gr.File(
+                    label="画像をアップロード",
+                    file_types=["image"],
+                    file_count="single"
+                )
+                
+                # ファイル名入力（コピーボタン追加）
+                filename_input = gr.Textbox(
+                    label="ファイル名",
+                    placeholder="ファイル名を入力してください（例: image001.jpg）",
+                    interactive=True,
+                    show_copy_button=True
+                )
+                
+                # ボタン群
+                with gr.Row():
+                    generate_caption_button = gr.Button("キャプション生成", variant="primary", interactive=False)
+                    search_image_button = gr.Button("画像を検索", interactive=False)
+                    clear_button = gr.Button("クリア")
+                
+                # 表示画像
+                display_image = gr.Image(
+                    label="表示画像",
+                    type="pil",
+                    height=400,
+                    width=400,
+                    interactive=False
+                )
+                
+            with gr.Column(scale=2):
+                # キャプションの編集アコーディオン（デフォルトでオープン）
+                with gr.Accordion("キャプションの編集と登録", open=True):
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            # 左側：生成されたキャプション（読み取り専用）
+                            gr.Markdown("### 生成されたキャプション")
+                            generated_caption = gr.Textbox(
+                                label="",
+                                lines=12,
+                                interactive=False,
+                                show_copy_button=True,
+                                placeholder="キャプションがここに表示されます"
+                            )
+                            
+                        with gr.Column(scale=1):
+                            # 右側：編集可能なキャプション
+                            gr.Markdown("### キャプションの編集")
+                            editable_caption = gr.Textbox(
+                                label="",
+                                lines=12,
+                                interactive=True,
+                                show_copy_button=True,
+                                placeholder="キャプションを編集してください"
+                            )
+                    
+                    # ボタン群を一行に配置
+                    with gr.Row():
+                        regenerate_caption_button = gr.Button("キャプション再生成", interactive=False)
+                        update_database_button = gr.Button("データベースへ登録", variant="primary", interactive=False)
+                        cancel_edit_button = gr.Button("編集を取消", interactive=False)
+                    
+                    # ステータス表示
+                    status_message = gr.Markdown("")
+                
+                # プロンプトの編集セクション（デフォルトでクローズ）
+                with gr.Accordion("プロンプトの設定と編集", open=False) as settings_accordion:
+                        # プロンプトテンプレートの初期化
+                        def initialize_prompt_template_choices():
+                            try:
+                                from app.prompt_service import PromptService
+                                prompt_service = PromptService()
+                                template_names = prompt_service.get_template_names()
+                                default_template_name = prompt_service.get_default_template_name()
+                                return template_names, default_template_name
+                            except Exception as e:
+                                print(f"プロンプトテンプレート初期化エラー: {e}")
+                                return ["デフォルト"], "デフォルト"
+                        
+                        initial_choices, initial_value = initialize_prompt_template_choices()
+                        
+                        # プロンプトテンプレート選択
+                        prompt_template_dropdown = gr.Dropdown(
+                            label="プロンプトテンプレート",
+                            choices=initial_choices,
+                            value=initial_value,
+                            interactive=True
+                        )
+                        
+                        # デフォルトプロンプトを読み込み
+                        def get_initial_prompt():
+                            try:
+                                from app.prompt_service import PromptService
+                                prompt_service = PromptService()
+                                default_prompt = prompt_service.load_template(initial_value)
+                                return default_prompt or ""
+                            except Exception as e:
+                                print(f"デフォルトプロンプト読み込みエラー: {e}")
+                                return ""
+                        
+                        initial_prompt = get_initial_prompt()
+                        
+                        # プロンプト表示・編集を左右に配置
+                        with gr.Row():
+                            with gr.Column(scale=1):
+                                # 左側：現在のプロンプト（表示のみ）
+                                current_prompt_display = gr.Textbox(
+                                    label="現在のプロンプト",
+                                    lines=8,
+                                    interactive=False,
+                                    show_copy_button=True,
+                                    value=initial_prompt,
+                                    placeholder="選択されたプロンプトがここに表示されます"
+                                )
+                            
+                            with gr.Column(scale=1):
+                                # 右側：プロンプトの編集
+                                prompt_edit_textbox = gr.Textbox(
+                                    label="プロンプトの設定・編集",
+                                    lines=8,
+                                    interactive=True,
+                                    value=initial_prompt,
+                                    placeholder="プロンプトを編集してください"
+                                )
+                        
+                        # プロンプト名と操作ボタン
+                        with gr.Row():
+                            prompt_name_input = gr.Textbox(
+                                label="プロンプトの名前",
+                                placeholder="新しいプロンプト名を入力",
+                                scale=2
+                            )
+                        
+                        with gr.Row():
+                            save_prompt_button = gr.Button("プロンプトを保存", variant="primary")
+                            cancel_prompt_edit_button = gr.Button("プロンプト編集を取消")
+                        
+                        # プロンプトの削除アコーディオン（デフォルトでクローズ）
+                        with gr.Accordion("プロンプトの削除", open=False) as prompt_delete_accordion:
+                            gr.Markdown("⚠️ **危険な操作**: 選択されたプロンプトテンプレートを完全に削除します。この操作は元に戻せません。")
+                            with gr.Row():
+                                confirm_prompt_delete_checkbox = gr.Checkbox(
+                                    label="削除することを確認しました",
+                                    value=False,
+                                    interactive=True
+                                )
+                            delete_prompt_button = gr.Button(
+                                "🗑️ プロンプトを削除",
+                                variant="stop",
+                                interactive=False
+                            )
+                        
+                        # プロンプト操作のステータス
+                        prompt_status_message = gr.Markdown("")
+                
+                # イメージの削除アコーディオン（デフォルトでクローズ）
+                with gr.Accordion("イメージの削除", open=False, visible=False) as delete_accordion:
+                    gr.Markdown("⚠️ **危険な操作**: この画像をデータベースから完全に削除します。この操作は元に戻せません。")
+                    with gr.Row():
+                        confirm_delete_checkbox = gr.Checkbox(
+                            label="削除することを確認しました",
+                            value=False,
+                            interactive=True
+                        )
+                    delete_button = gr.Button(
+                        "🗑️ データベースから削除",
+                        variant="stop",
+                        interactive=False
+                    )
+                
+        # 隠し状態でimage_idと元のキャプションを管理
+        image_id_state = gr.State(value=None)
+        original_caption_state = gr.State(value="")
+        
+        return (upload_image, filename_input, generate_caption_button, search_image_button, clear_button,
+                display_image, generated_caption, editable_caption, regenerate_caption_button, 
+                update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
+                delete_accordion, confirm_delete_checkbox, delete_button,
+                prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, 
+                prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
+                confirm_prompt_delete_checkbox, delete_prompt_button)
         
     def create_results_section(self):
         """検索結果セクションのUIコンポーネントを作成"""
@@ -112,20 +298,20 @@ class UIComponents:
             with gr.Row():        
                 with gr.Column():
                     with gr.Row():
-                        gr.Markdown("**ファイル名：**")
-                        filename_text = gr.Textbox(show_label=False, interactive=False, container=False)
-                        score_label = gr.Markdown("**コサイン類似度：**")
-                        similarity_text = gr.Textbox(show_label=False, interactive=False, container=False)
+                        filename_text = gr.Textbox(show_label=True, label="ファイル名", interactive=False, container=True, show_copy_button=True)
+                        similarity_text = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True)
                     with gr.Row():
                         caption_text = gr.Textbox(
-                            show_label=False,
+                            show_label=True,
+                            label="キャプション",
                             interactive=False,
                             lines=10,
+                            container=True,
                             show_copy_button=True,
-                            placeholder="説明"
+                            placeholder="キャプションがここに表示されます"
                         )
                 
-        return filename_text, similarity_text, caption_text, score_label
+        return filename_text, similarity_text, caption_text
         
     def create_query_detail_section(self):
         """クエリ詳細セクションのUIコンポーネントを作成"""
@@ -137,6 +323,7 @@ class UIComponents:
                     show_label=True,
                     interactive=False,
                     container=True,
+                    show_copy_button=True,
                     scale=4,
                     lines=2
                 )
@@ -147,6 +334,7 @@ class UIComponents:
                 label="全文検索：形態素解析結果",
                 show_label=True,
                 container=True,
+                show_copy_button=True,
                 visible=False,
                 elem_id="morphological_analysis"
             )

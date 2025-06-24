@@ -42,6 +42,19 @@ class EmbeddingService:
     def _get_image_embedding_cohere(self, image):
         """CohereAIを使用して画像の埋め込みベクトルを生成"""
         # 画像データをPILからBase64エンコードしてData URLに変換
+        # RGBA形式の場合はRGB形式に変換（JPEG形式はアルファチャンネルをサポートしないため）
+        if image.mode in ('RGBA', 'LA'):
+            # 白い背景に合成
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'RGBA':
+                background.paste(image, mask=image.split()[-1])  # アルファチャンネルをマスクとして使用
+            else:  # LA (Luminance + Alpha)
+                background.paste(image, mask=image.split()[-1])
+            image = background
+        elif image.mode not in ('RGB', 'L'):
+            # その他のモードもRGBに変換
+            image = image.convert('RGB')
+            
         buffered = BytesIO()
         image.save(buffered, format="JPEG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
@@ -74,6 +87,19 @@ class EmbeddingService:
     def _get_image_embedding_oci(self, image):
         """OCIを使用して画像の埋め込みベクトルを生成"""
         # 画像データをPILからBase64エンコードしてData URLに変換
+        # RGBA形式の場合はRGB形式に変換（JPEG形式はアルファチャンネルをサポートしないため）
+        if image.mode in ('RGBA', 'LA'):
+            # 白い背景に合成
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'RGBA':
+                background.paste(image, mask=image.split()[-1])  # アルファチャンネルをマスクとして使用
+            else:  # LA (Luminance + Alpha)
+                background.paste(image, mask=image.split()[-1])
+            image = background
+        elif image.mode not in ('RGB', 'L'):
+            # その他のモードもRGBに変換
+            image = image.convert('RGB')
+            
         buffered = BytesIO()
         image.save(buffered, format="JPEG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
