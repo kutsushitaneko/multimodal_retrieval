@@ -3,12 +3,40 @@ from PIL import Image
 import math
 import time
 from io import BytesIO
+from app.vlm_service import VLMService
 
 class UIEvents:
     """UIイベントを管理するクラス"""
     
     def __init__(self, search_service):
         self.search_service = search_service
+        self.vlm_service = VLMService()
+        
+    def register_vlm_settings_events(self, vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message):
+        """VLM設定のイベントを登録"""
+        # サービスプロバイダー変更時のイベント
+        vlm_service_provider.change(
+            fn=self.vlm_service_provider_changed,
+            inputs=[vlm_service_provider],
+            outputs=[vlm_model, vlm_max_tokens, vlm_oci_region],
+            queue=False  # VLM設定変更は即座に処理
+        )
+        
+        # VLMモデル変更時のイベント
+        vlm_model.change(
+            fn=self.vlm_model_changed,
+            inputs=[vlm_model],
+            outputs=[vlm_max_tokens, vlm_oci_region],
+            queue=False  # VLMモデル変更は即座に処理
+        )
+        
+    def vlm_service_provider_changed(self, service_provider):
+        """VLMサービスプロバイダー変更時の処理"""
+        return self.vlm_service.service_provider_changed(service_provider)
+    
+    def vlm_model_changed(self, model):
+        """VLMモデル変更時の処理"""
+        return self.vlm_service.model_changed(model)
         
     def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, query_examples, executed_sql_text):
         """検索対象変更時のイベントを登録"""
@@ -674,40 +702,61 @@ class UIEvents:
                                     delete_accordion, confirm_delete_checkbox, delete_button,
                                     prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, 
                                     prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
-                                    confirm_prompt_delete_checkbox, delete_prompt_button):
+                                    confirm_prompt_delete_checkbox, delete_prompt_button,
+                                    vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message):
         """アップロード・編集機能のイベントを登録"""
-        
-        # ファイル名自動表示機能
-        upload_image.change(
+        # アップロード時の処理（Gradioのバグ対策でqueue=Falseを設定）
+        upload_image.upload(
             fn=self.extract_filename_from_upload,
             inputs=[upload_image],
-            outputs=[filename_input]
-        ).then(
-            fn=self.display_uploaded_image,
-            inputs=[upload_image],
-            outputs=[display_image]
+            outputs=[filename_input],
+            show_progress=True,
+            queue=False  # ファイルアップロードは即座に処理
         ).then(
             fn=self.update_upload_button_states_on_upload,
             inputs=[upload_image, filename_input],
-            outputs=[filename_input, generate_caption_button, search_image_button, regenerate_caption_button, update_database_button, cancel_edit_button]
+            outputs=[generate_caption_button, search_image_button, filename_input],
+            queue=False  # ボタン状態更新も即座に処理
+        ).then(
+            fn=self.display_uploaded_image,
+            inputs=[upload_image],
+            outputs=[display_image],
+            queue=False  # 画像表示も即座に処理
         )
         
-        # キャプション生成ボタン
+        # ファイル名入力時の処理
+        filename_input.change(
+            fn=self.update_upload_button_states_on_filename_input,
+            inputs=[upload_image, filename_input],
+            outputs=[generate_caption_button, search_image_button, filename_input],
+            queue=False  # ボタン状態更新は即座に処理
+        )
+        
+        # キャプション生成ボタンの処理
         generate_caption_button.click(
-            fn=self.generate_caption_from_upload,
-            inputs=[upload_image, filename_input, prompt_template_dropdown],
-            outputs=[generated_caption, editable_caption, status_message, image_id_state, original_caption_state]
+            fn=lambda *args: (gr.Button("キャプション生成中...", interactive=False, variant="secondary"), ""),
+            inputs=[],
+            outputs=[generate_caption_button, status_message],
+            queue=False  # ボタン無効化は即座に実行
+        ).then(
+            fn=self.generate_caption_from_upload_with_vlm,
+            inputs=[upload_image, filename_input, prompt_template_dropdown, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region],
+            outputs=[generated_caption, editable_caption, status_message, image_id_state, original_caption_state],
+            show_progress=True,
+            queue=True
         ).then(
             fn=self.update_upload_button_states_after_generation,
             inputs=[],
-            outputs=[generate_caption_button, regenerate_caption_button, update_database_button, cancel_edit_button]
+            outputs=[regenerate_caption_button, update_database_button, cancel_edit_button, generate_caption_button]
         )
         
-        # 画像検索ボタン
+        # 画像検索ボタンの処理
         search_image_button.click(
             fn=self.search_image_by_filename,
             inputs=[filename_input],
-            outputs=[display_image, generated_caption, editable_caption, status_message, image_id_state, original_caption_state]
+            outputs=[display_image, generated_caption, editable_caption, status_message, image_id_state, original_caption_state],
+            show_progress=True,
+            queue=True
         ).then(
             fn=self.update_upload_button_states_after_search,
             inputs=[image_id_state],
@@ -718,15 +767,28 @@ class UIEvents:
             outputs=[delete_accordion]
         )
         
-        # キャプション再生成ボタン
+        # クリアボタンの処理
+        clear_button_upload.click(
+            fn=lambda: self.clear_upload_tab() + (gr.Textbox(interactive=True),),  # ファイル名欄を有効化
+            inputs=[],
+            outputs=[upload_image, filename_input, display_image, generated_caption, editable_caption, 
+                     generate_caption_button, search_image_button, regenerate_caption_button,
+                     update_database_button, cancel_edit_button, status_message, image_id_state, 
+                     original_caption_state, delete_accordion, filename_input],
+            queue=False  # クリア処理は即座に実行
+        )
+        
+        # キャプション再生成ボタンの処理
         regenerate_caption_button.click(
             fn=self.disable_database_button_during_regeneration,
             inputs=[],
             outputs=[update_database_button]
         ).then(
-            fn=self.regenerate_caption,
-            inputs=[display_image, image_id_state, prompt_template_dropdown],
-            outputs=[editable_caption, status_message]
+            fn=self.regenerate_caption_with_vlm,
+            inputs=[display_image, image_id_state, prompt_template_dropdown, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region],
+            outputs=[editable_caption, status_message],
+            show_progress=True,
+            queue=True
         ).then(
             fn=self.enable_database_button_after_regeneration,
             inputs=[],
@@ -737,7 +799,9 @@ class UIEvents:
         update_database_button.click(
             fn=self.update_database_with_registration_and_update,
             inputs=[generated_caption, editable_caption, image_id_state, upload_image, filename_input, original_caption_state],
-            outputs=[generated_caption, editable_caption, status_message, original_caption_state, update_database_button, image_id_state]
+            outputs=[generated_caption, editable_caption, status_message, original_caption_state, update_database_button, image_id_state],
+            show_progress=True,
+            queue=True
         ).then(
             fn=self.show_delete_accordion_after_registration,
             inputs=[image_id_state],
@@ -748,38 +812,25 @@ class UIEvents:
         cancel_edit_button.click(
             fn=self.cancel_edit,
             inputs=[original_caption_state],
-            outputs=[editable_caption, status_message]
-        )
-        
-        # クリアボタン
-        clear_button_upload.click(
-            fn=self.clear_upload_tab,
-            inputs=[],
-            outputs=[upload_image, filename_input, display_image, generated_caption, editable_caption, 
-                    status_message, image_id_state, original_caption_state, 
-                    generate_caption_button, search_image_button, regenerate_caption_button, 
-                    update_database_button, cancel_edit_button, delete_accordion, confirm_delete_checkbox, delete_button]
-        )
-        
-        # ファイル名入力時の状態更新
-        filename_input.change(
-            fn=self.update_upload_button_states_on_filename_input,
-            inputs=[upload_image, filename_input],
-            outputs=[search_image_button]
+            outputs=[editable_caption, status_message],
+            queue=False  # 編集取消は即座に処理
         )
         
         # 削除確認チェックボックス
         confirm_delete_checkbox.change(
             fn=self.update_delete_button_state,
             inputs=[confirm_delete_checkbox],
-            outputs=[delete_button]
+            outputs=[delete_button],
+            queue=False  # チェックボックス変更は即座に処理
         )
         
         # 削除ボタン
         delete_button.click(
             fn=self.delete_image_from_database,
             inputs=[image_id_state, filename_input],
-            outputs=[status_message, delete_accordion, image_id_state]
+            outputs=[status_message, delete_accordion, image_id_state],
+            show_progress=True,
+            queue=True
         ).then(
             fn=self.clear_after_delete,
             inputs=[],
@@ -792,35 +843,42 @@ class UIEvents:
         prompt_template_dropdown.change(
             fn=self.load_prompt_template,
             inputs=[prompt_template_dropdown],
-            outputs=[current_prompt_display, prompt_edit_textbox, prompt_status_message]
+            outputs=[current_prompt_display, prompt_edit_textbox, prompt_status_message],
+            queue=False  # プロンプト選択は即座に処理
         )
         
         # プロンプト保存ボタン
         save_prompt_button.click(
             fn=self.save_prompt_template,
             inputs=[prompt_name_input, prompt_edit_textbox],
-            outputs=[prompt_template_dropdown, prompt_status_message]
+            outputs=[prompt_template_dropdown, prompt_status_message],
+            show_progress=True,
+            queue=True
         )
         
         # プロンプト編集取消ボタン
         cancel_prompt_edit_button.click(
             fn=self.cancel_prompt_edit,
             inputs=[prompt_template_dropdown],
-            outputs=[prompt_edit_textbox, prompt_status_message]
+            outputs=[prompt_edit_textbox, prompt_status_message],
+            queue=False  # プロンプト編集取消は即座に処理
         )
         
         # プロンプト削除確認チェックボックス
         confirm_prompt_delete_checkbox.change(
             fn=self.update_prompt_delete_button_state,
             inputs=[confirm_prompt_delete_checkbox],
-            outputs=[delete_prompt_button]
+            outputs=[delete_prompt_button],
+            queue=False  # チェックボックス変更は即座に処理
         )
         
         # プロンプト削除ボタン
         delete_prompt_button.click(
             fn=self.delete_prompt_template,
             inputs=[prompt_template_dropdown],
-            outputs=[prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, prompt_status_message, confirm_prompt_delete_checkbox, delete_prompt_button]
+            outputs=[prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, prompt_status_message, confirm_prompt_delete_checkbox, delete_prompt_button],
+            show_progress=True,
+            queue=True
         )
         
         # アプリ起動時にプロンプトテンプレートのリストを更新（削除）
@@ -831,39 +889,41 @@ class UIEvents:
         if uploaded_file is not None:
             # 画像がアップロードされた場合
             return (
-                gr.Textbox(interactive=False),  # ファイル名を編集不可
                 gr.Button(interactive=True),    # キャプション生成をイネーブル
                 gr.Button(interactive=False),   # 画像検索をディスエーブル
-                gr.Button(interactive=False),   # キャプション再生成をディスエーブル
-                gr.Button(interactive=False),   # データベース更新をディスエーブル
-                gr.Button(interactive=False)    # 編集取消をディスエーブル
+                gr.Textbox(interactive=False)   # ファイル名欄をディスエーブル
             )
         else:
             # 画像がない場合は全ボタンをディスエーブル
             return (
-                gr.Textbox(interactive=True),   # ファイル名を編集可能
                 gr.Button(interactive=False),   # キャプション生成をディスエーブル
                 gr.Button(interactive=False),   # 画像検索をディスエーブル
-                gr.Button(interactive=False),   # キャプション再生成をディスエーブル
-                gr.Button(interactive=False),   # データベース更新をディスエーブル
-                gr.Button(interactive=False)    # 編集取消をディスエーブル
+                gr.Textbox(interactive=True)    # ファイル名欄をイネーブル
             )
             
     def update_upload_button_states_on_filename_input(self, uploaded_file, filename):
         """ファイル名入力時のボタン状態更新"""
         if uploaded_file is None and filename and filename.strip():
             # 画像未アップロードでファイル名が入力されている場合
-            return gr.Button(interactive=True)  # 画像検索をイネーブル
+            return (
+                gr.Button(interactive=False),   # キャプション生成をディスエーブル
+                gr.Button(interactive=True),    # 画像検索をイネーブル
+                gr.Textbox(interactive=True)    # ファイル名欄をイネーブル（画像未アップロード時）
+            )
         else:
-            return gr.Button(interactive=False)  # 画像検索をディスエーブル
+            return (
+                gr.Button(interactive=bool(uploaded_file)),  # キャプション生成の状態を維持
+                gr.Button(interactive=False),   # 画像検索をディスエーブル
+                gr.Textbox(interactive=not bool(uploaded_file))  # 画像がある場合は無効、ない場合は有効
+            )
             
     def update_upload_button_states_after_generation(self):
         """キャプション生成後のボタン状態更新"""
         return (
-            gr.Button(interactive=False),   # キャプション生成をディスエーブル
             gr.Button(interactive=True),    # キャプション再生成をイネーブル
             gr.Button("データベースへ登録", interactive=True, variant="primary"),    # データベース登録をイネーブル
-            gr.Button(interactive=True)     # 編集取消をイネーブル
+            gr.Button(interactive=True),    # 編集取消をイネーブル
+            gr.Button("キャプション生成", interactive=False, variant="secondary")  # キャプション生成ボタンは無効のまま
         )
         
     def update_upload_button_states_after_search(self, image_id):
@@ -891,17 +951,15 @@ class UIEvents:
             None,                           # display_image
             "",                             # generated_caption
             "",                             # editable_caption
-            "",                             # status_message
-            None,                           # image_id_state
-            "",                             # original_caption_state
-            gr.Button(interactive=False),   # generate_caption_button
+            gr.Button("キャプション生成", interactive=False, variant="primary"),   # generate_caption_button
             gr.Button(interactive=False),   # search_image_button
             gr.Button(interactive=False),   # regenerate_caption_button
             gr.Button("データベースへ登録", interactive=False, variant="primary"),   # update_database_button
             gr.Button(interactive=False),   # cancel_edit_button
-            gr.update(visible=False),       # delete_accordion
-            gr.Checkbox(value=False, interactive=True),  # confirm_delete_checkbox
-            gr.Button(interactive=False)    # delete_button
+            "",                             # status_message
+            None,                           # image_id_state
+            "",                             # original_caption_state
+            gr.update(visible=False)        # delete_accordion
         )
         
     def cancel_edit(self, original_caption):
@@ -1056,8 +1114,8 @@ class UIEvents:
             timestamp = int(time.time())
             return f"uploaded_image_{timestamp}.jpg"
 
-    def generate_caption_from_upload(self, uploaded_file, filename, selected_prompt_template="デフォルト"):
-        """アップロードされたファイルからキャプションを生成（データベース登録なし）"""
+    def generate_caption_from_upload_with_vlm(self, uploaded_file, filename, selected_prompt_template, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region):
+        """VLM設定を使用してアップロードされたファイルからキャプションを生成"""
         if uploaded_file is None:
             return "", "", "❌ 画像をアップロードしてください。", None, ""
             
@@ -1065,56 +1123,92 @@ class UIEvents:
             return "", "", "❌ ファイル名を入力してください。", None, ""
         
         try:
-            # ファイルパスからPIL画像を読み込み
-            from PIL import Image
+            # ファイルパスを取得
             if hasattr(uploaded_file, 'name'):
                 image_path = uploaded_file.name
             elif isinstance(uploaded_file, str):
                 image_path = uploaded_file
             else:
                 return "", "", "❌ ファイル形式が不正です。", None, ""
-                
-            uploaded_image = Image.open(image_path)
-            
-            # 画像データをバイト配列に変換
-            # RGBA形式の場合はRGB形式に変換（JPEG形式はアルファチャンネルをサポートしないため）
-            if uploaded_image.mode in ('RGBA', 'LA'):
-                # 白い背景に合成
-                background = Image.new('RGB', uploaded_image.size, (255, 255, 255))
-                if uploaded_image.mode == 'RGBA':
-                    background.paste(uploaded_image, mask=uploaded_image.split()[-1])  # アルファチャンネルをマスクとして使用
-                else:  # LA (Luminance + Alpha)
-                    background.paste(uploaded_image, mask=uploaded_image.split()[-1])
-                uploaded_image = background
-            elif uploaded_image.mode not in ('RGB', 'L'):
-                # その他のモードもRGBに変換
-                uploaded_image = uploaded_image.convert('RGB')
-                
-            buffered = BytesIO()
-            uploaded_image.save(buffered, format="JPEG")
-            image_data = buffered.getvalue()
-            
-            # データベースサービスを通じてキャプションのみを生成
-            database_service = self.search_service.database_service
-            
-            # 設定を取得
-            from app.config import Config
-            config = Config()
-            oci_client = config.get_oci_generative_ai_client()
             
             # 選択されたプロンプトテンプレートを読み込み
             custom_prompt = self.get_current_prompt(selected_prompt_template)
             
-            # キャプションを生成（データベースには登録しない）
-            caption = database_service.get_image_caption(
-                oci_client, image_data, config.mllm_model_id, config.compartment_id, custom_prompt
+            # NLPサービスを使用してVLMでキャプション生成
+            from app.nlp_service import NLPService
+            nlp_service = NLPService()
+            
+            caption = nlp_service.generate_caption_with_vlm(
+                image_path=image_path,
+                vlm_model=vlm_model,
+                prompt_text=custom_prompt,
+                temperature=vlm_temperature,
+                max_tokens=vlm_max_tokens,
+                oci_region=vlm_oci_region
             )
             
-            return caption, caption, f"✅ キャプションを生成しました。", None, caption
+            return caption, caption, f"✅ VLM（{vlm_model}）でキャプションを生成しました。", None, caption
                 
         except Exception as e:
-            print(f"キャプション生成エラー: {e}")
+            print(f"VLMキャプション生成エラー: {e}")
             return "", "", f"❌ エラーが発生しました: {str(e)}", None, ""
+    
+    def regenerate_caption_with_vlm(self, display_image, image_id, selected_prompt_template, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region):
+        """VLM設定を使用してキャプションを再生成"""
+        if display_image is None:
+            return "", "❌ 画像が表示されていません。"
+            
+        try:
+            # 一時ファイルに画像を保存
+            import tempfile
+            import os
+            
+            # 画像データを一時ファイルに保存
+            processed_image = display_image
+            if processed_image.mode in ('RGBA', 'LA'):
+                # 白い背景に合成
+                from PIL import Image
+                background = Image.new('RGB', processed_image.size, (255, 255, 255))
+                if processed_image.mode == 'RGBA':
+                    background.paste(processed_image, mask=processed_image.split()[-1])
+                else:  # LA (Luminance + Alpha)
+                    background.paste(processed_image, mask=processed_image.split()[-1])
+                processed_image = background
+            elif processed_image.mode not in ('RGB', 'L'):
+                processed_image = processed_image.convert('RGB')
+            
+            # 一時ファイルを作成
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                processed_image.save(temp_file.name, format="JPEG")
+                temp_image_path = temp_file.name
+            
+            try:
+                # 選択されたプロンプトテンプレートを読み込み
+                custom_prompt = self.get_current_prompt(selected_prompt_template)
+                
+                # NLPサービスを使用してVLMでキャプション生成
+                from app.nlp_service import NLPService
+                nlp_service = NLPService()
+                
+                new_caption = nlp_service.generate_caption_with_vlm(
+                    image_path=temp_image_path,
+                    vlm_model=vlm_model,
+                    prompt_text=custom_prompt,
+                    temperature=vlm_temperature,
+                    max_tokens=vlm_max_tokens,
+                    oci_region=vlm_oci_region
+                )
+                
+                return new_caption, f"✅ VLM（{vlm_model}）でキャプションを再生成しました。"
+                
+            finally:
+                # 一時ファイルを削除
+                if os.path.exists(temp_image_path):
+                    os.unlink(temp_image_path)
+            
+        except Exception as e:
+            print(f"VLMキャプション再生成エラー: {e}")
+            return "", f"❌ エラーが発生しました: {str(e)}"
 
     def search_image_by_filename(self, filename):
         """ファイル名で画像を検索"""
@@ -1247,7 +1341,7 @@ class UIEvents:
             None,                           # display_image
             "",                             # generated_caption
             "",                             # editable_caption
-            gr.Button(interactive=False),   # generate_caption_button
+            gr.Button("キャプション生成", interactive=False, variant="primary"),   # generate_caption_button
             gr.Button(interactive=False),   # search_image_button
             gr.Button(interactive=False),   # regenerate_caption_button
             gr.Button("データベースへ登録", interactive=False, variant="primary"),   # update_database_button

@@ -1,4 +1,3 @@
 #!/bin/bash
 
-source .venv/bin/activate
-python -u main.py > output.log 2>&1 &
+PYTHONUNBUFFERED=1 uv run multimodal_retriever.py > output.log 2>&1 &

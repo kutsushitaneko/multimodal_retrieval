@@ -60,7 +60,7 @@ class UIComponents:
                         )
                 
                 with gr.Row():
-                    search_button = gr.Button("検索")
+                    search_button = gr.Button("検索", variant="primary")
                     clear_button = gr.Button("クリア")
                     show_all_button = gr.Button("全件表示")
                     
@@ -225,6 +225,122 @@ class UIComponents:
                         # プロンプト操作のステータス
                         prompt_status_message = gr.Markdown("")
                 
+                # VLM設定セクション（デフォルトでクローズ）
+                with gr.Accordion("VLM設定", open=False) as vlm_settings_accordion:
+                    # モデル設定の初期化
+                    def initialize_vlm_models():
+                        try:
+                            import json
+                            import os
+                            with open("model_settings.json", "r", encoding="utf-8") as f:
+                                model_settings = json.load(f)
+                            
+                            # Vision対応モデルのみフィルタリング
+                            vlm_models = {
+                                k: v for k, v in model_settings.items() 
+                                if v.get("vision", False)
+                            }
+                            
+                            vlm_choices = list(vlm_models.keys()) if vlm_models else ["モデルがありません"]
+                            default_vlm = vlm_choices[0] if vlm_choices else "モデルがありません"
+                            
+                            # サービスプロバイダー一覧を取得
+                            service_providers = set()
+                            for model_info in vlm_models.values():
+                                api_type = model_info.get("api_type", "")
+                                if "oci" in api_type.lower():
+                                    service_providers.add("OCI")
+                                elif "anthropic" in api_type.lower():
+                                    service_providers.add("Anthropic")
+                                elif "bedrock" in api_type.lower():
+                                    service_providers.add("AWS")
+                                elif "cohere" in api_type.lower():
+                                    service_providers.add("Cohere")
+                                elif "openai" in api_type.lower():
+                                    service_providers.add("OpenAI")
+                            
+                            provider_choices = ["すべて"] + sorted(list(service_providers))
+                            
+                            return vlm_choices, default_vlm, provider_choices, vlm_models
+                        except Exception as e:
+                            print(f"VLMモデル初期化エラー: {e}")
+                            return ["エラー"], "エラー", ["すべて"], {}
+                    
+                    vlm_choices, default_vlm, provider_choices, vlm_models = initialize_vlm_models()
+                    
+                    # サービスプロバイダー選択
+                    vlm_service_provider = gr.Dropdown(
+                        label="サービスプロバイダ",
+                        choices=provider_choices,
+                        value="すべて",
+                        interactive=True
+                    )
+                    
+                    # VLMモデル選択
+                    vlm_model = gr.Dropdown(
+                        label="VLMモデル",
+                        choices=vlm_choices,
+                        value=default_vlm,
+                        interactive=True
+                    )
+                    
+                    # 温度設定
+                    vlm_temperature = gr.Slider(
+                        label="Temperature",
+                        minimum=0.0,
+                        maximum=1.0,
+                        step=0.1,
+                        value=0.3,
+                        interactive=True
+                    )
+                    
+                    # Max tokens設定
+                    initial_max_tokens = vlm_models.get(default_vlm, {}).get("max_tokens", 4096) if default_vlm != "エラー" else 4096
+                    initial_default_tokens = vlm_models.get(default_vlm, {}).get("default_tokens", 4096) if default_vlm != "エラー" else 4096
+                    
+                    vlm_max_tokens = gr.Slider(
+                        label="Max tokens",
+                        minimum=1,
+                        maximum=initial_max_tokens,
+                        step=1,
+                        value=initial_default_tokens,
+                        interactive=True
+                    )
+                    
+                    # OCIリージョン設定（OCIモデルの場合のみ表示）
+                    OCI_REGIONS = {
+                        "Brazil East (Sao Paulo)": "sa-saopaulo-1",
+                        "Germany Central (Frankfurt)": "eu-frankfurt-1", 
+                        "Japan Central (Osaka)": "ap-osaka-1",
+                        "UAE East (Dubai)": "me-dubai-1",
+                        "UK South (London)": "uk-london-1",
+                        "US Midwest (Chicago)": "us-chicago-1"
+                    }
+                    
+                    initial_is_oci = default_vlm != "エラー" and vlm_models.get(default_vlm, {}).get("api_type", "").startswith("oci")
+                    
+                    # 初期リージョンを設定（モデルのdefault_regionを優先）
+                    initial_region_name = "Japan Central (Osaka)"  # デフォルトのフォールバック値
+                    if initial_is_oci:
+                        default_region_id = vlm_models.get(default_vlm, {}).get("default_region")
+                        if default_region_id:
+                            # region_idからregion_nameを逆引き
+                            for name, region_id in OCI_REGIONS.items():
+                                if region_id == default_region_id:
+                                    initial_region_name = name
+                                    break
+                    
+                    vlm_oci_region = gr.Dropdown(
+                        label="OCIリージョン",
+                        choices=list(OCI_REGIONS.keys()),
+                        value=initial_region_name,
+                        interactive=True,
+                        visible=initial_is_oci
+                    )
+                    
+                    # VLM設定のステータス
+                    vlm_status_message = gr.Markdown("")
+                
                 # イメージの削除アコーディオン（デフォルトでクローズ）
                 with gr.Accordion("イメージの削除", open=False, visible=False) as delete_accordion:
                     gr.Markdown("⚠️ **危険な操作**: この画像をデータベースから完全に削除します。この操作は元に戻せません。")
@@ -250,7 +366,8 @@ class UIComponents:
                 delete_accordion, confirm_delete_checkbox, delete_button,
                 prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, 
                 prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
-                confirm_prompt_delete_checkbox, delete_prompt_button)
+                confirm_prompt_delete_checkbox, delete_prompt_button,
+                vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message)
         
     def create_results_section(self):
         """検索結果セクションのUIコンポーネントを作成"""

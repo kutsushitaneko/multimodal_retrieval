@@ -1,5 +1,8 @@
 cohere
 oci
+anthropic
+openai
+boto3
 oracledb
 pillow
 numpy
@@ -8,3 +11,4 @@ gradio
 spacy
 ginza
 ja_ginza
+google-cloud-aiplatform

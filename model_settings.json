@@ -1,0 +1,221 @@
+{
+    "cohere.command-a-03-2025(OCI)": {
+        "model_name": "cohere.command-a-03-2025",
+        "api_type": "oci.cohere.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000
+    },
+    "cohere.command-r-plus-08-2024(OCI)": {
+        "model_name": "cohere.command-r-plus-08-2024",
+        "api_type": "oci.cohere.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000
+    },
+    "cohere.command-r-08-2024(OCI)": {
+        "model_name": "cohere.command-r-08-2024",
+        "api_type": "oci.cohere.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000
+    },
+    "meta.llama-4-maverick-17b-128e-instruct-fp8(OCI)": {
+        "model_name": "meta.llama-4-maverick-17b-128e-instruct-fp8",
+        "api_type": "oci.llama.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000,
+        "vision": true,
+        "default_region": "us-chicago-1"
+    },
+    "meta.llama-4-scout-17b-16e-instruct(OCI)": {
+        "model_name": "meta.llama-4-scout-17b-16e-instruct",
+        "api_type": "oci.llama.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000,
+        "vision": true,
+        "default_region": "us-chicago-1"
+    },
+    "meta.llama-3.3-70b-instruct(OCI)": {
+        "model_name": "meta.llama-3.3-70b-instruct",
+        "api_type": "oci.llama.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000
+    },
+    "meta.llama-3.2-90b-vision-instruct(OCI)": {
+        "model_name": "meta.llama-3.2-90b-vision-instruct",
+        "api_type": "oci.llama.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000,
+        "vision": true
+    },
+    "command-a-03-2025(CohereAI)": {
+        "model_name": "command-a-03-2025",
+        "api_type": "cohere.chat",
+        "max_tokens": 8000,
+        "default_tokens": 4000
+    },
+    "command-r-plus-08-2024(CohereAI)": {
+        "model_name": "command-r-plus-08-2024",
+        "api_type": "cohere.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000
+    },
+    "command-r-08-2024(CohereAI)": {
+        "model_name": "command-r-08-2024",
+        "api_type": "cohere.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000
+    },
+    "command-r-plus(CohereAI)": {
+        "model_name": "command-r-plus",
+        "api_type": "cohere.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000
+    },
+    "command-r(CohereAI)": {
+        "model_name": "command-r",
+        "api_type": "cohere.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000
+    },
+    "claude-opus-4-0(Anthropic)": {
+        "model_name": "claude-opus-4-0",
+        "api_type": "anthropic.message",
+        "max_tokens": 32000,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-sonnet-4-0(Anthropic)": {
+        "model_name": "claude-sonnet-4-0",
+        "api_type": "anthropic.message",
+        "max_tokens": 64000,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-3-7-sonnet-latest(Anthropic)": {
+        "model_name": "claude-3-7-sonnet-latest",
+        "api_type": "anthropic.message",
+        "max_tokens": 64000,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-3-5-sonnet-latest(Anthropic)": {
+        "model_name": "claude-3-5-sonnet-latest",
+        "api_type": "anthropic.message",
+        "max_tokens": 8192,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-3-5-haiku-latest(Anthropic)": {
+        "model_name": "claude-3-5-haiku-latest",
+        "api_type": "anthropic.message",
+        "max_tokens": 8192,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-3-opus-latest(Anthropic)": {
+        "model_name": "claude-3-opus-latest",
+        "api_type": "anthropic.message",
+        "max_tokens": 4096,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-opus-4-20250514-v1:0(Amazon Bedrock)": {
+        "model_name": "us.anthropic.claude-opus-4-20250514-v1:0",
+        "api_type": "AnthropicBedrock",
+        "max_tokens": 32000,
+        "default_tokens": 4096,
+        "vision": true,
+        "default_region": "us-west-2"
+    },
+    "claude-sonnet-4-20250514-v1:0(Amazon Bedrock)": {
+        "model_name": "apac.anthropic.claude-sonnet-4-20250514-v1:0",
+        "api_type": "AnthropicBedrock",
+        "max_tokens": 64000,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-3-7-sonnet-20250219-v1:0(Amazon Bedrock)": {
+        "model_name": "apac.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        "api_type": "AnthropicBedrock",
+        "max_tokens": 64000,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-3.5-sonnet-20240628(Amazon Bedrock)": {
+        "model_name": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+        "api_type": "AnthropicBedrock",
+        "max_tokens": 4096,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-3-5-haiku-20241022-v1:0(Amazon Bedrock)": {
+        "model_name": "anthropic.claude-3-5-haiku-20241022-v1:0",
+        "api_type": "AnthropicBedrock",
+        "max_tokens": 4096,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-3-opus-20240229(Amazon Bedrock)": {
+        "model_name": "anthropic.claude-3-opus-20240229-v1:0",
+        "api_type": "AnthropicBedrock",
+        "max_tokens": 4096,
+        "default_tokens": 4096,
+        "vision": true
+    },    
+    "o4-mini-2025-04-16(OpenAI)": {
+        "model_name": "o4-mini-2025-04-16",
+        "api_type": "openai.chat.completion.reasoning",
+        "max_tokens": 100000,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "o3-pro-2025-06-10(OpenAI)": {
+        "model_name": "o3-pro-2025-06-10",
+        "api_type": "openai.reasoning",
+        "max_tokens": 100000,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "o3-2025-04-16(OpenAI)": {
+        "model_name": "o3-2025-04-16",
+        "api_type": "openai.chat.completion.reasoning",
+        "max_tokens": 100000,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "o3-mini-2025-01-31(OpenAI)": {
+        "model_name": "o3-mini-2025-01-31",
+        "api_type": "openai.chat.completion.reasoning",
+        "max_tokens": 100000,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "gpt-4.1-2025-04-14(OpenAI)": {
+        "model_name": "gpt-4.1-2025-04-14",
+        "api_type": "openai.chat.completion.reasoning",
+        "max_tokens": 32768,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "gpt-4.1-mini-2025-04-14(OpenAI)": {
+        "model_name": "gpt-4.1-mini-2025-04-14",
+        "api_type": "openai.chat.completion.reasoning",
+        "max_tokens": 32768,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "gpt-4o mini(OpenAI)": {
+        "model_name": "gpt-4o-mini",
+        "api_type": "openai.chat.completion",
+        "max_tokens": 4096,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "chatgpt-4o-latest(OpenAI)": {
+        "model_name": "chatgpt-4o-latest",
+        "api_type": "openai.chat.completion",
+        "max_tokens": 16384,
+        "default_tokens": 4096,
+        "vision": true
+    }
+}
+

@@ -219,7 +219,13 @@ def main():
                  delete_accordion, confirm_delete_checkbox, delete_button,
                  prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, 
                  prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
-                 confirm_prompt_delete_checkbox, delete_prompt_button) = ui_components.create_upload_edit_section()
+                 confirm_prompt_delete_checkbox, delete_prompt_button,
+                 vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message) = ui_components.create_upload_edit_section()
+                
+                # VLM設定のイベントを登録
+                ui_events.register_vlm_settings_events(
+                    vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message
+                )
                 
                 # アップロード・編集機能のイベントを登録
                 ui_events.register_upload_edit_events(
@@ -229,7 +235,8 @@ def main():
                     delete_accordion, confirm_delete_checkbox, delete_button,
                     prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, 
                     prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
-                    confirm_prompt_delete_checkbox, delete_prompt_button
+                    confirm_prompt_delete_checkbox, delete_prompt_button,
+                    vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message
                 )
     
     # アプリケーションの起動
