@@ -117,12 +117,19 @@
         "api_type": "anthropic.message",
         "max_tokens": 8192,
         "default_tokens": 4096,
-        "vision": true
+        "vision": false
     },
     "claude-3-opus-latest(Anthropic)": {
         "model_name": "claude-3-opus-latest",
         "api_type": "anthropic.message",
         "max_tokens": 4096,
+        "default_tokens": 4096,
+        "vision": true
+    },
+    "claude-sonnet-4-20250514-v1:0(Amazon Bedrock)": {
+        "model_name": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "api_type": "AnthropicBedrock",
+        "max_tokens": 64000,
         "default_tokens": 4096,
         "vision": true
     },
@@ -133,14 +140,7 @@
         "default_tokens": 4096,
         "vision": true,
         "default_region": "us-east-1"
-    },
-    "claude-sonnet-4-20250514-v1:0(Amazon Bedrock)": {
-        "model_name": "us.anthropic.claude-sonnet-4-20250514-v1:0",
-        "api_type": "AnthropicBedrock",
-        "max_tokens": 64000,
-        "default_tokens": 4096,
-        "vision": true
-    },
+    },    
     "claude-3-7-sonnet-20250219-v1:0(Amazon Bedrock)": {
         "model_name": "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
         "api_type": "AnthropicBedrock",
@@ -160,15 +160,8 @@
         "api_type": "AnthropicBedrock",
         "max_tokens": 4096,
         "default_tokens": 4096,
-        "vision": true
-    },
-    "claude-3-opus-20240229(Amazon Bedrock)": {
-        "model_name": "us.anthropic.claude-3-opus-20240229-v1:0",
-        "api_type": "AnthropicBedrock",
-        "max_tokens": 4096,
-        "default_tokens": 4096,
-        "vision": true
-    },    
+        "vision": false
+    },   
     "o4-mini-2025-04-16(OpenAI)": {
         "model_name": "o4-mini-2025-04-16",
         "api_type": "openai.chat.completion.reasoning",

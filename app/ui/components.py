@@ -230,40 +230,36 @@ class UIComponents:
                     # モデル設定の初期化
                     def initialize_vlm_models():
                         try:
-                            import json
-                            import os
-                            with open("model_settings.json", "r", encoding="utf-8") as f:
-                                model_settings = json.load(f)
+                            # VLMServiceを使用して一貫したフィルタリングを適用
+                            from app.vlm_service import VLMService
+                            vlm_service = VLMService()
                             
-                            # Vision対応モデルのみフィルタリング
-                            vlm_models = {
-                                k: v for k, v in model_settings.items() 
-                                if v.get("vision", False)
-                            }
+                            # Vision対応モデルのみを取得
+                            vlm_models = vlm_service.get_vlm_models()
                             
-                            vlm_choices = list(vlm_models.keys()) if vlm_models else ["モデルがありません"]
-                            default_vlm = vlm_choices[0] if vlm_choices else "モデルがありません"
+                            # デバッグ情報を出力
+                            all_models = vlm_service.model_settings
+                            non_vision_count = len(all_models) - len(vlm_models)
+                            print(f"🔍 UIコンポーネント初期化 - VLMService使用")
+                            print(f"✅ Vision対応モデル数: {len(vlm_models)}")
+                            print(f"❌ Vision非対応モデル数: {non_vision_count}")
+                            print(f"📊 総モデル数: {len(all_models)}")
                             
-                            # サービスプロバイダー一覧を取得
-                            service_providers = set()
-                            for model_info in vlm_models.values():
-                                api_type = model_info.get("api_type", "")
-                                if "oci" in api_type.lower():
-                                    service_providers.add("OCI")
-                                elif "anthropic" in api_type.lower():
-                                    service_providers.add("Anthropic")
-                                elif "bedrock" in api_type.lower():
-                                    service_providers.add("AWS")
-                                elif "cohere" in api_type.lower():
-                                    service_providers.add("Cohere")
-                                elif "openai" in api_type.lower():
-                                    service_providers.add("OpenAI")
+                            vlm_choices = list(vlm_models.keys()) if vlm_models else ["Vision対応モデルがありません"]
+                            default_vlm = vlm_choices[0] if vlm_choices else "Vision対応モデルがありません"
                             
-                            provider_choices = ["すべて"] + sorted(list(service_providers))
+                            print(f"🎯 デフォルトVLMモデル: {default_vlm}")
+                            
+                            # サービスプロバイダー一覧を取得（VLMServiceのメソッドを使用）
+                            provider_choices = vlm_service.get_available_service_providers()
+                            
+                            print(f"🌐 利用可能なプロバイダー: {provider_choices}")
                             
                             return vlm_choices, default_vlm, provider_choices, vlm_models
                         except Exception as e:
                             print(f"VLMモデル初期化エラー: {e}")
+                            import traceback
+                            traceback.print_exc()
                             return ["エラー"], "エラー", ["すべて"], {}
                     
                     vlm_choices, default_vlm, provider_choices, vlm_models = initialize_vlm_models()
