@@ -274,7 +274,7 @@ class NLPService:
             # Bedrock Runtimeクライアントを作成
             bedrock_runtime = boto3.client(
                 service_name='bedrock-runtime',
-                region_name='us-east-1'  # Bedrockが利用可能なリージョン
+                region_name='us-west-2'  # Bedrockが利用可能なリージョン
             )
             
             # 画像データからBase64データを抽出

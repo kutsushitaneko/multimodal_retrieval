@@ -1,4 +1,12 @@
 {
+    "xai.grok-3(OCI)": {
+        "model_name": "xai.grok-3",
+        "api_type": "oci.llama.chat",
+        "max_tokens": 131072,
+        "default_tokens": 4000,
+        "vision": false,
+        "default_region": "us-chicago-1"
+    },
     "cohere.command-a-03-2025(OCI)": {
         "model_name": "cohere.command-a-03-2025",
         "api_type": "oci.cohere.chat",
@@ -124,38 +132,38 @@
         "max_tokens": 32000,
         "default_tokens": 4096,
         "vision": true,
-        "default_region": "us-west-2"
+        "default_region": "us-east-1"
     },
     "claude-sonnet-4-20250514-v1:0(Amazon Bedrock)": {
-        "model_name": "apac.anthropic.claude-sonnet-4-20250514-v1:0",
+        "model_name": "us.anthropic.claude-sonnet-4-20250514-v1:0",
         "api_type": "AnthropicBedrock",
         "max_tokens": 64000,
         "default_tokens": 4096,
         "vision": true
     },
     "claude-3-7-sonnet-20250219-v1:0(Amazon Bedrock)": {
-        "model_name": "apac.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        "model_name": "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
         "api_type": "AnthropicBedrock",
         "max_tokens": 64000,
         "default_tokens": 4096,
         "vision": true
     },
-    "claude-3.5-sonnet-20240628(Amazon Bedrock)": {
-        "model_name": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+    "claude-3-5-sonnet-20241022-v2(Amazon Bedrock)": {
+        "model_name": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
         "api_type": "AnthropicBedrock",
         "max_tokens": 4096,
         "default_tokens": 4096,
         "vision": true
     },
     "claude-3-5-haiku-20241022-v1:0(Amazon Bedrock)": {
-        "model_name": "anthropic.claude-3-5-haiku-20241022-v1:0",
+        "model_name": "us.anthropic.claude-3-5-haiku-20241022-v1:0",
         "api_type": "AnthropicBedrock",
         "max_tokens": 4096,
         "default_tokens": 4096,
         "vision": true
     },
     "claude-3-opus-20240229(Amazon Bedrock)": {
-        "model_name": "anthropic.claude-3-opus-20240229-v1:0",
+        "model_name": "us.anthropic.claude-3-opus-20240229-v1:0",
         "api_type": "AnthropicBedrock",
         "max_tokens": 4096,
         "default_tokens": 4096,
