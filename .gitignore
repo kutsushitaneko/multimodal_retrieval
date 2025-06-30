@@ -10,6 +10,8 @@ output/
 prompts/
 memo/
 .env
+.env_labuser
+.env_devday25user
 temp/
 samples/
 *.kv

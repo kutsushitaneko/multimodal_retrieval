@@ -55,7 +55,7 @@ class UIEvents:
         )
         
     def register_search_method_events(self, search_method, query_input, uploaded_image, similarity_text, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text):
-        """検索方法変更時のイベントを登録"""
+        """クエリーの種類変更時のイベントを登録"""
         search_method.change(
             fn=self.update_input_visibility,
             inputs=[search_target, search_method],
@@ -269,15 +269,15 @@ class UIEvents:
         
     # イベントハンドラー関数
     def update_search_method_choices(self, search_target):
-        """検索対象に応じて検索方法の選択肢を更新する関数"""
+        """検索対象に応じてクエリーの種類の選択肢を更新する関数"""
         if search_target == "キャプション":
             # キャプション検索の場合は選択肢を表示しない（ハイブリッド検索のみ）
-            return gr.Radio(choices=["テキスト", "画像"], value="テキスト", label="検索方法", container=True, visible=False)
+            return gr.Radio(choices=["テキスト", "画像"], value="テキスト", label="クエリーの種類", container=True, visible=False)
         else:  # 画像
-            return gr.Radio(choices=["テキスト", "画像"], value="テキスト", label="検索方法", container=True, visible=True)
+            return gr.Radio(choices=["テキスト", "画像"], value="テキスト", label="クエリーの種類", container=True, visible=True)
             
     def update_input_visibility(self, search_target, search_method):
-        """検索方法に応じて入力フィールドの表示/非表示を切り替える関数"""
+        """クエリーの種類に応じて入力フィールドの表示/非表示を切り替える関数"""
         if search_target == "画像" and search_method == "画像":
             return gr.Textbox(
                 label="検索クエリ",
@@ -304,14 +304,14 @@ class UIEvents:
             ), gr.update(visible=True)
             
     def update_score_label(self, search_method):
-        """検索方法に応じてスコアラベルを更新する関数"""
+        """クエリーの種類に応じてスコアラベルを更新する関数"""
         if search_method == "全文検索":
             return gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True)
         else:
             return gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True)
             
     def update_query_text_interactivity(self, search_method):
-        """検索方法に応じてクエリテキストボックスの編集可能性とボタンの表示を切り替える関数"""
+        """クエリーの種類に応じてクエリテキストボックスの編集可能性とボタンの表示を切り替える関数"""
         if search_method == "全文検索":
             return gr.Textbox(
                 label="実行されたクエリ（編集できます。ヒント：AND、OR、\"...\"、ABOUT(\"...\")、NEAR((単語1, 単語2), 距離)）",
