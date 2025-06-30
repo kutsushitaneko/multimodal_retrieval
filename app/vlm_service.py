@@ -26,11 +26,16 @@ class VLMService:
             return {}
     
     def get_vlm_models(self):
-        """Vision対応モデルのみを取得"""
-        vlm_models = {
-            k: v for k, v in self.model_settings.items() 
-            if v.get("vision", False)
-        }
+        """Vision対応モデルのみを取得（厳密なフィルタリング）"""
+        vlm_models = {}
+        
+        for model_name, model_info in self.model_settings.items():
+            # visionフィールドが明示的にTrueに設定されているもののみを取得
+            is_vision_model = model_info.get("vision") is True
+            
+            if is_vision_model:
+                vlm_models[model_name] = model_info
+        
         return vlm_models
     
     def get_model_name(self, model_display_name):
@@ -59,12 +64,13 @@ class VLMService:
     
     def get_service_provider_from_api_type(self, api_type):
         """APIタイプからサービスプロバイダーを取得"""
+        # 判定順序を修正：bedrockを先にチェック
         if "oci" in api_type.lower():
             return "OCI"
-        elif "anthropic" in api_type.lower():
-            return "Anthropic"
         elif "bedrock" in api_type.lower():
             return "AWS"
+        elif "anthropic" in api_type.lower():
+            return "Anthropic"
         elif "cohere" in api_type.lower():
             return "Cohere"
         elif "openai" in api_type.lower():
@@ -76,8 +82,13 @@ class VLMService:
         """サービスプロバイダーでVLMモデルをフィルタリング"""
         vlm_models = self.get_vlm_models()
         
+        print(f"🔍 プロバイダーフィルタリング開始: {service_provider}")
+        print(f"📋 対象Vision対応モデル数: {len(vlm_models)}")
+        
         if service_provider == "すべて":
-            return list(vlm_models.keys())
+            filtered_models = list(vlm_models.keys())
+            print(f"✅ 全てのVision対応モデルを返します: {len(filtered_models)}個")
+            return filtered_models
         
         filtered_models = []
         for model_name, model_info in vlm_models.items():
@@ -86,10 +97,19 @@ class VLMService:
             if provider == service_provider:
                 filtered_models.append(model_name)
         
+        print(f"✅ {service_provider}プロバイダーのVision対応モデル: {len(filtered_models)}個")
+        if len(filtered_models) <= 3:
+            for model in filtered_models:
+                print(f"  - {model}")
+        else:
+            for model in filtered_models[:3]:
+                print(f"  - {model}")
+            print(f"  - ... その他 {len(filtered_models) - 3} 個")
+        
         return filtered_models
     
     def get_available_service_providers(self):
-        """利用可能なサービスプロバイダー一覧を取得"""
+        """利用可能なサービスプロバイダー一覧を取得（OCIを先頭に配置）"""
         vlm_models = self.get_vlm_models()
         service_providers = set()
         
@@ -99,7 +119,20 @@ class VLMService:
             if provider != "Unknown":
                 service_providers.add(provider)
         
-        return ["すべて"] + sorted(list(service_providers))
+        # OCIを先頭にするカスタム順序を定義
+        preferred_order = ["OCI", "Anthropic", "AWS", "OpenAI", "Cohere"]
+        
+        # 利用可能なプロバイダーを優先順序でソート
+        ordered_providers = []
+        for provider in preferred_order:
+            if provider in service_providers:
+                ordered_providers.append(provider)
+        
+        # 優先順序にないプロバイダーがあれば最後に追加
+        remaining_providers = sorted(service_providers - set(ordered_providers))
+        ordered_providers.extend(remaining_providers)
+        
+        return ["すべて"] + ordered_providers
     
     def service_provider_changed(self, service_provider):
         """サービスプロバイダー変更時の処理"""
