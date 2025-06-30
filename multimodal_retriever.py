@@ -106,8 +106,8 @@ def main():
     ui_events = UIEvents(search_service)
     
     # Gradioインターフェースの作成
-    with gr.Blocks(title="マルチモーダル画像検索") as demo:
-        gr.Markdown("# マルチモーダル画像検索")
+    with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕") as demo:
+        gr.Markdown(f"# 🐕マルチモーダル・レトリバー🐕 by {config.embed_model_id}")
         gr.Markdown("画像を自然言語やアップロードした画像で検索できます。例: 「富士山と寺院」、「縞模様の猫」、「三匹の白い子猫」、「ホグワーツ魔法学校」、「上海のビル」、「2312.10997」など")
         
         # セッション固有の一時ディレクトリを設定

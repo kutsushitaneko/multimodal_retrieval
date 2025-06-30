@@ -348,9 +348,9 @@ class UIEvents:
             # キャプション検索の場合は常にベクトル検索と全文検索のラベルを表示
             return gr.Gallery(label="ベクトル検索", visible=True), gr.Gallery(label="全文検索", visible=True)
         elif search_method == "テキスト":
-            return gr.Gallery(label="テキスト検索", visible=True), gr.Gallery(label="", visible=False)
+            return gr.Gallery(label="テキストベクトルによる画像検索", visible=True), gr.Gallery(label="", visible=False)
         elif search_method == "画像":
-            return gr.Gallery(label="画像検索", visible=True), gr.Gallery(label="", visible=False)
+            return gr.Gallery(label="画像ベクトルによる画像検索", visible=True), gr.Gallery(label="", visible=False)
         else:
             return gr.Gallery(label="検索結果", visible=True), gr.Gallery(label="", visible=False)
             

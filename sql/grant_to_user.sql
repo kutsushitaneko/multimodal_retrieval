@@ -1,5 +1,6 @@
 grant connect, ctxapp, dwrole, unlimited tablespace to labuser;
 grant execute on ctxsys.ctx_ddl to labuser;
+grant execute on DBMS_CLOUD to labuser;
 grant execute on DBMS_CLOUD_AI to labuser;
 grant execute on DBMS_VECTOR to labuser;
 grant execute on DBMS_VECTOR_CHAIN to labuser;

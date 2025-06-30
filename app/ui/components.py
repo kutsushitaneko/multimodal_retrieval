@@ -18,11 +18,11 @@ class UIComponents:
                                     container=True
                                 )
                             with gr.Column():   
-                                # 検索方法のラジオボタン（キャプション検索の場合は非表示）
+                                # クエリーの種類のラジオボタン（キャプション検索の場合は非表示）
                                 search_method = gr.Radio(
                                     choices=["テキスト", "画像"],
                                     value="テキスト",
-                                    label="検索方法",
+                                    label="クエリーの種類",
                                     container=True,
                                     visible=True
                                 )

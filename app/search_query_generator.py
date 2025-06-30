@@ -71,7 +71,7 @@ class SearchQueryGenerator:
             '効能','構成','構造','表現','カテゴリ','カテゴリー','範疇','クラス','クラスタ','クラスター','分類',
             '累計','類型','形式','フォーマット','軽減','削減','低減','削除','増強','増大','改善','向上','推進',
             '加速','強化','原則','減速','簡潔','要約','概要','詳述','詳細','シンプル','ディテール','ディテイル',
-            '構成'
+            '構成','注意','考慮','メリデメ','メリット','デメリット','メリットデメリット','メリットデメリット','メリットデメリット',
             # ドメイン固有の停止語（IT）
             'データ', 'システム', 'ソフトウェア', 'ハードウェア', 'ネットワーク', 'セキュリティ', 'データベース', 
             'アプリ', 'アプリケーション', 'ツール', 'サービス', 'ソリューション', 'パラメータ', 'パラメーター', 
@@ -99,8 +99,8 @@ class SearchQueryGenerator:
         self.compound_stopwords = [
             '使い方', '利用方法', '活用方法', '使用方法', '操作方法', '設定方法',
             '導入方法', '実装方法', 'やり方', '仕方', '進め方', '考え方', '見方',
-            '捉え方', '取り組み方', '方法', '手法', '手段', '手順',
-            'について', 'に関して', 'に対して', 'において', 'に関する', 'に対する', 'における',
+            '捉え方', '取り組み方', '方法', '手法', '手段', '手順','方法論','注意事項','注意点','考慮事項',
+            '考慮点','について', 'に関して', 'に対して', 'において', 'に関する', 'に対する', 'における',
             'を説明', 'を紹介', 'を解説', 'を記述', 'を示す', 'を表示', 'を表現', 'を教えて',
             'してください', 'してみて', 'してみる', 'していく', 'している', 'します', 'しました', 
             '教えて', '説明して', '紹介して', '解説して', '記述して', '示して', '表示して', '表現して',
@@ -109,7 +109,7 @@ class SearchQueryGenerator:
         ]
         
         # 文脈依存で除外する語（複合語の一部では保持、単独では除外）
-        self.context_dependent_excludes = {'方式', '工程', '流れ', '過程', '段階', '方'}
+        self.context_dependent_excludes = {'方式', '工程', '流れ', '過程', '段階', '方','際','点'}
         
         # URLパターンの正規表現（英数字、記号のみを含むように修正）
         self.url_pattern = re.compile(r'https?://[a-zA-Z0-9\-._~:/?#\[\]@!$&\'()*+,;=]+')
@@ -320,12 +320,10 @@ class SearchQueryGenerator:
                                     num_text = num_text.replace(kanji, num)
                                 keywords.append(num_text)
                     elif token.pos_ == "ADJ":
+                        # 色形容詞の場合のみ、名詞に変換して採用
                         if token.text in self.color_adj_to_noun:
                             keywords.append(self.color_adj_to_noun[token.text])
-                        elif token.text not in self.stopwords:
-                            # 色形容詞以外で停止語でない場合のみ、元のテキストを使用
-                            keywords.append(token.text)
-                        # 色形容詞以外のADJで停止語の場合は採用しない
+                        # 色形容詞以外は全て除外
                     # VERBは全て採用しない
             
             # 最後に残っている連続部分を処理
@@ -589,16 +587,14 @@ class SearchQueryGenerator:
                             status = "📊 助数詞と組み合わせ"
                 elif token.pos_ == "ADJ":
                     if token.text in self.color_adj_to_noun:
-                        status = f"🔄 色形容詞 → `{self.color_adj_to_noun[token.text]}`に変換"
+                        status = f"✅ 採用（色形容詞 → `{self.color_adj_to_noun[token.text]}`に変換）"
                         adopted = True
-                    elif token.text in self.stopwords:
-                        status = "⛔ 停止語のため除外"
                     else:
                         status = "❌ 色形容詞以外のため除外"
                 elif token.pos_ == "VERB":
                     status = "❌ 動詞のため除外"
                 else:
-                    status = "⏭️ 対象外品詞"
+                    status = "❌ 対象外品詞"
                 
                 # テーブル行を作成
                 row = f"| {i+1:2d} | `{token.text}` | {token.pos_} | `{token.lemma_}` | {token.dep_} | {status} |"
@@ -606,19 +602,25 @@ class SearchQueryGenerator:
             
             # 品詞の説明を追加
             morphological_details.append("")
-            morphological_details.append("#### 📚 品詞の説明")
-            morphological_details.append("- **NOUN**: 名詞")
-            morphological_details.append("- **PROPN**: 固有名詞")  
+            morphological_details.append("#### 📚 品詞の説明（一部）")
             morphological_details.append("- **ADJ**: 形容詞")
-            morphological_details.append("- **VERB**: 動詞")
+            morphological_details.append("- **ADP**: 助詞")
+            morphological_details.append("- **ADV**: 副詞")
+            morphological_details.append("- **ADX**: 助動詞")
+            morphological_details.append("- **NOUN**: 名詞")
             morphological_details.append("- **NUM**: 数詞")
-            morphological_details.append("- **X**: 未知語")
-            morphological_details.append("- **SYM**: 記号")
+            morphological_details.append("- **PART**: 終助詞・間投助詞")
+            morphological_details.append("- **PRON**: 代名詞")
+            morphological_details.append("- **PROPN**: 固有名詞")
             morphological_details.append("- **PUNCT**: 句読点")
+            morphological_details.append("- **SCONJ **: 句読点")
+            morphological_details.append("- **SYM**: 記号") 
+            morphological_details.append("- **VERB**: 動詞")
+            morphological_details.append("- **X**: その他、未知語")           
             morphological_details.append("")
             morphological_details.append("#### ⛔ 停止語フィルタリング")
-            morphological_details.append("- **停止語**: 一般的すぎてノイズとなる語（助詞、指示語、汎用名詞など）")
-            morphological_details.append("- 例: 'は', 'が', 'これ', 'システム', 'データ'など")
+            morphological_details.append("- **停止語**: 一般的すぎてノイズとなる語")
+            morphological_details.append("- 例） '説明', '使い方', '注意', '考慮', 'メリデメ', 'システム', 'データ' など")
         
         elif query.strip():
             morphological_details.append("### 📝 形態素解析結果")
