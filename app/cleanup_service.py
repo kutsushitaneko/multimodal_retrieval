@@ -5,9 +5,9 @@ import threading
 from datetime import datetime, timedelta
 
 class CleanupService:
-    """一時ディレクトリのクリーンアップを管理するサービスクラス
+    """Gradio一時ディレクトリのクリーンアップを管理するサービスクラス
     
-    マルチセッション環境で蓄積される一時ディレクトリを定期的にクリーンアップし、
+    Gradioが生成する一時ファイルを定期的にクリーンアップし、
     ディスク容量の枯渇を防ぎます。
     """
     
@@ -68,7 +68,6 @@ class CleanupService:
             return
             
         cutoff_time = datetime.now() - timedelta(hours=self.max_age_hours)
-        removed_session_count = 0
         removed_gradio_count = 0
         
         try:
@@ -77,20 +76,8 @@ class CleanupService:
                 if not os.path.isdir(item_path):
                     continue
                 
-                # セッションディレクトリのクリーンアップ
-                if item.startswith("session_"):
-                    # ディレクトリの作成時間をチェック
-                    try:
-                        creation_time = datetime.fromtimestamp(os.path.getctime(item_path))
-                        if creation_time < cutoff_time:
-                            shutil.rmtree(item_path)
-                            removed_session_count += 1
-                            print(f"古いセッションディレクトリを削除しました: {item}")
-                    except OSError as e:
-                        print(f"セッションディレクトリ削除エラー ({item}): {e}")
-                
                 # Gradioの一時ファイルのクリーンアップ
-                elif item == "gradio":
+                if item == "gradio":
                     try:
                         gradio_dir = item_path
                         if os.path.exists(gradio_dir):
@@ -119,29 +106,7 @@ class CleanupService:
         except OSError as e:
             print(f"一時ディレクトリ一覧取得エラー: {e}")
             
-        if removed_session_count > 0 or removed_gradio_count > 0:
-            print(f"クリーンアップ完了: セッション {removed_session_count}個、Gradio一時ファイル {removed_gradio_count}個を削除しました。")
+        if removed_gradio_count > 0:
+            print(f"クリーンアップ完了: Gradio一時ファイル {removed_gradio_count}個を削除しました。")
             
-    def force_cleanup_all_sessions(self):
-        """全てのセッションディレクトリを強制削除（デバッグ用）"""
-        if not os.path.exists(self.base_temp_dir):
-            return
-            
-        removed_count = 0
-        try:
-            for item in os.listdir(self.base_temp_dir):
-                if not item.startswith("session_"):
-                    continue
-                    
-                item_path = os.path.join(self.base_temp_dir, item)
-                if os.path.isdir(item_path):
-                    try:
-                        shutil.rmtree(item_path)
-                        removed_count += 1
-                    except OSError as e:
-                        print(f"ディレクトリ削除エラー ({item}): {e}")
-                        
-        except OSError as e:
-            print(f"一時ディレクトリ一覧取得エラー: {e}")
-            
-        print(f"強制クリーンアップ完了: {removed_count}個のセッションディレクトリを削除しました。") 
+ 

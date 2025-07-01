@@ -270,15 +270,15 @@ class UIEvents:
     # イベントハンドラー関数
     def update_search_method_choices(self, search_target):
         """検索対象に応じてクエリーの種類の選択肢を更新する関数"""
-        if search_target == "キャプション":
+        if search_target == "キャプション（テキストベクトルと全文）":
             # キャプション検索の場合は選択肢を表示しない（ハイブリッド検索のみ）
             return gr.Radio(choices=["テキスト", "画像"], value="テキスト", label="クエリーの種類", container=True, visible=False)
-        else:  # 画像
+        else:  # 画像ベクトル
             return gr.Radio(choices=["テキスト", "画像"], value="テキスト", label="クエリーの種類", container=True, visible=True)
             
     def update_input_visibility(self, search_target, search_method):
         """クエリーの種類に応じて入力フィールドの表示/非表示を切り替える関数"""
-        if search_target == "画像" and search_method == "画像":
+        if search_target == "画像ベクトル" and search_method == "画像":
             return gr.Textbox(
                 label="検索クエリ",
                 placeholder="検索したい画像の内容を入力してください",
@@ -344,7 +344,7 @@ class UIEvents:
         """クエリの状態に応じてギャラリーのラベルを更新する関数"""
         if not query or query.strip() == "":
             return gr.Gallery(label="最近アップロードされた画像", visible=True), gr.Gallery(label="", visible=False)
-        elif search_target == "キャプション":
+        elif search_target == "キャプション（テキストベクトルと全文）":
             # キャプション検索の場合は常にベクトル検索と全文検索のラベルを表示
             return gr.Gallery(label="ベクトル検索", visible=True), gr.Gallery(label="全文検索", visible=True)
         elif search_method == "テキスト":
@@ -649,7 +649,7 @@ class UIEvents:
 
     def update_sql_text_lines(self, search_target):
         """検索対象に応じてSQLテキストボックスの行数を更新する関数"""
-        if search_target == "キャプション":
+        if search_target == "キャプション（テキストベクトルと全文）":
             # キャプション検索の場合は16行表示
             return gr.Textbox(
                 label="実行されたSQL",
@@ -660,7 +660,7 @@ class UIEvents:
                 container=True
             )
         else:
-            # 画像検索の場合は8行表示
+            # 画像ベクトル検索の場合は8行表示
             return gr.Textbox(
                 label="実行されたSQL",
                 show_label=True,
@@ -686,7 +686,7 @@ class UIEvents:
     def update_morphological_analysis_result(self, search_target, morphological_analysis):
         """検索結果の形態素解析結果を処理する関数"""
         # キャプション検索で形態素解析結果がある場合のみ表示
-        should_show = search_target == "キャプション" and bool(morphological_analysis and morphological_analysis.strip())
+        should_show = search_target == "キャプション（テキストベクトルと全文）" and bool(morphological_analysis and morphological_analysis.strip())
         return gr.Markdown(
             label="全文検索：形態素解析結果",
             show_label=True,

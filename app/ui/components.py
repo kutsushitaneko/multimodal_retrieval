@@ -12,8 +12,8 @@ class UIComponents:
                         with gr.Row(): 
                             with gr.Column():
                                 search_target = gr.Radio(
-                                    choices=["画像", "キャプション"],
-                                    value="画像",
+                                    choices=["画像ベクトル", "キャプション（テキストベクトルと全文）"],
+                                    value="画像ベクトル",
                                     label="検索対象",
                                     container=True
                                 )
@@ -36,20 +36,22 @@ class UIComponents:
                             
                             # 検索クエリのサンプル例を追加（Columnで囲む）
                             with gr.Column(visible=True) as query_examples:
-                                query_examples_inner = gr.Examples(
-                                    examples=[
-                                        "富士山と寺院", 
-                                        "縞模様の猫", 
-                                        "三匹の白い子猫", 
-                                        "ホグワーツ魔法学校", 
-                                        "スターライトブレイカーとは何？",
-                                        "推しの子の主人公は誰？",
-                                        "2312.10997", 
-                                        "https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16"
-                                    ],
-                                    inputs=query_input,
-                                    label="検索クエリの例"
-                                )
+                                with gr.Accordion("検索クエリの例", open=True):
+                                    query_examples_inner = gr.Examples(
+                                        examples=[
+                                            "富士山と寺院", 
+                                            "縞模様の猫", 
+                                            "三匹の白い子猫", 
+                                            "ホグワーツ魔法学校", 
+                                            "スターライトブレイカーとは何？",
+                                            "推しの子の主人公は誰？",
+                                            "lost in the middle とは？",
+                                            "2312.10997", 
+                                            "https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16"
+                                        ],
+                                        inputs=query_input,
+                                        label="クリックして選択"
+                                    )
                     with gr.Column(scale=1):
                         # 画像アップロードフィールドは初期状態では非表示
                         uploaded_image = gr.Image(
@@ -235,25 +237,23 @@ class UIComponents:
                             from app.vlm_service import VLMService
                             vlm_service = VLMService()
                             
-                            # Vision対応モデルのみを取得
+                            # サービスプロバイダー一覧を取得（VLMServiceのメソッドを使用）
+                            provider_choices = vlm_service.get_available_service_providers()
+                            # Vision対応モデルを取得
                             vlm_models = vlm_service.get_vlm_models()
                             
-                            # デバッグ情報を出力
+                            # VLMモデル設定の初期化
                             all_models = vlm_service.model_settings
                             non_vision_count = len(all_models) - len(vlm_models)
-                            print(f"🔍 UIコンポーネント初期化 - VLMService使用")
-                            print(f"✅ Vision対応モデル数: {len(vlm_models)}")
-                            print(f"❌ Vision非対応モデル数: {non_vision_count}")
-                            print(f"📊 総モデル数: {len(all_models)}")
-                            
                             vlm_choices = list(vlm_models.keys()) if vlm_models else ["Vision対応モデルがありません"]
                             default_vlm = vlm_choices[0] if vlm_choices else "Vision対応モデルがありません"
                             
+                            # デバッグ情報を出力
+                            print(f"🔍 UIコンポーネント初期化 - VLM設定セクション")
+                            print(f"✅ Vision対応モデル数: {len(vlm_models)}")
+                            print(f"❌ Vision非対応モデル数: {non_vision_count}")
+                            print(f"📊 総モデル数: {len(all_models)}")
                             print(f"🎯 デフォルトVLMモデル: {default_vlm}")
-                            
-                            # サービスプロバイダー一覧を取得（VLMServiceのメソッドを使用）
-                            provider_choices = vlm_service.get_available_service_providers()
-                            
                             print(f"🌐 利用可能なプロバイダー: {provider_choices}")
                             
                             return vlm_choices, default_vlm, provider_choices, vlm_models

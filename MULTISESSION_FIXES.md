@@ -15,14 +15,14 @@
 - `app/search_query_generator.py` を修正し、共有NLPServiceを使用
 - スレッドセーフな実装により、マルチセッション環境でも安全に動作
 
-### 2. 一時ディレクトリの共有問題（中程度）
+### 2. Gradio一時ディレクトリの権限問題（中程度）
 
-**問題**: 全セッションが同じ一時ディレクトリを使用し、ファイル名衝突の可能性があった
+**問題**: Gradioが使用する一時ディレクトリの権限不足により、アプリケーション起動時にエラーが発生していた
 
 **修正内容**:
-- セッション固有の一時ディレクトリ作成機能を実装
-- `app/cleanup_service.py` を新規作成し、古いセッションディレクトリの自動クリーンアップ機能を追加
-- 24時間以上経過したセッションディレクトリを定期的に削除
+- カレントディレクトリ内にGradio専用の一時ディレクトリを作成
+- `app/cleanup_service.py` を新規作成し、古いGradio一時ファイルの自動クリーンアップ機能を追加
+- 24時間以上経過したGradio一時ファイルを定期的に削除
 
 ## 📁 修正されたファイル
 
@@ -66,20 +66,18 @@ class NLPService:
 - 初回呼び出し時のみモデルをロード
 - 全セッションで同じモデルインスタンスを共有
 
-### セッション固有一時ディレクトリ
+### Gradio一時ディレクトリの管理
 
 ```python
-def create_session_temp_dir():
-    session_id = str(uuid.uuid4())[:8]
-    temp_dir = os.path.join(os.getcwd(), "temp", f"session_{session_id}")
-    os.makedirs(temp_dir, exist_ok=True)
-    return temp_dir
+gradio_temp_dir = os.path.join(base_temp_dir, "gradio")
+os.makedirs(gradio_temp_dir, exist_ok=True)
+os.environ['GRADIO_TEMP_DIR'] = gradio_temp_dir
 ```
 
 **特徴**:
-- UUID-8文字でセッション識別
-- `temp/session_xxxxxxxx/` 形式のディレクトリ構造
-- ファイル名衝突の完全回避
+- カレントディレクトリ内にGradio専用ディレクトリを作成
+- 環境変数でGradioに一時ディレクトリを指定
+- 他のユーザーとの衝突を回避
 
 ### 自動クリーンアップ機能
 
@@ -89,7 +87,7 @@ cleanup_service.start_cleanup_thread(interval_minutes=120)
 ```
 
 **特徴**:
-- 24時間以上経過したセッションディレクトリを自動削除
+- 24時間以上経過したGradio一時ファイルを自動削除
 - 2時間間隔でクリーンアップ実行
 - バックグラウンドスレッドで動作
 
@@ -101,7 +99,7 @@ cleanup_service.start_cleanup_thread(interval_minutes=120)
 |------|--------|--------|--------|
 | メモリ使用量 | セッション数 × 200MB | ~200MB（固定） | 95%減少 |
 | 初期化時間 | セッション毎に5-10秒 | 初回のみ5-10秒 | 90%改善 |
-| ディスク使用量 | 累積増加 | 自動クリーンアップ | 持続可能 |
+| Gradio一時ファイル | 累積増加 | 自動クリーンアップ | 持続可能 |
 
 ### マルチセッション対応レベル
 
@@ -139,15 +137,15 @@ python main.py
 ```bash
 # 複数ブラウザまたはタブで同時アクセス
 # - 同時検索実行
-# - 一時ディレクトリの分離確認
+# - Gradio一時ディレクトリの動作確認
 # - メモリ使用量の監視
 ```
 
 ### クリーンアップ機能の確認
 
 ```bash
-# temp/ディレクトリの確認
-ls -la temp/
+# Gradio一時ディレクトリの確認
+ls -la temp/gradio/
 
 # 24時間後の自動クリーンアップ確認
 # または手動でタイムスタンプを変更してテスト
