@@ -12,20 +12,6 @@ from app.search_query_generator import SearchQueryGenerator
 from app.cleanup_service import CleanupService
 import os
 
-def create_session_temp_dir():
-    """セッション固有の一時ディレクトリを作成
-    
-    マルチセッション環境でファイル名衝突を防ぐため、
-    各セッションに固有のディレクトリを作成します。
-    
-    Returns:
-        str: セッション固有の一時ディレクトリパス
-    """
-    session_id = str(uuid.uuid4())[:8]  # 短縮版UUIDを使用
-    temp_dir = os.path.join(os.getcwd(), "temp", f"session_{session_id}")
-    os.makedirs(temp_dir, exist_ok=True)
-    return temp_dir
-
 def check_db_connection(config, db_pool, interval=60):
     """定期的にデータベース接続の健全性をチェックするバックグラウンドスレッド"""
     while True:
@@ -48,7 +34,7 @@ def check_db_connection(config, db_pool, interval=60):
         time.sleep(interval)
 
 def main():
-    # ベースの一時ディレクトリを作成（セッション固有ディレクトリの親）
+    # ベースの一時ディレクトリを作成（Gradio一時ディレクトリの親）
     base_temp_dir = os.path.join(os.getcwd(), "temp")
     os.makedirs(base_temp_dir, exist_ok=True)
     
@@ -98,6 +84,7 @@ def main():
         cohere_client=cohere_client if config.embed_model_provider == "CohereAI" else None,
         oci_client=oci_client if config.embed_model_provider == "OCI" else None
     )
+    print(f"🔗 マルチモーダル埋め込みモデル: {config.embed_model_provider} - {config.embed_model_id}")
     database_service = DatabaseService(db_pool)  # プールを渡す
     search_service = SearchService(embedding_service, database_service, search_query_generator)
     
@@ -106,18 +93,9 @@ def main():
     ui_events = UIEvents(search_service)
     
     # Gradioインターフェースの作成
-    with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕") as demo:
+    with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕", delete_cache=(86400, 86400)) as demo:
         gr.Markdown(f"# 🐕マルチモーダル・レトリバー🐕 by {config.embed_model_id}")
-        gr.Markdown("画像を自然言語やアップロードした画像で検索できます。例: 「富士山と寺院」、「縞模様の猫」、「三匹の白い子猫」、「ホグワーツ魔法学校」、「上海のビル」、「2312.10997」など")
-        
-        # セッション固有の一時ディレクトリを設定
-        def setup_session_temp_dir():
-            session_temp_dir = create_session_temp_dir()
-            # このセッション用の環境変数を設定（ただし、実際にはGradioが内部的に管理）
-            return session_temp_dir
-        
-        # 隠しステートでセッション固有の設定を管理
-        session_temp_dir = gr.State(setup_session_temp_dir)
+        gr.Markdown("画像を自然言語やアップロードした画像で検索できます。例: 「富士山と寺院」、「縞模様の猫」、「三匹の白い子猫」、「ホグワーツ魔法学校」、「スターライトブレイカーとは何？」、「2312.10997」など")
         
         state = gr.State({
             "current_page": 1,

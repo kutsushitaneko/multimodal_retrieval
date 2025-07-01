@@ -131,7 +131,7 @@ class SearchService:
         # クエリが空の場合や、適切な検索対象/検索方法がない場合は最近の画像を表示
         if (not query or query.strip() == "") and (uploaded_image is None):
             # キャプション検索の場合、検索方法は考慮せずに最近の画像を表示
-            search_mode = "ハイブリッド検索" if search_target == "キャプション" else search_method
+            search_mode = "ハイブリッド検索" if search_target == "キャプション（テキストベクトルと全文）" else search_method
             results, executed_query, executed_sql, _ = self.search_by_caption(
                 query, search_mode, top_k, vector_threshold, keyword_threshold
             )
@@ -168,7 +168,7 @@ class SearchService:
                 )
             return [], [], "", "", "", [], executed_query, executed_sql, ""
         
-        if search_target == "キャプション":
+        if search_target == "キャプション（テキストベクトルと全文）":
             # キャプション検索の場合は常にハイブリッド検索を使用
             combined_results, vector_results, keyword_results, executed_query, executed_sql = self.hybrid_search(
                 query, top_k, vector_threshold, keyword_threshold
@@ -218,7 +218,7 @@ class SearchService:
                 )
             return [], [], "", "", "", [], executed_query, executed_sql, ""
             
-        elif search_target == "画像":
+        elif search_target == "画像ベクトル":
             if search_method == "テキスト":
                 results, executed_query, executed_sql, morphological_analysis = self.search_by_image_text(
                     query, top_k, vector_threshold
