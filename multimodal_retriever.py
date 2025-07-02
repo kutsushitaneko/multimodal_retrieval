@@ -111,7 +111,7 @@ def main():
         # タブ機能を追加
         with gr.Tabs():
             # タブ1: 検索機能
-            with gr.Tab("検索"):
+            with gr.Tab("検索と回答生成"):
                 # 検索セクションのUIコンポーネントを作成
                 search_target, search_method, query_input, uploaded_image, search_button, clear_button, show_all_button, query_examples = ui_components.create_search_section()
                 
@@ -126,6 +126,12 @@ def main():
                 
                 # クエリ詳細セクションのUIコンポーネントを作成
                 executed_query_text, execute_query_button, executed_sql_text, morphological_analysis_text = ui_components.create_query_detail_section()
+                
+                # 自然言語による回答セクションのUIコンポーネントを作成
+                (reference_image_text, answer_generate_button, answer_text, reference_type_radio,
+                 answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox,
+                 answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, 
+                 answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button) = ui_components.create_answer_generation_section()
                 
                 # 高度な設定セクションのUIコンポーネントを作成
                 vector_threshold, keyword_threshold, top_k_slider = ui_components.create_advanced_settings_section()
@@ -156,13 +162,14 @@ def main():
                 ui_events.register_clear_button_events(
                     clear_button, query_input, uploaded_image, vector_gallery, 
                     keyword_gallery, filename_text, similarity_text, caption_text, 
-                    state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text
+                    state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text,
+                    answer_generate_button, answer_text, reference_image_text, reference_type_radio
                 )
                 
                 ui_events.register_show_all_button_events(
                     show_all_button, top_k_slider, vector_gallery, 
                     keyword_gallery, filename_text, similarity_text, caption_text, 
-                    state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text
+                    state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text
                 )
                 
                 ui_events.register_pagination_events(
@@ -171,7 +178,16 @@ def main():
                 
                 ui_events.register_gallery_selection_events(
                     vector_gallery, keyword_gallery, state, 
-                    filename_text, similarity_text, caption_text
+                    filename_text, similarity_text, caption_text,
+                    search_target, search_method, answer_generate_button, reference_image_text, reference_type_radio
+                )
+                
+                ui_events.register_answer_generation_events(
+                    answer_generate_button, answer_text, search_target, search_method, 
+                    vector_gallery, keyword_gallery, state, reference_type_radio, query_input, 
+                    answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox,
+                    answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, 
+                    answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button
                 )
                 
                 # アプリケーションの初期読み込み時のイベントを登録
@@ -182,7 +198,7 @@ def main():
                     fn=ui_events.show_all_images,
                     inputs=[top_k_slider, state],
                     outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, 
-                             caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text]
+                             caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text]
                 )
             
             # タブ2: アップロード・編集機能
@@ -198,11 +214,11 @@ def main():
                  prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, 
                  prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
                  confirm_prompt_delete_checkbox, delete_prompt_button,
-                 vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message) = ui_components.create_upload_edit_section()
+                 vlm_service_provider_upload, vlm_model_upload, vlm_temperature_upload, vlm_max_tokens_upload, vlm_oci_region_upload, vlm_status_message) = ui_components.create_upload_edit_section()
                 
                 # VLM設定のイベントを登録
                 ui_events.register_vlm_settings_events(
-                    vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message
+                    vlm_service_provider_upload, vlm_model_upload, vlm_temperature_upload, vlm_max_tokens_upload, vlm_oci_region_upload, vlm_status_message
                 )
                 
                 # アップロード・編集機能のイベントを登録
@@ -214,7 +230,7 @@ def main():
                     prompt_template_dropdown, current_prompt_display, prompt_edit_textbox, 
                     prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
                     confirm_prompt_delete_checkbox, delete_prompt_button,
-                    vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message
+                    vlm_service_provider_upload, vlm_model_upload, vlm_temperature_upload, vlm_max_tokens_upload, vlm_oci_region_upload, vlm_status_message
                 )
     
     # アプリケーションの起動

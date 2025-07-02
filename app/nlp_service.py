@@ -152,7 +152,15 @@ class NLPService:
                 import os
 
                 # OCIリージョンIDを取得
-                region_id = self.vlm_service.OCI_REGIONS.get(oci_region, "ap-osaka-1")
+                # oci_regionが既にregion_id（例：us-chicago-1）かregion_name（例：US Midwest (Chicago)）かを判定
+                if oci_region in self.vlm_service.OCI_REGIONS.values():
+                    # 既にregion_idの場合はそのまま使用
+                    region_id = oci_region
+                    print(f"[DEBUG] OCIリージョン: region_idとして使用 {oci_region}")
+                else:
+                    # region_nameの場合は変換
+                    region_id = self.vlm_service.OCI_REGIONS.get(oci_region, "ap-osaka-1")
+                    print(f"[DEBUG] OCIリージョン: {oci_region} -> {region_id} に変換")
                 
                 # OCI設定
                 config = oci.config.from_file()
@@ -165,7 +173,7 @@ class NLPService:
                 if not compartment_id:
                     return "エラー: OCI_COMPARTMENT_IDが設定されていません"
                 
-                # TextContentとImageContentを作成（元のdatabase_service方式）
+                # TextContentとImageContentを作成
                 content1 = TextContent()
                 content1.text = prompt_text
                 content2 = ImageContent()

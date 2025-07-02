@@ -1,5 +1,13 @@
 import gradio as gr
 
+# 定数定義
+QUERY_INPUT_PLACEHOLDER_TEXT = "検索したい画像の内容を入力してください"
+REFERENCE_DOCUMENT_LABEL_TEXT = "参照するドキュメント（画像）"
+REFERENCE_TYPE_LABEL_TEXT = "参照する情報の種類"
+REFERENCE_TYPE_ALL = "すべて"
+REFERENCE_TYPE_CAPTION_ONLY = "キャプションのみ"
+REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
+
 class UIComponents:
     """UIコンポーネントを管理するクラス"""
     
@@ -30,7 +38,7 @@ class UIComponents:
                             # 初期状態でクエリ入力フィールドを表示
                             query_input = gr.Textbox(
                                 label="検索クエリ",
-                                placeholder="検索したい画像の内容を入力してください",
+                                placeholder=QUERY_INPUT_PLACEHOLDER_TEXT,
                                 visible=True
                             )
                             
@@ -138,8 +146,8 @@ class UIComponents:
                     # ステータス表示
                     status_message = gr.Markdown("")
                 
-                # プロンプトの編集セクション（デフォルトでクローズ）
-                with gr.Accordion("プロンプトの設定と編集", open=False) as settings_accordion:
+                # キャプション生成プロンプトの編集セクション（デフォルトでクローズ）
+                with gr.Accordion("キャプション生成プロンプトの設定と編集", open=False) as settings_accordion:
                         # プロンプトテンプレートの初期化
                         def initialize_prompt_template_choices():
                             try:
@@ -496,4 +504,159 @@ class UIComponents:
                     label="表示する結果の最大数"
                 )
                 
-        return vector_threshold, keyword_threshold, top_k_slider 
+        return vector_threshold, keyword_threshold, top_k_slider
+        
+    def create_answer_generation_section(self):
+        """自然言語による回答セクションのUIコンポーネントを作成"""
+        with gr.Accordion("自然言語による回答", open=True):
+            # 回答生成プロンプトの設定と編集アコーディオンを追加
+            with gr.Accordion("回答生成プロンプトの設定と編集", open=False) as answer_prompt_settings_accordion:
+                # 回答生成プロンプトテンプレートの初期化
+                def initialize_answer_prompt_template_choices():
+                    try:
+                        import os
+                        import glob
+                        answer_prompt_dir = "answer_prompt"
+                        if not os.path.exists(answer_prompt_dir):
+                            os.makedirs(answer_prompt_dir, exist_ok=True)
+                        
+                        # answer_promptフォルダーからテンプレート一覧を取得
+                        template_files = glob.glob(os.path.join(answer_prompt_dir, "*.txt"))
+                        template_names = []
+                        for file_path in template_files:
+                            basename = os.path.basename(file_path)
+                            template_name = os.path.splitext(basename)[0]
+                            template_names.append(template_name)
+                        
+                        # デフォルトテンプレートを確認
+                        default_template_name = "デフォルト（回答生成）"
+                        if not template_names:
+                            template_names = [default_template_name]
+                        elif default_template_name not in template_names:
+                            template_names.insert(0, default_template_name)
+                        
+                        return template_names, default_template_name
+                    except Exception as e:
+                        print(f"回答生成プロンプトテンプレート初期化エラー: {e}")
+                        return ["デフォルト（回答生成）"], "デフォルト（回答生成）"
+                
+                initial_answer_choices, initial_answer_value = initialize_answer_prompt_template_choices()
+                
+                # 回答生成プロンプトテンプレート選択
+                answer_prompt_template_dropdown = gr.Dropdown(
+                    label="回答生成プロンプトテンプレート",
+                    choices=initial_answer_choices,
+                    value=initial_answer_value,
+                    interactive=True
+                )
+                
+                # デフォルト回答生成プロンプトを読み込み
+                def get_initial_answer_prompt():
+                    try:
+                        import os
+                        answer_prompt_path = os.path.join("answer_prompt", f"{initial_answer_value}.txt")
+                        if os.path.exists(answer_prompt_path):
+                            with open(answer_prompt_path, 'r', encoding='utf-8') as f:
+                                return f.read()
+                        return ""
+                    except Exception as e:
+                        print(f"デフォルト回答生成プロンプト読み込みエラー: {e}")
+                        return ""
+                
+                initial_answer_prompt = get_initial_answer_prompt()
+                
+                # 回答生成プロンプト表示・編集を左右に配置
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        # 左側：現在の回答生成プロンプト（表示のみ）
+                        current_answer_prompt_display = gr.Textbox(
+                            label="現在の回答生成プロンプト",
+                            lines=8,
+                            interactive=False,
+                            show_copy_button=True,
+                            value=initial_answer_prompt,
+                            placeholder="選択された回答生成プロンプトがここに表示されます"
+                        )
+                    
+                    with gr.Column(scale=1):
+                        # 右側：回答生成プロンプトの編集
+                        answer_prompt_edit_textbox = gr.Textbox(
+                            label="回答生成プロンプトの設定・編集",
+                            lines=8,
+                            interactive=True,
+                            value=initial_answer_prompt,
+                            placeholder="回答生成プロンプトを編集してください"
+                        )
+                
+                # 回答生成プロンプト名と操作ボタン
+                with gr.Row():
+                    answer_prompt_name_input = gr.Textbox(
+                        label="回答生成プロンプトの名前",
+                        placeholder="新しい回答生成プロンプト名を入力",
+                        scale=2
+                    )
+                
+                with gr.Row():
+                    save_answer_prompt_button = gr.Button("回答生成プロンプトを保存", variant="primary")
+                    cancel_answer_prompt_edit_button = gr.Button("回答生成プロンプト編集を取消")
+                
+                # 回答生成プロンプトの削除アコーディオン（デフォルトでクローズ）
+                with gr.Accordion("回答生成プロンプトの削除", open=False) as answer_prompt_delete_accordion:
+                    gr.Markdown("⚠️ **危険な操作**: 選択された回答生成プロンプトテンプレートを完全に削除します。この操作は元に戻せません。")
+                    with gr.Row():
+                        confirm_answer_prompt_delete_checkbox = gr.Checkbox(
+                            label="削除することを確認しました",
+                            value=False,
+                            interactive=True
+                        )
+                    delete_answer_prompt_button = gr.Button(
+                        "🗑️ 回答生成プロンプトを削除",
+                        variant="stop",
+                        interactive=False
+                    )
+                
+                # 回答生成プロンプト操作のステータス
+                answer_prompt_status_message = gr.Markdown("")
+            
+            with gr.Row():
+                # 参照するドキュメント（画像）の表示領域（コピーボタン付き）
+                reference_image_text = gr.Textbox(
+                    label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                    show_label=True,
+                    interactive=False,
+                    container=True,
+                    show_copy_button=True,
+                    placeholder="条件に合致する画像を選択すると、ファイル名がここに表示されます",
+                    scale=2
+                )
+                # 参照する情報の種類ラジオボタン
+                reference_type_radio = gr.Radio(
+                    choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                    value=REFERENCE_TYPE_ALL,
+                    label=REFERENCE_TYPE_LABEL_TEXT,
+                    container=True,
+                    interactive=False,
+                    scale=1
+                )
+                # 回答生成ボタン
+                answer_generate_button = gr.Button(
+                    "回答生成", 
+                    variant="primary", 
+                    interactive=False,
+                    scale=1
+                )
+            with gr.Row():
+                answer_text = gr.Textbox(
+                    label="回答",
+                    show_label=True,
+                    interactive=False,
+                    lines=10,
+                    container=True,
+                    show_copy_button=True,
+                    placeholder="回答がここに表示されます"
+                )
+                
+        return (reference_image_text, answer_generate_button, answer_text, reference_type_radio,
+                answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox,
+                answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, 
+                answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button) 
