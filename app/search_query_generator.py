@@ -59,6 +59,8 @@ class SearchQueryGenerator:
         
         # 停止語リスト（sql/create_stoplist.sqlで定義されたものと同じ）
         self.stopwords = {
+            # メタデータ
+            '同義語','類義語','関連語句','テーマ','カテゴリ',
             # 助詞・助動詞
             'は', 'が', 'を', 'に', 'で', 'と', 'から', 'まで', 'です', 'ます', 'である', 'ですか', 'ですよ', 'ですね', 
             'でした', 'でしたか', 'でしたよ', 'でしたね', 'について', 'において', 'に関して', 'に対して', 'だ', 'でしょう', 'かもしれない',
@@ -68,10 +70,11 @@ class SearchQueryGenerator:
             'もの', 'こと', 'とき', '場合', '内容', '説明', '情報', '状況', '結果', '仕様', '使用', '使用例', 
             '利用', '利用例', '活用', '活用例', '例', '例文', '例示', '機能', '詳細', '課題', '課題点', '問題', 
             '問題点','解決', '解決策', '可能','可能性','不可能','困難','理由','意義','意味','効果','効果的',
-            '効能','構成','構造','表現','カテゴリ','カテゴリー','範疇','クラス','クラスタ','クラスター','分類',
+            '効能','構成','構造','表現','カテゴリー','範疇','クラス','クラスタ','クラスター','分類',
             '累計','類型','形式','フォーマット','軽減','削減','低減','削除','増強','増大','改善','向上','推進',
             '加速','強化','原則','減速','簡潔','要約','概要','詳述','詳細','シンプル','ディテール','ディテイル',
             '構成','注意','考慮','メリデメ','メリット','デメリット','メリットデメリット','メリットデメリット','メリットデメリット',
+            '表題','タイトル','題名','題材',
             # ドメイン固有の停止語（IT）
             'データ', 'システム', 'ソフトウェア', 'ハードウェア', 'ネットワーク', 'セキュリティ', 'データベース', 
             'アプリ', 'アプリケーション', 'ツール', 'サービス', 'ソリューション', 'パラメータ', 'パラメーター', 
@@ -251,11 +254,16 @@ class SearchQueryGenerator:
             current_compound = []
             for i, token in enumerate(doc):
                 # 数字、アルファベット、記号が連続する場合の処理
-                if token.pos_ in ["NUM", "NOUN", "PROPN", "PUNCT", "X", "SYM"] and (
+                # ただし、数詞の場合で次のトークンが助数詞の場合は除外（後で助数詞と組み合わせて処理するため）
+                if (token.pos_ in ["NUM", "NOUN", "PROPN", "PUNCT", "X", "SYM"] and (
                     token.text.isdigit() or 
                     re.match(r'^[a-zA-Z]+$', token.text) or 
                     (token.text in "!#$%^&*()_+-=[]{}|;:,.<>?/~`")  # @記号を除外
-                ):
+                ) and not (
+                    token.pos_ == "NUM" and 
+                    i + 1 < len(doc) and 
+                    doc[i+1].text in self.counters
+                )):
                     # 空白を保持して追加（空白で区切られた英数記号対応）
                     if current_compound and not current_compound[-1].endswith(' '):
                         current_compound.append(' ')
@@ -276,8 +284,13 @@ class SearchQueryGenerator:
                                 num_text = doc[i-1].text
                                 for kanji, num in self.kanji_to_number.items():
                                     num_text = num_text.replace(kanji, num)
-                                # 漢数字とアラビア数字の形式をOR条件で結合
-                                keywords.append(f"({doc[i-1].text}{token.text} OR {num_text}{token.text})")
+                                
+                                # 重複を避けるため、元の文字列と変換後が同じ場合は単一条件にする
+                                if doc[i-1].text == num_text:
+                                    keywords.append(f"{doc[i-1].text}{token.text}")
+                                else:
+                                    # 漢数字とアラビア数字の形式をOR条件で結合
+                                    keywords.append(f"({doc[i-1].text}{token.text} OR {num_text}{token.text})")
                             continue
                         
                         # 文脈に依存する停止語の処理

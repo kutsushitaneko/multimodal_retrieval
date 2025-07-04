@@ -50,11 +50,13 @@ class UIComponents:
                                             "富士山と寺院", 
                                             "縞模様の猫", 
                                             "三匹の白い子猫", 
-                                            "ホグワーツ魔法学校", 
+                                            "ハリーにホグワーツの入学案内を持ってきたのは誰？", 
                                             "スターライトブレイカーとは何？",
                                             "推しの子の主人公は誰？",
                                             "lost in the middle とは？",
-                                            "2312.10997", 
+                                            "MCPは、アプリ開発者にとってどんなメリットがありますか？",
+                                            "川口市栄町の7月の金属ゴミの回収日はいつ？",
+                                            "2312.10997のタイトルは？", 
                                             "https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16"
                                         ],
                                         inputs=query_input,
@@ -636,7 +638,7 @@ class UIComponents:
                     label=REFERENCE_TYPE_LABEL_TEXT,
                     container=True,
                     interactive=False,
-                    scale=1
+                    scale=2
                 )
                 # 回答生成ボタン
                 answer_generate_button = gr.Button(
