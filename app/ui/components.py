@@ -3,6 +3,7 @@ import gradio as gr
 # 定数定義
 QUERY_INPUT_PLACEHOLDER_TEXT = "検索したい画像の内容を入力してください"
 REFERENCE_DOCUMENT_LABEL_TEXT = "参照するドキュメント（画像）"
+REFERENCE_IMAGE_PLACEHOLDER_TEXT = "条件に合致する画像を選択すると、ファイル名がここに表示されます"
 REFERENCE_TYPE_LABEL_TEXT = "参照する情報の種類"
 REFERENCE_TYPE_ALL = "すべて"
 REFERENCE_TYPE_CAPTION_ONLY = "キャプションのみ"
@@ -81,7 +82,7 @@ class UIComponents:
 
     def create_search_vlm_settings(self):
         """検索タブ専用VLM設定セクションのUIコンポーネントを作成"""
-        with gr.Accordion("🤖 VLM設定（検索・回答生成用）", open=False) as search_vlm_settings_accordion:
+        with gr.Accordion("VLM設定（検索・回答生成用）", open=False) as search_vlm_settings_accordion:
             # モデル設定の初期化
             def initialize_search_vlm_models():
                 try:
@@ -207,7 +208,7 @@ class UIComponents:
                 # ファイル名入力（コピーボタン追加）
                 filename_input = gr.Textbox(
                     label="ファイル名",
-                    placeholder="ファイル名を入力してください（例: image001.jpg）",
+                    placeholder="ファイル名を入力してください（例: image001.jpg, image001.png, image001.webp）",
                     interactive=True,
                     show_copy_button=True
                 )
@@ -216,6 +217,7 @@ class UIComponents:
                 with gr.Row():
                     generate_caption_button = gr.Button("キャプション生成", variant="primary", interactive=False)
                     search_image_button = gr.Button("画像を検索", interactive=False)
+                    copy_filename_button = gr.Button("検索結果からコピー", variant="secondary", interactive=True)
                     clear_button = gr.Button("クリア")
                 
                 # 表示画像
@@ -481,7 +483,7 @@ class UIComponents:
         image_id_state = gr.State(value=None)
         original_caption_state = gr.State(value="")
         
-        return (upload_image, filename_input, generate_caption_button, search_image_button, clear_button,
+        return (upload_image, filename_input, generate_caption_button, search_image_button, copy_filename_button, clear_button,
                 display_image, generated_caption, editable_caption, regenerate_caption_button, 
                 update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
                 delete_accordion, confirm_delete_checkbox, delete_button,
@@ -633,7 +635,7 @@ class UIComponents:
                     interactive=False,
                     container=True,
                     show_copy_button=True,
-                    placeholder="条件に合致する画像を選択すると、ファイル名がここに表示されます",
+                    placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT,
                     scale=1
                 )
                 # 参照する情報の種類ラジオボタン
