@@ -3,6 +3,7 @@ import gradio as gr
 # 定数定義
 QUERY_INPUT_PLACEHOLDER_TEXT = "検索したい画像の内容を入力してください"
 REFERENCE_DOCUMENT_LABEL_TEXT = "参照するドキュメント（画像）"
+REFERENCE_IMAGE_PLACEHOLDER_TEXT = "条件に合致する画像を選択すると、ファイル名がここに表示されます"
 REFERENCE_TYPE_LABEL_TEXT = "参照する情報の種類"
 REFERENCE_TYPE_ALL = "すべて"
 REFERENCE_TYPE_CAPTION_ONLY = "キャプションのみ"
@@ -634,7 +635,7 @@ class UIComponents:
                     interactive=False,
                     container=True,
                     show_copy_button=True,
-                    placeholder="条件に合致する画像を選択すると、ファイル名がここに表示されます",
+                    placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT,
                     scale=1
                 )
                 # 参照する情報の種類ラジオボタン

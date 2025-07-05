@@ -180,7 +180,7 @@ class UIEvents:
             outputs=[morphological_analysis_text]
         )
         
-    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None, answer_question_input=None):
+    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None):
         """検索ボタンのイベントを登録"""
         # 質問文入力エリアが指定されている場合、検索クエリを質問文入力エリアに最初に設定
         if answer_question_input is not None:
@@ -191,8 +191,8 @@ class UIEvents:
                 outputs=[answer_question_input]
             ).then(
                 fn=self.clear_before_search,
-                inputs=[],
-                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
+                inputs=[reference_image_text],
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text] if reference_image_text is not None else [vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
             ).then(
                 fn=self.update_gallery_labels,
                 inputs=[query_input, search_method, search_target],
@@ -213,13 +213,18 @@ class UIEvents:
                 fn=self.hide_pagination,
                 inputs=[],
                 outputs=[pagination_row]
+            ).then(
+                # 検索完了後に先頭画像の情報を「参照するドキュメント（画像）」にセットし、回答生成ボタンを有効化
+                fn=self.update_reference_image_and_enable_answer_generation,
+                inputs=[state, search_target, search_method, reference_image_text, answer_generate_button, reference_type_radio],
+                outputs=[reference_image_text, answer_generate_button, reference_type_radio] if (reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None) else ([reference_image_text, answer_generate_button] if (reference_image_text is not None and answer_generate_button is not None) else ([reference_image_text] if reference_image_text is not None else []))
             )
         else:
             # 質問文入力エリアがない場合は従来の処理
             search_button.click(
                 fn=self.clear_before_search,
-                inputs=[],
-                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
+                inputs=[reference_image_text],
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text] if reference_image_text is not None else [vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
             ).then(
                 fn=self.update_gallery_labels,
                 inputs=[query_input, search_method, search_target],
@@ -240,6 +245,11 @@ class UIEvents:
                 fn=self.hide_pagination,
                 inputs=[],
                 outputs=[pagination_row]
+            ).then(
+                # 検索完了後に先頭画像の情報を「参照するドキュメント（画像）」にセットし、回答生成ボタンを有効化
+                fn=self.update_reference_image_and_enable_answer_generation,
+                inputs=[state, search_target, search_method, reference_image_text, answer_generate_button, reference_type_radio],
+                outputs=[reference_image_text, answer_generate_button, reference_type_radio] if (reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None) else ([reference_image_text, answer_generate_button] if (reference_image_text is not None and answer_generate_button is not None) else ([reference_image_text] if reference_image_text is not None else []))
             )
         
     def register_execute_query_button_events(self, execute_query_button, executed_query_text, top_k_slider, keyword_threshold, vector_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text, pagination_row, answer_question_input=None):
@@ -385,7 +395,7 @@ class UIEvents:
                     outputs=[pagination_row]
                 )
     
-    def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None):
+    def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None, search_target=None, search_method=None, answer_generate_button=None, reference_type_radio=None):
         """全件表示ボタンのイベントを登録"""
         if reference_image_text is not None:
             # 参照画像も含めてクリア
@@ -397,6 +407,11 @@ class UIEvents:
                 fn=self.show_all_images,
                 inputs=[top_k_slider, state],
                 outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text]
+            ).then(
+                # すべて表示完了後に先頭画像の情報を「参照するドキュメント（画像）」にセットし、回答生成ボタンを有効化
+                fn=self.update_reference_image_and_enable_answer_generation,
+                inputs=[state, search_target, search_method, reference_image_text, answer_generate_button, reference_type_radio],
+                outputs=[reference_image_text, answer_generate_button, reference_type_radio] if (reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None) else ([reference_image_text, answer_generate_button] if (reference_image_text is not None and answer_generate_button is not None) else ([reference_image_text] if reference_image_text is not None else []))
             )
         else:
             # 従来の処理
@@ -408,6 +423,11 @@ class UIEvents:
                 fn=self.show_all_images,
                 inputs=[top_k_slider, state],
                 outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text]
+            ).then(
+                # すべて表示完了後に先頭画像の情報を「参照するドキュメント（画像）」にセットし、回答生成ボタンを有効化
+                fn=self.update_reference_image_and_enable_answer_generation,
+                inputs=[state, search_target, search_method, reference_image_text, answer_generate_button, reference_type_radio],
+                outputs=[reference_image_text, answer_generate_button, reference_type_radio] if (reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None) else ([reference_image_text, answer_generate_button] if (reference_image_text is not None and answer_generate_button is not None) else ([reference_image_text] if reference_image_text is not None else []))
             )
         
         # 質問文入力エリアが指定されている場合、全件表示時に質問文をクリア
@@ -1396,17 +1416,37 @@ class UIEvents:
                 return "❌ 質問文が入力されていません。"
             
             # 選択された画像の情報を取得
-            if not state or 'selected_result' not in state:
-                if verbose:
-                    print(f"[DEBUG] エラー: stateまたはselected_resultが存在しません")
-                    print(f"[DEBUG] state内容: {state}")
-                return "❌ 画像が選択されていません。"
+            selected_result = None
+            auto_selected = False
+            auto_selected_filename = ""
             
-            selected_result = state['selected_result']
-            if not selected_result:
+            if state and 'selected_result' in state and state['selected_result']:
+                # 明示的に選択された画像がある場合
+                selected_result = state['selected_result']
                 if verbose:
-                    print(f"[DEBUG] エラー: selected_resultが空です")
-                return "❌ 画像が選択されていません。"
+                    print(f"[DEBUG] 明示的に選択された画像を使用")
+            else:
+                # 画像が選択されていない場合、先頭画像を自動選択
+                if verbose:
+                    print(f"[DEBUG] 画像が選択されていないため、先頭画像を自動選択")
+                
+                if state:
+                    # 優先順位: vector_results → keyword_results → combined_results
+                    for result_key in ['vector_results', 'keyword_results', 'combined_results']:
+                        if result_key in state and state[result_key] and len(state[result_key]) > 0:
+                            selected_result = state[result_key][0]
+                            auto_selected = True
+                            auto_selected_filename = selected_result.get('file_name', '不明')
+                            if verbose:
+                                print(f"[DEBUG] {result_key}から先頭画像を自動選択: {auto_selected_filename}")
+                            break
+                
+                # すべての検索結果が空の場合
+                if not selected_result:
+                    if verbose:
+                        print(f"[DEBUG] エラー: すべての検索結果が空です")
+                        print(f"[DEBUG] state内容: {state}")
+                    return "❌ 検索結果が見つかりません。画像を検索してから回答生成を実行してください。"
             
             if verbose:
                 print(f"[DEBUG] 選択された画像情報:")
@@ -1570,7 +1610,14 @@ class UIEvents:
                     print(f"[DEBUG] ========== 回答生成処理終了 ==========\n")
                 
                 if answer:
-                    return answer
+                    if auto_selected:
+                        # 自動選択の場合は通知メッセージを追加
+                        final_answer = f"（注：画像が選択されていなかったため、検索結果の先頭画像「{auto_selected_filename}」を参照して回答を生成しました）\n\n{answer}"
+                        if verbose:
+                            print(f"[DEBUG] 自動選択通知メッセージを追加: {auto_selected_filename}")
+                        return final_answer
+                    else:
+                        return answer
                 else:
                     if verbose:
                         print(f"[DEBUG] エラー: VLMから空の回答が返されました")
@@ -2696,3 +2743,120 @@ class UIEvents:
                 gr.Checkbox(value=False, interactive=True),  # confirm_answer_prompt_delete_checkbox（リセット）
                 gr.Button(interactive=False)  # delete_answer_prompt_button（無効化）
             )
+
+    def update_reference_image_and_enable_answer_generation(self, state_data, search_target, search_method, reference_image_text=None, answer_generate_button=None, reference_type_radio=None):
+        """検索完了後に先頭画像の情報を「参照するドキュメント（画像）」にセットし、回答生成ボタンを有効化"""
+        import os
+        verbose = os.getenv('VERBOSE', '').lower() in ('true', '1', 'yes')
+        
+        if verbose:
+            print(f"[DEBUG] 検索完了後の参照画像設定処理開始")
+            print(f"[DEBUG] state_data: {type(state_data)}")
+            print(f"[DEBUG] search_target: {search_target}")
+            print(f"[DEBUG] search_method: {search_method}")
+        
+        # デフォルト値を設定
+        reference_image_update = None
+        answer_button_update = None
+        radio_button_update = None
+        
+        # 参照画像テキストボックスが指定されている場合
+        if reference_image_text is not None:
+            # 先頭画像のファイル名を取得
+            first_image_filename = ""
+            
+            if state_data:
+                # 優先順位: vector_results → keyword_results → combined_results
+                for result_key in ['vector_results', 'keyword_results', 'combined_results']:
+                    if result_key in state_data and state_data[result_key] and len(state_data[result_key]) > 0:
+                        first_image_filename = state_data[result_key][0].get('file_name', '')
+                        if verbose:
+                            print(f"[DEBUG] {result_key}から先頭画像を取得: {first_image_filename}")
+                        break
+            
+            # 参照するドキュメント（画像）の条件判定ロジック
+            reference_image_name = ""
+            if search_target is not None and search_method is not None:
+                # search_targetとsearch_methodの値を取得
+                target_value = search_target.value if hasattr(search_target, 'value') else search_target
+                method_value = search_method.value if hasattr(search_method, 'value') else search_method
+                
+                # 条件１：「検索対象」が「画像ベクトル」で、かつ、「クエリーの種類」が「テキスト」のとき
+                condition1 = (target_value == "画像ベクトル" and method_value == "テキスト")
+                
+                # 条件２：「検索対象」が「キャプション（テキストベクトルと全文）」のとき  
+                condition2 = (target_value == "キャプション（テキストベクトルと全文）")
+                
+                # いずれかの条件に合致したら参照画像名を表示
+                if (condition1 or condition2) and first_image_filename:
+                    reference_image_name = first_image_filename
+                    if verbose:
+                        print(f"[DEBUG] 条件に合致: 参照画像名を設定 = {reference_image_name}")
+            
+            # 参照するドキュメント（画像）のテキストボックス更新
+            from app.ui.components import REFERENCE_DOCUMENT_LABEL_TEXT, REFERENCE_IMAGE_PLACEHOLDER_TEXT
+            reference_image_update = gr.Textbox(
+                label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                show_label=True,
+                interactive=False,
+                container=True,
+                show_copy_button=True,
+                value=reference_image_name,
+                placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
+            )
+            if verbose:
+                print(f"[DEBUG] 参照画像テキストボックス更新: {reference_image_name}")
+        
+        # 回答生成ボタンとラジオボタンの状態を更新
+        if answer_generate_button is not None and search_target is not None and search_method is not None:
+            # 先頭画像があるかどうかをチェック
+            has_first_image = False
+            if state_data:
+                for result_key in ['vector_results', 'keyword_results', 'combined_results']:
+                    if result_key in state_data and state_data[result_key] and len(state_data[result_key]) > 0:
+                        has_first_image = True
+                        break
+            
+            # 条件をチェック
+            target_value = search_target.value if hasattr(search_target, 'value') else search_target
+            method_value = search_method.value if hasattr(search_method, 'value') else search_method
+            should_enable = self.check_answer_generation_conditions(target_value, method_value, has_first_image)
+            
+            answer_button_update = gr.Button("回答生成", variant="primary", interactive=should_enable)
+            if verbose:
+                print(f"[DEBUG] 回答生成ボタン更新: interactive={should_enable}")
+            
+            # ラジオボタンも同じ条件で更新
+            if reference_type_radio is not None:
+                from app.ui.components import REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY, REFERENCE_TYPE_LABEL_TEXT
+                radio_button_update = gr.Radio(
+                    choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                    value=REFERENCE_TYPE_ALL,
+                    label=REFERENCE_TYPE_LABEL_TEXT,
+                    container=True,
+                    interactive=should_enable
+                )
+                if verbose:
+                    print(f"[DEBUG] ラジオボタン更新: interactive={should_enable}")
+        
+        # 戻り値を構築
+        outputs = []
+        if reference_image_update is not None:
+            outputs.append(reference_image_update)
+        if answer_button_update is not None:
+            outputs.append(answer_button_update)
+        if radio_button_update is not None:
+            outputs.append(radio_button_update)
+        
+        if verbose:
+            print(f"[DEBUG] 検索完了後の参照画像設定処理終了: outputs数={len(outputs)}")
+        
+        # 戻り値の数に応じて適切なタプルを返す
+        if len(outputs) == 3:
+            return outputs[0], outputs[1], outputs[2]
+        elif len(outputs) == 2:
+            return outputs[0], outputs[1]
+        elif len(outputs) == 1:
+            return outputs[0]
+        else:
+            return None
