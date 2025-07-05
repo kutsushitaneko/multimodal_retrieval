@@ -1,5 +1,13 @@
 import gradio as gr
 
+# 定数定義
+QUERY_INPUT_PLACEHOLDER_TEXT = "検索したい画像の内容を入力してください"
+REFERENCE_DOCUMENT_LABEL_TEXT = "参照するドキュメント（画像）"
+REFERENCE_TYPE_LABEL_TEXT = "参照する情報の種類"
+REFERENCE_TYPE_ALL = "すべて"
+REFERENCE_TYPE_CAPTION_ONLY = "キャプションのみ"
+REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
+
 class UIComponents:
     """UIコンポーネントを管理するクラス"""
     
@@ -30,23 +38,25 @@ class UIComponents:
                             # 初期状態でクエリ入力フィールドを表示
                             query_input = gr.Textbox(
                                 label="検索クエリ",
-                                placeholder="検索したい画像の内容を入力してください",
+                                placeholder=QUERY_INPUT_PLACEHOLDER_TEXT,
                                 visible=True
                             )
                             
                             # 検索クエリのサンプル例を追加（Columnで囲む）
                             with gr.Column(visible=True) as query_examples:
-                                with gr.Accordion("検索クエリの例", open=True):
+                                with gr.Accordion("検索クエリの例", open=False):
                                     query_examples_inner = gr.Examples(
                                         examples=[
                                             "富士山と寺院", 
                                             "縞模様の猫", 
                                             "三匹の白い子猫", 
-                                            "ホグワーツ魔法学校", 
+                                            "ハリーにホグワーツの入学案内を持ってきたのは誰？", 
                                             "スターライトブレイカーとは何？",
                                             "推しの子の主人公は誰？",
                                             "lost in the middle とは？",
-                                            "2312.10997", 
+                                            "MCPは、アプリ開発者にとってどんなメリットがありますか？",
+                                            "川口市栄町の7月の金属ゴミの回収日はいつ？",
+                                            "2312.10997のタイトルは？", 
                                             "https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16"
                                         ],
                                         inputs=query_input,
@@ -68,6 +78,120 @@ class UIComponents:
                     show_all_button = gr.Button("全件表示")
                     
         return search_target, search_method, query_input, uploaded_image, search_button, clear_button, show_all_button, query_examples
+
+    def create_search_vlm_settings(self):
+        """検索タブ専用VLM設定セクションのUIコンポーネントを作成"""
+        with gr.Accordion("🤖 VLM設定（検索・回答生成用）", open=False) as search_vlm_settings_accordion:
+            # モデル設定の初期化
+            def initialize_search_vlm_models():
+                try:
+                    # VLMServiceを使用して一貫したフィルタリングを適用
+                    from app.vlm_service import VLMService
+                    vlm_service = VLMService()
+                    
+                    # サービスプロバイダー一覧を取得（VLMServiceのメソッドを使用）
+                    provider_choices = vlm_service.get_available_service_providers()
+                    # Vision対応モデルを取得
+                    vlm_models = vlm_service.get_vlm_models()
+                    
+                    # VLMモデル設定の初期化
+                    all_models = vlm_service.model_settings
+                    non_vision_count = len(all_models) - len(vlm_models)
+                    vlm_choices = list(vlm_models.keys()) if vlm_models else ["Vision対応モデルがありません"]
+                    default_vlm = vlm_choices[0] if vlm_choices else "Vision対応モデルがありません"
+                    
+                    # デバッグ情報を出力
+                    print(f"🔍 検索タブVLM設定セクション初期化")
+                    print(f"✅ Vision対応モデル数: {len(vlm_models)}")
+                    print(f"❌ Vision非対応モデル数: {non_vision_count}")
+                    print(f"📊 総モデル数: {len(all_models)}")
+                    print(f"🎯 デフォルトVLMモデル: {default_vlm}")
+                    print(f"🌐 利用可能なプロバイダー: {provider_choices}")
+                    
+                    return vlm_choices, default_vlm, provider_choices, vlm_models
+                except Exception as e:
+                    print(f"検索タブVLMモデル初期化エラー: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return ["エラー"], "エラー", ["すべて"], {}
+            
+            search_vlm_choices, search_default_vlm, search_provider_choices, search_vlm_models = initialize_search_vlm_models()
+            
+            # サービスプロバイダー選択
+            search_vlm_service_provider = gr.Dropdown(
+                label="サービスプロバイダ",
+                choices=search_provider_choices,
+                value="すべて",
+                interactive=True
+            )
+            
+            # VLMモデル選択
+            search_vlm_model = gr.Dropdown(
+                label="VLMモデル",
+                choices=search_vlm_choices,
+                value=search_default_vlm,
+                interactive=True
+            )
+            
+            # 温度設定
+            search_vlm_temperature = gr.Slider(
+                label="Temperature",
+                minimum=0.0,
+                maximum=1.0,
+                step=0.1,
+                value=0.3,
+                interactive=True
+            )
+            
+            # Max tokens設定
+            search_initial_max_tokens = search_vlm_models.get(search_default_vlm, {}).get("max_tokens", 4096) if search_default_vlm != "エラー" else 4096
+            search_initial_default_tokens = search_vlm_models.get(search_default_vlm, {}).get("default_tokens", 4096) if search_default_vlm != "エラー" else 4096
+            
+            search_vlm_max_tokens = gr.Slider(
+                label="Max tokens",
+                minimum=1,
+                maximum=search_initial_max_tokens,
+                step=1,
+                value=search_initial_default_tokens,
+                interactive=True
+            )
+            
+            # OCIリージョン設定（OCIモデルの場合のみ表示）
+            OCI_REGIONS = {
+                "Brazil East (Sao Paulo)": "sa-saopaulo-1",
+                "Germany Central (Frankfurt)": "eu-frankfurt-1", 
+                "Japan Central (Osaka)": "ap-osaka-1",
+                "UAE East (Dubai)": "me-dubai-1",
+                "UK South (London)": "uk-london-1",
+                "US Midwest (Chicago)": "us-chicago-1"
+            }
+            
+            search_initial_is_oci = search_default_vlm != "エラー" and search_vlm_models.get(search_default_vlm, {}).get("api_type", "").startswith("oci")
+            
+            # 初期リージョンを設定（モデルのdefault_regionを優先）
+            search_initial_region_name = "Japan Central (Osaka)"  # デフォルトのフォールバック値
+            if search_initial_is_oci:
+                search_default_region_id = search_vlm_models.get(search_default_vlm, {}).get("default_region")
+                if search_default_region_id:
+                    # region_idからregion_nameを逆引き
+                    for name, region_id in OCI_REGIONS.items():
+                        if region_id == search_default_region_id:
+                            search_initial_region_name = name
+                            break
+            
+            search_vlm_oci_region = gr.Dropdown(
+                label="OCIリージョン",
+                choices=list(OCI_REGIONS.keys()),
+                value=search_initial_region_name,
+                interactive=True,
+                visible=search_initial_is_oci
+            )
+            
+            # VLM設定のステータス
+            search_vlm_status_message = gr.Markdown("")
+        
+        return (search_vlm_service_provider, search_vlm_model, search_vlm_temperature, 
+                search_vlm_max_tokens, search_vlm_oci_region, search_vlm_status_message)
 
     def create_upload_edit_section(self):
         """アップロード・編集セクションのUIコンポーネントを作成"""
@@ -138,8 +262,8 @@ class UIComponents:
                     # ステータス表示
                     status_message = gr.Markdown("")
                 
-                # プロンプトの編集セクション（デフォルトでクローズ）
-                with gr.Accordion("プロンプトの設定と編集", open=False) as settings_accordion:
+                # キャプション生成プロンプトの編集セクション（デフォルトでクローズ）
+                with gr.Accordion("キャプション生成プロンプトの設定と編集", open=False) as settings_accordion:
                         # プロンプトテンプレートの初期化
                         def initialize_prompt_template_choices():
                             try:
@@ -474,7 +598,7 @@ class UIComponents:
                 vector_threshold = gr.Slider(
                     minimum=0.0,
                     maximum=1.0,
-                    value=0.0,
+                    value=0.25,
                     step=0.01,
                     label="ベクトル検索の閾値",
                     info="値が小さいほど多くの結果が表示されます（0.0～1.0）"
@@ -496,4 +620,172 @@ class UIComponents:
                     label="表示する結果の最大数"
                 )
                 
-        return vector_threshold, keyword_threshold, top_k_slider 
+        return vector_threshold, keyword_threshold, top_k_slider
+        
+    def create_answer_generation_section(self):
+        """自然言語による回答セクションのUIコンポーネントを作成"""
+        with gr.Accordion("自然言語による回答", open=True):
+            with gr.Row():
+                # 参照するドキュメント（画像）の表示領域（コピーボタン付き）
+                reference_image_text = gr.Textbox(
+                    label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                    show_label=True,
+                    interactive=False,
+                    container=True,
+                    show_copy_button=True,
+                    placeholder="条件に合致する画像を選択すると、ファイル名がここに表示されます",
+                    scale=1
+                )
+                # 参照する情報の種類ラジオボタン
+                reference_type_radio = gr.Radio(
+                    choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                    value=REFERENCE_TYPE_ALL,
+                    label=REFERENCE_TYPE_LABEL_TEXT,
+                    container=True,
+                    interactive=False,
+                    scale=1
+                )
+            with gr.Row():
+                # 質問文入力エリア
+                answer_question_input = gr.Textbox(
+                    label="質問文",
+                    placeholder="回答生成で使用する質問文を入力してください",
+                    interactive=True,
+                    lines=3,
+                    show_copy_button=True,
+                    container=True,
+                    scale=3
+                )
+                # 回答生成ボタン
+                answer_generate_button = gr.Button(
+                    "回答生成", 
+                    variant="primary", 
+                    interactive=False,
+                    scale=1
+                )
+            with gr.Row():
+                answer_text = gr.Textbox(
+                    label="回答",
+                    show_label=True,
+                    interactive=False,
+                    lines=10,
+                    container=True,
+                    show_copy_button=True,
+                    placeholder="回答がここに表示されます"
+                )
+                
+        return (reference_image_text, answer_generate_button, answer_text, reference_type_radio, answer_question_input)
+    
+    def create_answer_prompt_settings_section(self):
+        """回答生成プロンプトの設定と編集セクションのUIコンポーネントを作成"""
+        with gr.Accordion("回答生成プロンプトの設定と編集", open=False):
+            # 回答生成プロンプトテンプレートの初期化
+            def initialize_answer_prompt_template_choices():
+                try:
+                    import os
+                    import glob
+                    answer_prompt_dir = "answer_prompt"
+                    if not os.path.exists(answer_prompt_dir):
+                        os.makedirs(answer_prompt_dir, exist_ok=True)
+                    
+                    # answer_promptフォルダーからテンプレート一覧を取得
+                    template_files = glob.glob(os.path.join(answer_prompt_dir, "*.txt"))
+                    template_names = []
+                    for file_path in template_files:
+                        basename = os.path.basename(file_path)
+                        template_name = os.path.splitext(basename)[0]
+                        template_names.append(template_name)
+                    
+                    # デフォルトテンプレートを確認
+                    default_template_name = "デフォルト（回答生成）"
+                    if not template_names:
+                        template_names = [default_template_name]
+                    elif default_template_name not in template_names:
+                        template_names.insert(0, default_template_name)
+                    
+                    return template_names, default_template_name
+                except Exception as e:
+                    print(f"回答生成プロンプトテンプレート初期化エラー: {e}")
+                    return ["デフォルト（回答生成）"], "デフォルト（回答生成）"
+            
+            initial_answer_choices, initial_answer_value = initialize_answer_prompt_template_choices()
+            
+            # 回答生成プロンプトテンプレート選択
+            answer_prompt_template_dropdown = gr.Dropdown(
+                label="回答生成プロンプトテンプレート",
+                choices=initial_answer_choices,
+                value=initial_answer_value,
+                interactive=True
+            )
+            
+            # デフォルト回答生成プロンプトを読み込み
+            def get_initial_answer_prompt():
+                try:
+                    import os
+                    answer_prompt_path = os.path.join("answer_prompt", f"{initial_answer_value}.txt")
+                    if os.path.exists(answer_prompt_path):
+                        with open(answer_prompt_path, 'r', encoding='utf-8') as f:
+                            return f.read()
+                    return ""
+                except Exception as e:
+                    print(f"デフォルト回答生成プロンプト読み込みエラー: {e}")
+                    return ""
+            
+            initial_answer_prompt = get_initial_answer_prompt()
+            
+            # 回答生成プロンプト表示・編集を左右に配置
+            with gr.Row():
+                with gr.Column(scale=1):
+                    # 左側：現在の回答生成プロンプト（表示のみ）
+                    current_answer_prompt_display = gr.Textbox(
+                        label="現在の回答生成プロンプト",
+                        lines=8,
+                        interactive=False,
+                        show_copy_button=True,
+                        value=initial_answer_prompt,
+                        placeholder="選択された回答生成プロンプトがここに表示されます"
+                    )
+                
+                with gr.Column(scale=1):
+                    # 右側：回答生成プロンプトの編集
+                    answer_prompt_edit_textbox = gr.Textbox(
+                        label="回答生成プロンプトの設定・編集",
+                        lines=8,
+                        interactive=True,
+                        value=initial_answer_prompt,
+                        placeholder="回答生成プロンプトを編集してください"
+                    )
+            
+            # 回答生成プロンプト名と操作ボタン
+            with gr.Row():
+                answer_prompt_name_input = gr.Textbox(
+                    label="回答生成プロンプトの名前",
+                    placeholder="新しい回答生成プロンプト名を入力",
+                    scale=2
+                )
+            
+            with gr.Row():
+                save_answer_prompt_button = gr.Button("回答生成プロンプトを保存", variant="primary")
+                cancel_answer_prompt_edit_button = gr.Button("回答生成プロンプト編集を取消")
+            
+            # 回答生成プロンプトの削除アコーディオン（デフォルトでクローズ）
+            with gr.Accordion("回答生成プロンプトの削除", open=False):
+                gr.Markdown("⚠️ **危険な操作**: 選択された回答生成プロンプトテンプレートを完全に削除します。この操作は元に戻せません。")
+                with gr.Row():
+                    confirm_answer_prompt_delete_checkbox = gr.Checkbox(
+                        label="削除することを確認しました",
+                        value=False,
+                        interactive=True
+                    )
+                delete_answer_prompt_button = gr.Button(
+                    "🗑️ 回答生成プロンプトを削除",
+                    variant="stop",
+                    interactive=False
+                )
+            
+            # 回答生成プロンプト操作のステータス
+            answer_prompt_status_message = gr.Markdown("")
+            
+        return (answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox,
+                answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, 
+                answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button) 

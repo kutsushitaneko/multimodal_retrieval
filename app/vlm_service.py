@@ -6,6 +6,14 @@ class VLMService:
         self.model_settings_path = "model_settings.json"
         self.model_settings = self._load_model_settings()
         
+        # 現在選択されているVLM設定を保持
+        self.current_vlm_settings = {
+            "model": None,
+            "temperature": 0.3,
+            "max_tokens": 4096,
+            "oci_region": "ap-osaka-1"
+        }
+        
         # OCIリージョン定義
         self.OCI_REGIONS = {
             "Brazil East (Sao Paulo)": "sa-saopaulo-1",
@@ -24,6 +32,34 @@ class VLMService:
         except Exception as e:
             print(f"モデル設定ファイル読み込みエラー: {e}")
             return {}
+    
+    def get_current_vlm_settings(self):
+        """現在のVLM設定を取得"""
+        # デフォルトモデルが設定されていない場合は、最初のVLMモデルを設定
+        if self.current_vlm_settings["model"] is None:
+            vlm_models = self.get_vlm_models()
+            if vlm_models:
+                first_model = list(vlm_models.keys())[0]
+                self.current_vlm_settings["model"] = first_model
+                self.current_vlm_settings["max_tokens"] = self.get_model_default_tokens(first_model)
+                api_type = self.get_api_type(first_model)
+                if api_type.startswith("oci"):
+                    default_region = self.get_model_default_region(first_model)
+                    if default_region:
+                        self.current_vlm_settings["oci_region"] = default_region
+        
+        return self.current_vlm_settings.copy()
+    
+    def update_current_vlm_settings(self, model=None, temperature=None, max_tokens=None, oci_region=None):
+        """現在のVLM設定を更新"""
+        if model is not None:
+            self.current_vlm_settings["model"] = model
+        if temperature is not None:
+            self.current_vlm_settings["temperature"] = temperature
+        if max_tokens is not None:
+            self.current_vlm_settings["max_tokens"] = max_tokens
+        if oci_region is not None:
+            self.current_vlm_settings["oci_region"] = oci_region
     
     def get_vlm_models(self):
         """Vision対応モデルのみを取得（厳密なフィルタリング）"""

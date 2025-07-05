@@ -5,12 +5,34 @@ import time
 from io import BytesIO
 from app.vlm_service import VLMService
 
+# 定数定義
+REFERENCE_IMAGE_PLACEHOLDER_TEXT = "検索結果の画像を選択してください。"
+QUERY_INPUT_PLACEHOLDER_TEXT = "検索したい画像の内容を入力してください"
+REFERENCE_DOCUMENT_LABEL_TEXT = "参照するドキュメント（画像）"
+REFERENCE_TYPE_LABEL_TEXT = "参照する情報の種類"
+REFERENCE_TYPE_ALL = "すべて"
+REFERENCE_TYPE_CAPTION_ONLY = "キャプションのみ"
+REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
+
 class UIEvents:
     """UIイベントを管理するクラス"""
     
     def __init__(self, search_service):
+        """イベントハンドラクラスの初期化"""
         self.search_service = search_service
-        self.vlm_service = VLMService()
+        
+        # 各タブ専用のVLMServiceインスタンスを作成（完全独立）
+        from app.vlm_service_factory import VLMServiceFactory
+        self.search_vlm_service = VLMServiceFactory.create_search_vlm_service()
+        self.upload_vlm_service = VLMServiceFactory.create_upload_vlm_service()
+        
+        # 各VLMServiceに対応するNLPServiceインスタンス（依存関係注入）
+        from app.nlp_service import NLPService
+        self.search_nlp_service = NLPService(self.search_vlm_service)
+        self.upload_nlp_service = NLPService(self.upload_vlm_service)
+        
+        # 後方互換性のため既存のvlm_serviceプロパティをアップロードタブ用として保持
+        self.vlm_service = self.upload_vlm_service
         
     def register_vlm_settings_events(self, vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message):
         """VLM設定のイベントを登録"""
@@ -30,13 +52,89 @@ class UIEvents:
             queue=False  # VLMモデル変更は即座に処理
         )
         
+        # temperatureとmax_tokensの変更も追跡
+        vlm_temperature.change(
+            fn=lambda temp: self.vlm_service.update_current_vlm_settings(temperature=temp),
+            inputs=[vlm_temperature],
+            outputs=[]
+        )
+        
+        vlm_max_tokens.change(
+            fn=lambda tokens: self.vlm_service.update_current_vlm_settings(max_tokens=tokens),
+            inputs=[vlm_max_tokens],
+            outputs=[]
+        )
+        
+        # OCIリージョンの変更も追跡
+        vlm_oci_region.change(
+            fn=lambda region: [
+                print(f"[DEBUG] OCIリージョン変更: {region} -> {self.vlm_service.OCI_REGIONS.get(region, region)}"),
+                self.vlm_service.update_current_vlm_settings(oci_region=self.vlm_service.OCI_REGIONS.get(region, region))
+            ][1],
+            inputs=[vlm_oci_region],
+            outputs=[]
+        )
+        
     def vlm_service_provider_changed(self, service_provider):
         """VLMサービスプロバイダー変更時の処理"""
         return self.vlm_service.service_provider_changed(service_provider)
     
     def vlm_model_changed(self, model):
         """VLMモデル変更時の処理"""
+        # VLMServiceの現在の設定を更新
+        self.vlm_service.update_current_vlm_settings(model=model)
         return self.vlm_service.model_changed(model)
+        
+    def register_search_vlm_settings_events(self, search_vlm_service_provider, search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region, search_vlm_status_message):
+        """検索タブVLM設定のイベントを登録"""
+        # サービスプロバイダー変更時のイベント
+        search_vlm_service_provider.change(
+            fn=self.search_vlm_service_provider_changed,
+            inputs=[search_vlm_service_provider],
+            outputs=[search_vlm_model, search_vlm_max_tokens, search_vlm_oci_region],
+            queue=False  # VLM設定変更は即座に処理
+        )
+        
+        # VLMモデル変更時のイベント
+        search_vlm_model.change(
+            fn=self.search_vlm_model_changed,
+            inputs=[search_vlm_model],
+            outputs=[search_vlm_max_tokens, search_vlm_oci_region],
+            queue=False  # VLMモデル変更は即座に処理
+        )
+        
+        # temperatureとmax_tokensの変更も追跡
+        search_vlm_temperature.change(
+            fn=lambda temp: self.search_vlm_service.update_current_vlm_settings(temperature=temp),
+            inputs=[search_vlm_temperature],
+            outputs=[]
+        )
+        
+        search_vlm_max_tokens.change(
+            fn=lambda tokens: self.search_vlm_service.update_current_vlm_settings(max_tokens=tokens),
+            inputs=[search_vlm_max_tokens],
+            outputs=[]
+        )
+        
+        # OCIリージョンの変更も追跡
+        search_vlm_oci_region.change(
+            fn=lambda region: [
+                print(f"[DEBUG] 検索タブOCIリージョン変更: {region} -> {self.search_vlm_service.OCI_REGIONS.get(region, region)}"),
+                self.search_vlm_service.update_current_vlm_settings(oci_region=self.search_vlm_service.OCI_REGIONS.get(region, region))
+            ][1],
+            inputs=[search_vlm_oci_region],
+            outputs=[]
+        )
+        
+    def search_vlm_service_provider_changed(self, service_provider):
+        """検索タブVLMサービスプロバイダー変更時の処理"""
+        return self.search_vlm_service.service_provider_changed(service_provider)
+    
+    def search_vlm_model_changed(self, model):
+        """検索タブVLMモデル変更時の処理"""
+        # 検索タブVLMServiceの現在の設定を更新
+        self.search_vlm_service.update_current_vlm_settings(model=model)
+        return self.search_vlm_service.model_changed(model)
         
     def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, query_examples, executed_sql_text):
         """検索対象変更時のイベントを登録"""
@@ -74,8 +172,9 @@ class UIEvents:
             outputs=[morphological_analysis_text]
         )
         
-    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text):
+    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None, answer_question_input=None):
         """検索ボタンのイベントを登録"""
+        # 検索時は常にコンポーネントをクリアする（参照画像は検索後に条件に応じて更新される）
         search_button.click(
             fn=self.clear_before_search,
             inputs=[],
@@ -102,7 +201,15 @@ class UIEvents:
             outputs=[pagination_row]
         )
         
-    def register_execute_query_button_events(self, execute_query_button, executed_query_text, top_k_slider, keyword_threshold, vector_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text, pagination_row):
+        # 質問文入力エリアが指定されている場合、検索クエリを質問文入力エリアに設定
+        if answer_question_input is not None:
+            search_button.click(
+                fn=lambda query: query if query and query.strip() else "",
+                inputs=[query_input],
+                outputs=[answer_question_input]
+            )
+        
+    def register_execute_query_button_events(self, execute_query_button, executed_query_text, top_k_slider, keyword_threshold, vector_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text, pagination_row, answer_question_input=None):
         """カスタムクエリ実行ボタンのイベントを登録"""
         execute_query_button.click(
             fn=self.clear_before_custom_search,
@@ -118,29 +225,152 @@ class UIEvents:
             outputs=[pagination_row]
         )
         
-    def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text):
+        # 質問文入力エリアが指定されている場合、実行されたクエリを質問文入力エリアに設定
+        if answer_question_input is not None:
+            execute_query_button.click(
+                fn=lambda query: query if query and query.strip() else "",
+                inputs=[executed_query_text],
+                outputs=[answer_question_input]
+            )
+        
+    def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text, answer_generate_button=None, answer_text=None, reference_image_text=None, reference_type_radio=None, answer_question_input=None):
         """クリアボタンのイベントを登録"""
-        clear_button.click(
-            fn=self.clear_results,
-            inputs=[],
-            outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
-        ).then(
-            fn=self.hide_pagination,
-            inputs=[],
-            outputs=[pagination_row]
-        )
+        if answer_generate_button is not None and answer_text is not None:
+            # 回答生成関連のコンポーネントもクリアする場合
+            if reference_image_text is not None and reference_type_radio is not None:
+                # 参照画像とラジオボタンも含めてクリア
+                if answer_question_input is not None:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text, reference_image_text, reference_type_radio, answer_question_input],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, reference_type_radio, answer_question_input]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
+                else:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text, reference_image_text, reference_type_radio],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, reference_type_radio]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
+            elif reference_image_text is not None:
+                # 参照画像も含めてクリア
+                if answer_question_input is not None:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text, reference_image_text, None, answer_question_input],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, answer_question_input]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
+                else:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text, reference_image_text],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
+            else:
+                # 従来の回答生成関連のクリア
+                if answer_question_input is not None:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text, None, None, answer_question_input],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_generate_button, answer_text, answer_question_input]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
+                else:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_generate_button, answer_text]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
+        else:
+            # 従来通りの処理
+            if reference_image_text is not None and reference_type_radio is not None:
+                # 参照画像とラジオボタンも含めてクリア
+                clear_button.click(
+                    fn=self.clear_results,
+                    inputs=[reference_image_text, reference_type_radio],
+                    outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, reference_type_radio]
+                ).then(
+                    fn=self.hide_pagination,
+                    inputs=[],
+                    outputs=[pagination_row]
+                )
+            elif reference_image_text is not None:
+                # 参照画像も含めてクリア
+                clear_button.click(
+                    fn=self.clear_results,
+                    inputs=[reference_image_text],
+                    outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text]
+                ).then(
+                    fn=self.hide_pagination,
+                    inputs=[],
+                    outputs=[pagination_row]
+                )
+            else:
+                # 従来の処理
+                clear_button.click(
+                    fn=self.clear_results,
+                    inputs=[],
+                    outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
+                ).then(
+                    fn=self.hide_pagination,
+                    inputs=[],
+                    outputs=[pagination_row]
+                )
     
-    def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text):
+    def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None):
         """全件表示ボタンのイベントを登録"""
-        show_all_button.click(
-            fn=self.clear_before_search,
-            inputs=[],
-            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
-        ).then(
-            fn=self.show_all_images,
-            inputs=[top_k_slider, state],
-            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text]
-        )
+        if reference_image_text is not None:
+            # 参照画像も含めてクリア
+            show_all_button.click(
+                fn=self.clear_before_search,
+                inputs=[reference_image_text],
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text]
+            ).then(
+                fn=self.show_all_images,
+                inputs=[top_k_slider, state],
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text]
+            )
+        else:
+            # 従来の処理
+            show_all_button.click(
+                fn=self.clear_before_search,
+                inputs=[],
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
+            ).then(
+                fn=self.show_all_images,
+                inputs=[top_k_slider, state],
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text]
+            )
+        
+        # 質問文入力エリアが指定されている場合、全件表示時に質問文をクリア
+        if answer_question_input is not None:
+            show_all_button.click(
+                fn=lambda: "",
+                inputs=[],
+                outputs=[answer_question_input]
+            )
     
     def register_pagination_events(self, prev_button, next_button, top_k_slider, vector_gallery, page_info, state, keyword_gallery, prev_button_out, next_button_out):
         """ページングボタンのイベントを登録"""
@@ -156,7 +386,7 @@ class UIEvents:
             outputs=[vector_gallery, page_info, state, keyword_gallery, prev_button_out, next_button_out]
         )
         
-    def register_gallery_selection_events(self, vector_gallery, keyword_gallery, state, filename_text, similarity_text, caption_text):
+    def register_gallery_selection_events(self, vector_gallery, keyword_gallery, state, filename_text, similarity_text, caption_text, search_target=None, search_method=None, answer_generate_button=None, reference_image_text=None, reference_type_radio=None):
         """ギャラリー選択イベントを登録"""
         def handle_vector_selection(evt: gr.SelectData, state_data):
             # vector_galleryを選択した場合の処理
@@ -165,7 +395,29 @@ class UIEvents:
             # stateの構造を確認
             if state_data is None:
                 print("警告: state_dataがNoneです")
-                return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
+                
+                if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                elif answer_generate_button is not None and reference_image_text is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                elif answer_generate_button is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                elif answer_generate_button is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                elif reference_image_text is not None and disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                elif reference_image_text is not None:
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                elif disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                else:
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
                 
             # state_dataから直接ベクトル検索結果を取得
             vector_results = state_data.get("vector_results", [])
@@ -174,11 +426,37 @@ class UIEvents:
             # インデックスが有効かチェック
             if len(vector_results) <= evt.index:
                 print(f"警告: 無効なインデックス - vector_results長さ={len(vector_results)}, インデックス={evt.index}")
-                return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
+                
+                if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                elif answer_generate_button is not None and reference_image_text is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                elif answer_generate_button is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                elif answer_generate_button is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                elif reference_image_text is not None and disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                elif reference_image_text is not None:
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                elif disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                else:
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
                 
             # ベクトル検索結果を取得
             selected_result = vector_results[evt.index]
             # print(f"選択されたベクトル検索結果: {selected_result}")
+            
+            # 選択された画像情報をstateに保存
+            if state_data:
+                state_data['selected_result'] = selected_result
             
             # 画像情報を表示
             file_name = selected_result['file_name']
@@ -194,10 +472,71 @@ class UIEvents:
             # ベクトル検索の場合はコサイン類似度のラベルで表示
             similarity_textbox = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=score_text)
             
-            # ドキュメントに基づいた方法で、選択状態のみをリセットしたギャラリーコンポーネントを返す
-            return file_name, similarity_textbox, caption, gr.Gallery(
-                selected_index=None,
-            )
+            # 参照するドキュメント（画像）の条件判定ロジック
+            reference_image_name = ""
+            if reference_image_text is not None and search_target is not None and search_method is not None:
+                # search_targetとsearch_methodの値を取得
+                target_value = search_target.value if hasattr(search_target, 'value') else search_target
+                method_value = search_method.value if hasattr(search_method, 'value') else search_method
+                
+                # 条件１：「検索対象」が「画像ベクトル」で、かつ、「クエリーの種類」が「テキスト」のとき
+                condition1 = (target_value == "画像ベクトル" and method_value == "テキスト")
+                
+                # 条件２：「検索対象」が「キャプション（テキストベクトルと全文）」のとき  
+                condition2 = (target_value == "キャプション（テキストベクトルと全文）")
+                
+                # いずれかの条件に合致したら参照画像名を表示
+                if condition1 or condition2:
+                    reference_image_name = file_name
+            
+            # 参照するドキュメント（画像）のテキストボックス更新
+            reference_image_update = None
+            if reference_image_text is not None:
+                reference_image_update = gr.Textbox(
+                    label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                    show_label=True,
+                    interactive=False,
+                    container=True,
+                    show_copy_button=True,
+                    value=reference_image_name,
+                    placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
+                )
+            
+            # 回答生成ボタンとラジオボタンの状態を更新
+            answer_button_update = None
+            radio_button_update = None
+            if answer_generate_button is not None and search_target is not None and search_method is not None:
+                # 画像が選択されたので、条件をチェック
+                should_enable = self.check_answer_generation_conditions(search_target.value if hasattr(search_target, 'value') else search_target, search_method.value if hasattr(search_method, 'value') else search_method, True)
+                answer_button_update = gr.Button("回答生成", variant="primary", interactive=should_enable)
+                
+                # ラジオボタンも同じ条件で更新
+                if reference_type_radio is not None:
+                    radio_button_update = gr.Radio(
+                        choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                        value=REFERENCE_TYPE_ALL,
+                        label=REFERENCE_TYPE_LABEL_TEXT,
+                        container=True,
+                        interactive=should_enable
+                    )
+            
+            # 選択を解除して返す
+            if reference_image_update is not None and answer_button_update is not None and radio_button_update is not None:
+                return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), answer_button_update, reference_image_update, radio_button_update
+            elif reference_image_update is not None and answer_button_update is not None:
+                return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), answer_button_update, reference_image_update
+            elif reference_image_update is not None and radio_button_update is not None:
+                return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), reference_image_update, radio_button_update
+            elif answer_button_update is not None and radio_button_update is not None:
+                return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), answer_button_update, radio_button_update
+            elif reference_image_update is not None:
+                return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), reference_image_update
+            elif answer_button_update is not None:
+                return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), answer_button_update
+            elif radio_button_update is not None:
+                return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), radio_button_update
+            else:
+                return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None)
             
         def handle_keyword_selection(evt: gr.SelectData, state_data):
             # keyword_galleryは常に全文検索結果を表示するギャラリーなので
@@ -208,7 +547,29 @@ class UIEvents:
             # state_dataの構造を確認
             if state_data is None:
                 print("警告: state_dataがNoneです")
-                return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
+                
+                if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                elif answer_generate_button is not None and reference_image_text is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                elif answer_generate_button is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                elif answer_generate_button is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                elif reference_image_text is not None and disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                elif reference_image_text is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                elif disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                else:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
                 
             # state_dataから直接全文検索結果を取得
             keyword_results = state_data.get("keyword_results", [])
@@ -221,18 +582,66 @@ class UIEvents:
             # 全文検索結果が0件の場合
             if len(keyword_results) == 0:
                 # print("警告: 全文検索結果が0件です")
-                return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
+                
+                if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                elif answer_generate_button is not None and reference_image_text is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                elif answer_generate_button is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                elif answer_generate_button is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                elif reference_image_text is not None and disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                elif reference_image_text is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                elif disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                else:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
                 
             # evt.indexが全文検索結果の範囲内かチェック
             if evt.index >= len(keyword_results):
                 print(f"警告: インデックスが範囲外です - インデックス={evt.index}, 結果数={len(keyword_results)}")
                 # インデックスが範囲外の場合はエラーを返す
-                return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
+                
+                if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                elif answer_generate_button is not None and reference_image_text is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                elif answer_generate_button is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                elif answer_generate_button is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                elif reference_image_text is not None and disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                elif reference_image_text is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                elif disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                else:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
             
             try:
                 # 選択された全文検索結果を直接取得
                 selected_result = keyword_results[evt.index]
                 # print(f"選択された全文検索結果: {selected_result.get('file_name')} (インデックス: {evt.index})")
+                
+                # 選択された画像情報をstateに保存
+                if state_data:
+                    state_data['selected_result'] = selected_result
                 
                 # 画像情報を表示
                 file_name = selected_result['file_name']
@@ -248,24 +657,202 @@ class UIEvents:
                 # 全文検索の場合はスコアのラベルで表示
                 similarity_textbox = gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=score_text)
                 
+                # 参照するドキュメント（画像）の条件判定ロジック
+                reference_image_name = ""
+                if reference_image_text is not None and search_target is not None and search_method is not None:
+                    # search_targetとsearch_methodの値を取得
+                    target_value = search_target.value if hasattr(search_target, 'value') else search_target
+                    method_value = search_method.value if hasattr(search_method, 'value') else search_method
+                    
+                    # 条件１：「検索対象」が「画像ベクトル」で、かつ、「クエリーの種類」が「テキスト」のとき
+                    condition1 = (target_value == "画像ベクトル" and method_value == "テキスト")
+                    
+                    # 条件２：「検索対象」が「キャプション（テキストベクトルと全文）」のとき  
+                    condition2 = (target_value == "キャプション（テキストベクトルと全文）")
+                    
+                    # いずれかの条件に合致したら参照画像名を表示
+                    if condition1 or condition2:
+                        reference_image_name = file_name
+                
+                # 参照するドキュメント（画像）のテキストボックス更新
+                reference_image_update = None
+                if reference_image_text is not None:
+                    reference_image_update = gr.Textbox(
+                        label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                        show_label=True,
+                        interactive=False,
+                        container=True,
+                        show_copy_button=True,
+                        value=reference_image_name,
+                        placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
+                    )
+                
+                # 回答生成ボタンとラジオボタンの状態を更新
+                answer_button_update = None
+                radio_button_update = None
+                if answer_generate_button is not None and search_target is not None and search_method is not None:
+                    # 画像が選択されたので、条件をチェック
+                    should_enable = self.check_answer_generation_conditions(search_target.value if hasattr(search_target, 'value') else search_target, search_method.value if hasattr(search_method, 'value') else search_method, True)
+                    answer_button_update = gr.Button("回答生成", variant="primary", interactive=should_enable)
+                    
+                    # ラジオボタンも同じ条件で更新
+                    if reference_type_radio is not None:
+                        radio_button_update = gr.Radio(
+                            choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                            value=REFERENCE_TYPE_ALL,
+                            label=REFERENCE_TYPE_LABEL_TEXT,
+                            container=True,
+                            interactive=should_enable
+                        )
+                
                 # 選択を解除して返す
-                return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None)
+                if reference_image_update is not None and answer_button_update is not None and radio_button_update is not None:
+                    return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), answer_button_update, reference_image_update, radio_button_update
+                elif reference_image_update is not None and answer_button_update is not None:
+                    return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), answer_button_update, reference_image_update
+                elif reference_image_update is not None and radio_button_update is not None:
+                    return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), reference_image_update, radio_button_update
+                elif answer_button_update is not None and radio_button_update is not None:
+                    return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), answer_button_update, radio_button_update
+                elif reference_image_update is not None:
+                    return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), reference_image_update
+                elif answer_button_update is not None:
+                    return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), answer_button_update
+                elif radio_button_update is not None:
+                    return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None), radio_button_update
+                else:
+                    return file_name, similarity_textbox, caption, gr.Gallery(selected_index=None)
             except Exception as e:
                 print(f"エラー発生: {str(e)}")
                 # エラーが発生した場合は空の値を返す
-                return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
+                
+                if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                elif answer_generate_button is not None and reference_image_text is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                elif answer_generate_button is not None and disabled_radio is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                elif answer_generate_button is not None:
+                    disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                elif reference_image_text is not None and disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                elif reference_image_text is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                elif disabled_radio is not None:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                else:
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
             
-        vector_gallery.select(
-            fn=handle_vector_selection,
-            inputs=[state],
-            outputs=[filename_text, similarity_text, caption_text, keyword_gallery]
-        )
-        
-        keyword_gallery.select(
-            fn=handle_keyword_selection,
-            inputs=[state],
-            outputs=[filename_text, similarity_text, caption_text, vector_gallery]
-        )
+        if reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None:
+            # 参照画像、回答生成ボタン、ラジオボタンも更新する場合
+            vector_gallery.select(
+                fn=handle_vector_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, keyword_gallery, answer_generate_button, reference_image_text, reference_type_radio]
+            )
+            
+            keyword_gallery.select(
+                fn=handle_keyword_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, vector_gallery, answer_generate_button, reference_image_text, reference_type_radio]
+            )
+        elif reference_image_text is not None and answer_generate_button is not None:
+            # 参照画像と回答生成ボタンも更新する場合
+            vector_gallery.select(
+                fn=handle_vector_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, keyword_gallery, answer_generate_button, reference_image_text]
+            )
+            
+            keyword_gallery.select(
+                fn=handle_keyword_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, vector_gallery, answer_generate_button, reference_image_text]
+            )
+        elif reference_image_text is not None and reference_type_radio is not None:
+            # 参照画像とラジオボタンのみ更新する場合
+            vector_gallery.select(
+                fn=handle_vector_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, keyword_gallery, reference_image_text, reference_type_radio]
+            )
+            
+            keyword_gallery.select(
+                fn=handle_keyword_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, vector_gallery, reference_image_text, reference_type_radio]
+            )
+        elif reference_image_text is not None:
+            # 参照画像のみ更新する場合
+            vector_gallery.select(
+                fn=handle_vector_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, keyword_gallery, reference_image_text]
+            )
+            
+            keyword_gallery.select(
+                fn=handle_keyword_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, vector_gallery, reference_image_text]
+            )
+        elif answer_generate_button is not None and reference_type_radio is not None:
+            # 回答生成ボタンとラジオボタンのみ更新する場合
+            vector_gallery.select(
+                fn=handle_vector_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, keyword_gallery, answer_generate_button, reference_type_radio]
+            )
+            
+            keyword_gallery.select(
+                fn=handle_keyword_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, vector_gallery, answer_generate_button, reference_type_radio]
+            )
+        elif answer_generate_button is not None:
+            # 回答生成ボタンのみ更新する場合
+            vector_gallery.select(
+                fn=handle_vector_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, keyword_gallery, answer_generate_button]
+            )
+            
+            keyword_gallery.select(
+                fn=handle_keyword_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, vector_gallery, answer_generate_button]
+            )
+        elif reference_type_radio is not None:
+            # ラジオボタンのみ更新する場合
+            vector_gallery.select(
+                fn=handle_vector_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, keyword_gallery, reference_type_radio]
+            )
+            
+            keyword_gallery.select(
+                fn=handle_keyword_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, vector_gallery, reference_type_radio]
+            )
+        else:
+            # 従来通りの処理
+            vector_gallery.select(
+                fn=handle_vector_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, keyword_gallery]
+            )
+            
+            keyword_gallery.select(
+                fn=handle_keyword_selection,
+                inputs=[state],
+                outputs=[filename_text, similarity_text, caption_text, vector_gallery]
+            )
         
     # イベントハンドラー関数
     def update_search_method_choices(self, search_target):
@@ -281,7 +868,7 @@ class UIEvents:
         if search_target == "画像ベクトル" and search_method == "画像":
             return gr.Textbox(
                 label="検索クエリ",
-                placeholder="検索したい画像の内容を入力してください",
+                placeholder=QUERY_INPUT_PLACEHOLDER_TEXT,
                 visible=False
             ), gr.Image(
                 label="画像をアップロード",
@@ -293,7 +880,7 @@ class UIEvents:
         else:
             return gr.Textbox(
                 label="検索クエリ",
-                placeholder="検索したい画像の内容を入力してください",
+                placeholder=QUERY_INPUT_PLACEHOLDER_TEXT,
                 visible=True
             ), gr.Image(
                 label="画像をアップロード",
@@ -354,13 +941,86 @@ class UIEvents:
         else:
             return gr.Gallery(label="検索結果", visible=True), gr.Gallery(label="", visible=False)
             
-    def clear_before_search(self):
+    def clear_before_search(self, reference_image_text=None):
         """検索実行前にクリアする関数"""
-        return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", ""
+        if reference_image_text is not None:
+            cleared_reference = gr.Textbox(
+                label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                show_label=True,
+                interactive=False,
+                container=True,
+                show_copy_button=True,
+                value="",
+                placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
+            )
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", cleared_reference
+        else:
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", ""
 
-    def clear_results(self):
+    def clear_results(self, reference_image_text=None, reference_type_radio=None):
         """すべての結果をクリアする関数"""
-        return "", None, [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", ""
+        if reference_image_text is not None and reference_type_radio is not None:
+            cleared_reference = gr.Textbox(
+                label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                show_label=True,
+                interactive=False,
+                container=True,
+                show_copy_button=True,
+                value="",
+                placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
+            )
+            cleared_radio = gr.Radio(
+                choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                value=REFERENCE_TYPE_ALL,
+                label=REFERENCE_TYPE_LABEL_TEXT,
+                container=True,
+                interactive=False
+            )
+            return "", None, [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", cleared_reference, cleared_radio
+        elif reference_image_text is not None:
+            cleared_reference = gr.Textbox(
+                label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                show_label=True,
+                interactive=False,
+                container=True,
+                show_copy_button=True,
+                value="",
+                placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
+            )
+            return "", None, [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", cleared_reference
+        else:
+            return "", None, [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", ""
+        
+    def clear_results_with_answer_generation(self, answer_generate_button, answer_text, reference_image_text=None, reference_type_radio=None, answer_question_input=None):
+        """すべての結果をクリアする関数（回答生成関連も含む）"""
+        clear_result = self.clear_results(reference_image_text, reference_type_radio)
+        # 回答生成ボタンを無効化し、回答テキストをクリア
+        disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+        cleared_answer = ""
+        cleared_question = ""
+        
+        # clear_resultsの戻り値を分解して正しい順序で組み立て
+        if reference_image_text is not None and reference_type_radio is not None:
+            # clear_resultsは13個の要素を返す: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, reference_type_radio
+            # outputsの順序: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, reference_type_radio, answer_question_input
+            if answer_question_input is not None:
+                return clear_result[:12] + (disabled_button, cleared_answer, clear_result[12], cleared_question)
+            else:
+                return clear_result[:12] + (disabled_button, cleared_answer, clear_result[12])
+        elif reference_image_text is not None:
+            # clear_resultsは12個の要素を返す: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text
+            # outputsの順序: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, answer_question_input
+            if answer_question_input is not None:
+                return clear_result + (disabled_button, cleared_answer, cleared_question)
+            else:
+                return clear_result + (disabled_button, cleared_answer)
+        else:
+            # clear_resultsは11個の要素を返す: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text
+            # outputsの順序: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_generate_button, answer_text, answer_question_input
+            if answer_question_input is not None:
+                return clear_result + (disabled_button, cleared_answer, cleared_question)
+            else:
+                return clear_result + (disabled_button, cleared_answer)
         
     def clear_before_custom_search(self):
         """カスタム検索実行前にクリアする関数"""
@@ -437,7 +1097,16 @@ class UIEvents:
                 page_info_text,  # page_info
                 prev_button,  # prev_button
                 next_button,   # next_button
-                gr.Textbox(visible=False)  # morphological_analysis_text - 全件表示では非表示
+                gr.Textbox(visible=False),  # morphological_analysis_text - 全件表示では非表示
+                gr.Textbox(  # reference_image_text - 全件表示では空にする
+                    label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                    show_label=True,
+                    interactive=False,
+                    container=True,
+                    show_copy_button=True,
+                    value="",
+                    placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
+                )
             )
         
         return [], gr.Gallery(visible=False), "", "", "", {
@@ -449,7 +1118,15 @@ class UIEvents:
             "combined_results": [],
             "vector_results": [],
             "keyword_results": []
-        }, "（画像が見つかりません）", executed_sql, gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), gr.Textbox(visible=False)
+        }, "（画像が見つかりません）", executed_sql, gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), gr.Textbox(visible=False), gr.Textbox(
+            label=REFERENCE_DOCUMENT_LABEL_TEXT,
+            show_label=True,
+            interactive=False,
+            container=True,
+            show_copy_button=True,
+            value="",
+            placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
+        )
     
     def prev_page(self, top_k, state_data=None):
         """前のページに移動する関数"""
@@ -602,6 +1279,182 @@ class UIEvents:
         next_interactive = state_data["current_page"] < state_data["total_pages"]
         
         return gr.update(interactive=prev_interactive), gr.update(interactive=next_interactive)
+        
+    def register_answer_generation_events(self, answer_generate_button, answer_text, search_target, search_method, vector_gallery, keyword_gallery, state, reference_type_radio, answer_question_input, answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox, answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button):
+        """回答生成機能のイベントを登録"""
+        # 回答生成ボタンクリック時のイベント
+        answer_generate_button.click(
+            fn=self.generate_answer,
+            inputs=[answer_question_input, answer_prompt_template_dropdown, state, reference_type_radio],
+            outputs=[answer_text]
+        )
+        
+        # 回答生成プロンプトテンプレート選択時のイベント
+        answer_prompt_template_dropdown.change(
+            fn=self.load_answer_prompt_template,
+            inputs=[answer_prompt_template_dropdown],
+            outputs=[current_answer_prompt_display, answer_prompt_edit_textbox, answer_prompt_status_message]
+        )
+        
+        # 回答生成プロンプト保存ボタンのイベント
+        save_answer_prompt_button.click(
+            fn=self.save_answer_prompt_template,
+            inputs=[answer_prompt_name_input, answer_prompt_edit_textbox],
+            outputs=[answer_prompt_template_dropdown, answer_prompt_status_message]
+        )
+        
+        # 回答生成プロンプト編集取消ボタンのイベント
+        cancel_answer_prompt_edit_button.click(
+            fn=self.cancel_answer_prompt_edit,
+            inputs=[answer_prompt_template_dropdown],
+            outputs=[answer_prompt_edit_textbox, answer_prompt_status_message]
+        )
+        
+        # 回答生成プロンプト削除確認チェックボックスのイベント
+        confirm_answer_prompt_delete_checkbox.change(
+            fn=self.update_answer_prompt_delete_button_state,
+            inputs=[confirm_answer_prompt_delete_checkbox],
+            outputs=[delete_answer_prompt_button]
+        )
+        
+        # 回答生成プロンプト削除ボタンのイベント
+        delete_answer_prompt_button.click(
+            fn=self.delete_answer_prompt_template,
+            inputs=[answer_prompt_template_dropdown],
+            outputs=[answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox, answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button]
+        )
+        
+    def generate_answer(self, answer_question_input, answer_prompt_template_dropdown, state, reference_type_radio):
+        """VLMを使用して選択された画像とクエリから回答を生成"""
+        try:
+            # 現在の質問文を取得
+            query_text = answer_question_input if answer_question_input and answer_question_input.strip() else ""
+            if not query_text:
+                return "❌ 質問文が入力されていません。"
+            
+            # 選択された画像の情報を取得
+            if not state or 'selected_result' not in state:
+                return "❌ 画像が選択されていません。"
+            
+            selected_result = state['selected_result']
+            if not selected_result:
+                return "❌ 画像が選択されていません。"
+            
+            # 現在の回答生成プロンプトテンプレートを取得
+            answer_prompt = self.get_current_answer_prompt(answer_prompt_template_dropdown)
+            if not answer_prompt:
+                return "❌ 回答生成プロンプトテンプレートが見つかりません。"
+            
+            # 参照する情報の種類を取得
+            reference_type = reference_type_radio
+            
+            # キャプション情報を取得
+            caption = selected_result.get('caption', '')
+            
+            # プロンプトテンプレートの置換処理
+            final_prompt = answer_prompt
+            
+            # {query_text} を検索クエリで置換
+            final_prompt = final_prompt.replace("{query_text}", query_text)
+            
+            # {documents} の置換処理（参照情報の種類に応じて）
+            if reference_type == "すべて" or reference_type == "キャプションのみ":
+                # キャプションを含める
+                final_prompt = final_prompt.replace("{documents}", caption)
+            elif reference_type == "画像のみ":
+                # キャプションは空にする
+                final_prompt = final_prompt.replace("{documents}", "")
+            
+            # 画像データの準備
+            image_data = None
+            if reference_type == "すべて" or reference_type == "画像のみ":
+                # 画像をVLMに送信する必要がある場合
+                if 'image' in selected_result and selected_result['image']:
+                    image_data = selected_result['image']
+            
+            # 検索タブ専用VLMServiceから現在の設定を取得
+            current_settings = self.search_vlm_service.get_current_vlm_settings()
+            
+            # デバッグ情報を出力
+            print(f"[DEBUG] 検索タブVLM設定取得:")
+            print(f"  - モデル: {current_settings.get('model')}")
+            print(f"  - Temperature: {current_settings.get('temperature')}")
+            print(f"  - Max Tokens: {current_settings.get('max_tokens')}")
+            print(f"  - OCIリージョン: {current_settings.get('oci_region')}")
+            
+            # 検索タブ専用NLPServiceを使用して回答を生成
+            nlp_service = self.search_nlp_service
+            
+            # 画像データがある場合は一時ファイルに保存
+            import tempfile
+            import os
+            temp_image_path = None
+            
+            try:
+                if image_data:
+                    # 一時ファイルを作成して画像を保存
+                    with tempfile.NamedTemporaryFile(mode='wb', suffix='.png', delete=False) as temp_file:
+                        image_data.save(temp_file, format='PNG')
+                        temp_image_path = temp_file.name
+                    
+                    # VLMを呼び出し（画像あり）
+                    answer = nlp_service.generate_caption_with_vlm(
+                        image_path=temp_image_path,
+                        vlm_model=current_settings["model"],
+                        prompt_text=final_prompt,
+                        temperature=current_settings["temperature"],
+                        max_tokens=current_settings["max_tokens"],
+                        oci_region=current_settings["oci_region"]
+                    )
+                else:
+                    # テキストのみで処理する場合
+                    # 一時的な空画像を作成
+                    from PIL import Image
+                    empty_image = Image.new('RGB', (100, 100), color='white')
+                    with tempfile.NamedTemporaryFile(mode='wb', suffix='.png', delete=False) as temp_file:
+                        empty_image.save(temp_file, format='PNG')
+                        temp_image_path = temp_file.name
+                    
+                    # VLMを呼び出し（空画像）
+                    answer = nlp_service.generate_caption_with_vlm(
+                        image_path=temp_image_path,
+                        vlm_model=current_settings["model"],
+                        prompt_text=final_prompt,
+                        temperature=current_settings["temperature"],
+                        max_tokens=current_settings["max_tokens"],
+                        oci_region=current_settings["oci_region"]
+                    )
+                
+                if answer:
+                    return answer
+                else:
+                    return "❌ 回答の生成に失敗しました。"
+                    
+            finally:
+                # 一時ファイルをクリーンアップ
+                if temp_image_path and os.path.exists(temp_image_path):
+                    os.unlink(temp_image_path)
+                
+        except Exception as e:
+            print(f"回答生成エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            return f"❌ エラーが発生しました: {str(e)}"
+        
+    def check_answer_generation_conditions(self, search_target, search_method, has_selected_image):
+        """回答生成ボタンのenable/disable条件をチェック"""
+        if not has_selected_image:
+            return False
+            
+        # 条件１：「検索対象」が「画像ベクトル」かつ「クエリーの種類」が「テキスト」
+        if search_target == "画像ベクトル" and search_method == "テキスト":
+            return True
+            
+        # 条件２：「検索対象」が「キャプション（テキストベクトルと全文）」
+        if search_target == "キャプション（テキストベクトルと全文）":
+            return True
+            
+        return False
         
     def show_selected_image_info(self, evt: gr.SelectData, results):
         """選択された画像の情報を表示する関数"""
@@ -1466,3 +2319,159 @@ class UIEvents:
                 gr.Checkbox(value=False, interactive=True),  # confirm_prompt_delete_checkbox（リセット）
                 gr.Button(interactive=False)  # delete_prompt_button（無効化）
             ) 
+
+    # 回答生成プロンプト関連のメソッド
+    def load_answer_prompt_template(self, template_name):
+        """回答生成プロンプトテンプレートを読み込み"""
+        import os
+        
+        try:
+            answer_prompt_path = os.path.join("answer_prompt", f"{template_name}.txt")
+            if os.path.exists(answer_prompt_path):
+                with open(answer_prompt_path, 'r', encoding='utf-8') as f:
+                    prompt_text = f.read()
+                return prompt_text, prompt_text, f"回答生成プロンプトテンプレート '{template_name}' を読み込みました。"
+            else:
+                return "", "", f"❌ 回答生成プロンプトテンプレート '{template_name}' が見つかりません。"
+        except Exception as e:
+            print(f"回答生成プロンプトテンプレート読み込みエラー: {e}")
+            return "", "", f"❌ 回答生成プロンプトテンプレート '{template_name}' の読み込みに失敗しました。"
+    
+    def save_answer_prompt_template(self, template_name, prompt_text):
+        """回答生成プロンプトテンプレートを保存"""
+        import os
+        import glob
+        
+        if not template_name or not template_name.strip():
+            return gr.update(), "❌ 回答生成プロンプト名を入力してください。"
+        
+        if not prompt_text or not prompt_text.strip():
+            return gr.update(), "❌ 回答生成プロンプトの内容を入力してください。"
+        
+        try:
+            # answer_promptフォルダーが存在しない場合は作成
+            answer_prompt_dir = "answer_prompt"
+            if not os.path.exists(answer_prompt_dir):
+                os.makedirs(answer_prompt_dir, exist_ok=True)
+            
+            # ファイルに保存
+            answer_prompt_path = os.path.join(answer_prompt_dir, f"{template_name.strip()}.txt")
+            with open(answer_prompt_path, 'w', encoding='utf-8') as f:
+                f.write(prompt_text.strip())
+            
+            # テンプレートリストを更新
+            template_files = glob.glob(os.path.join(answer_prompt_dir, "*.txt"))
+            template_names = []
+            for file_path in template_files:
+                basename = os.path.basename(file_path)
+                template_name_from_file = os.path.splitext(basename)[0]
+                template_names.append(template_name_from_file)
+            
+            return gr.update(choices=template_names), f"✅ 回答生成プロンプトテンプレート '{template_name}' を保存しました。"
+        except Exception as e:
+            print(f"回答生成プロンプトテンプレート保存エラー: {e}")
+            return gr.update(), f"❌ 回答生成プロンプトテンプレート '{template_name}' の保存に失敗しました。"
+    
+    def cancel_answer_prompt_edit(self, current_template_name):
+        """回答生成プロンプト編集を取消"""
+        import os
+        
+        try:
+            answer_prompt_path = os.path.join("answer_prompt", f"{current_template_name}.txt")
+            if os.path.exists(answer_prompt_path):
+                with open(answer_prompt_path, 'r', encoding='utf-8') as f:
+                    original_prompt = f.read()
+                return original_prompt, "回答生成プロンプト編集を取り消しました。"
+            else:
+                return "", "元の回答生成プロンプトの読み込みに失敗しました。"
+        except Exception as e:
+            print(f"回答生成プロンプト編集取消エラー: {e}")
+            return "", "元の回答生成プロンプトの読み込みに失敗しました。"
+    
+    def get_current_answer_prompt(self, template_name):
+        """現在選択されている回答生成プロンプトテンプレートを取得"""
+        import os
+        
+        try:
+            answer_prompt_path = os.path.join("answer_prompt", f"{template_name}.txt")
+            if os.path.exists(answer_prompt_path):
+                with open(answer_prompt_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            return ""
+        except Exception as e:
+            print(f"回答生成プロンプト取得エラー: {e}")
+            return ""
+    
+    def update_answer_prompt_delete_button_state(self, confirm_delete):
+        """回答生成プロンプト削除確認チェックボックスの状態に応じて削除ボタンを有効化"""
+        return gr.Button(interactive=confirm_delete)
+    
+    def delete_answer_prompt_template(self, current_template_name):
+        """回答生成プロンプトテンプレートを削除"""
+        import os
+        import glob
+        
+        # デフォルトテンプレートの削除を防止
+        if current_template_name == "デフォルト（回答生成）":
+            return (
+                gr.update(),  # answer_prompt_template_dropdown（変更なし）
+                gr.update(),  # current_answer_prompt_display（変更なし）
+                gr.update(),  # answer_prompt_edit_textbox（変更なし）
+                "❌ デフォルト回答生成プロンプトは削除できません。",  # answer_prompt_status_message
+                gr.Checkbox(value=False, interactive=True),  # confirm_answer_prompt_delete_checkbox（リセット）
+                gr.Button(interactive=False)  # delete_answer_prompt_button（無効化）
+            )
+        
+        try:
+            # プロンプトテンプレートファイルを削除
+            answer_prompt_path = os.path.join("answer_prompt", f"{current_template_name}.txt")
+            if os.path.exists(answer_prompt_path):
+                os.remove(answer_prompt_path)
+                
+                # テンプレートリストを更新し、デフォルトテンプレートを選択
+                answer_prompt_dir = "answer_prompt"
+                template_files = glob.glob(os.path.join(answer_prompt_dir, "*.txt"))
+                template_names = []
+                for file_path in template_files:
+                    basename = os.path.basename(file_path)
+                    template_name_from_file = os.path.splitext(basename)[0]
+                    template_names.append(template_name_from_file)
+                
+                default_template_name = "デフォルト（回答生成）"
+                if default_template_name not in template_names:
+                    template_names.insert(0, default_template_name)
+                
+                # デフォルトプロンプトを読み込み
+                default_prompt_path = os.path.join(answer_prompt_dir, f"{default_template_name}.txt")
+                default_prompt = ""
+                if os.path.exists(default_prompt_path):
+                    with open(default_prompt_path, 'r', encoding='utf-8') as f:
+                        default_prompt = f.read()
+                
+                return (
+                    gr.update(choices=template_names, value=default_template_name),  # answer_prompt_template_dropdown
+                    default_prompt,  # current_answer_prompt_display
+                    default_prompt,  # answer_prompt_edit_textbox
+                    f"✅ 回答生成プロンプトテンプレート '{current_template_name}' を削除しました。",  # answer_prompt_status_message
+                    gr.Checkbox(value=False, interactive=True),  # confirm_answer_prompt_delete_checkbox（リセット）
+                    gr.Button(interactive=False)  # delete_answer_prompt_button（無効化）
+                )
+            else:
+                return (
+                    gr.update(),  # answer_prompt_template_dropdown（変更なし）
+                    gr.update(),  # current_answer_prompt_display（変更なし）
+                    gr.update(),  # answer_prompt_edit_textbox（変更なし）
+                    f"❌ 回答生成プロンプトテンプレート '{current_template_name}' が見つかりません。",  # answer_prompt_status_message
+                    gr.Checkbox(value=False, interactive=True),  # confirm_answer_prompt_delete_checkbox（リセット）
+                    gr.Button(interactive=False)  # delete_answer_prompt_button（無効化）
+                )
+        except Exception as e:
+            print(f"回答生成プロンプトテンプレート削除エラー: {e}")
+            return (
+                gr.update(),  # answer_prompt_template_dropdown（変更なし）
+                gr.update(),  # current_answer_prompt_display（変更なし）
+                gr.update(),  # answer_prompt_edit_textbox（変更なし）
+                f"❌ 回答生成プロンプトテンプレート '{current_template_name}' の削除に失敗しました。",  # answer_prompt_status_message
+                gr.Checkbox(value=False, interactive=True),  # confirm_answer_prompt_delete_checkbox（リセット）
+                gr.Button(interactive=False)  # delete_answer_prompt_button（無効化）
+            )
