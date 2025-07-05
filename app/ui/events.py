@@ -26,10 +26,9 @@ class UIEvents:
         self.search_vlm_service = VLMServiceFactory.create_search_vlm_service()
         self.upload_vlm_service = VLMServiceFactory.create_upload_vlm_service()
         
-        # 各VLMServiceに対応するNLPServiceインスタンス（依存関係注入）
-        from app.nlp_service import NLPService
-        self.search_nlp_service = NLPService(self.search_vlm_service)
-        self.upload_nlp_service = NLPService(self.upload_vlm_service)
+        # グローバルNLPServiceインスタンスを使用
+        from app.global_nlp_service import get_global_nlp_service
+        self.global_nlp_service = get_global_nlp_service()
         
         # 後方互換性のため既存のvlm_serviceプロパティをアップロードタブ用として保持
         self.vlm_service = self.upload_vlm_service
@@ -1533,8 +1532,8 @@ class UIEvents:
                 print(f"  - Max Tokens: {current_settings.get('max_tokens')}")
                 print(f"  - OCIリージョン: {current_settings.get('oci_region')}")
             
-            # 検索タブ専用NLPServiceを使用して回答を生成
-            nlp_service = self.search_nlp_service
+            # グローバルNLPServiceを使用（VLMは検索タブ用VLMServiceを使用）
+            # VLMキャプション生成は検索タブ用VLMServiceから直接呼び出し
             
             # 画像データがある場合は一時ファイルに保存
             import tempfile
@@ -1562,7 +1561,10 @@ class UIEvents:
                         print(f"  - max_tokens: {current_settings['max_tokens']}")
                         print(f"  - oci_region: {current_settings['oci_region']}")
                     
-                    answer = nlp_service.generate_caption_with_vlm(
+                    # 検索タブ用VLMServiceを使用してキャプション生成
+                    from app.nlp_service import NLPService
+                    search_nlp_service = NLPService(self.search_vlm_service)
+                    answer = search_nlp_service.generate_caption_with_vlm(
                         image_path=temp_image_path,
                         vlm_model=current_settings["model"],
                         prompt_text=final_prompt,
@@ -1593,7 +1595,10 @@ class UIEvents:
                         print(f"  - max_tokens: {current_settings['max_tokens']}")
                         print(f"  - oci_region: {current_settings['oci_region']}")
                     
-                    answer = nlp_service.generate_caption_with_vlm(
+                    # 検索タブ用VLMServiceを使用してキャプション生成
+                    from app.nlp_service import NLPService
+                    search_nlp_service = NLPService(self.search_vlm_service)
+                    answer = search_nlp_service.generate_caption_with_vlm(
                         image_path=temp_image_path,
                         vlm_model=current_settings["model"],
                         prompt_text=final_prompt,
@@ -2255,9 +2260,9 @@ class UIEvents:
             # 選択されたプロンプトテンプレートを読み込み
             custom_prompt = self.get_current_prompt(selected_prompt_template)
             
-            # NLPサービスを使用してVLMでキャプション生成
+            # アップロードタブ用VLMServiceを使用してキャプション生成
             from app.nlp_service import NLPService
-            nlp_service = NLPService()
+            nlp_service = NLPService(self.upload_vlm_service)
             
             caption = nlp_service.generate_caption_with_vlm(
                 image_path=image_path,
@@ -2307,9 +2312,9 @@ class UIEvents:
                 # 選択されたプロンプトテンプレートを読み込み
                 custom_prompt = self.get_current_prompt(selected_prompt_template)
                 
-                # NLPサービスを使用してVLMでキャプション生成
+                # アップロードタブ用VLMServiceを使用してキャプション生成
                 from app.nlp_service import NLPService
-                nlp_service = NLPService()
+                nlp_service = NLPService(self.upload_vlm_service)
                 
                 new_caption = nlp_service.generate_caption_with_vlm(
                     image_path=temp_image_path,

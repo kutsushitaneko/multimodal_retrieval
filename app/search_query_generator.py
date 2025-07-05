@@ -1,12 +1,12 @@
 import re
 import spacy
 import ginza
-from .nlp_service import NLPService
+from .global_nlp_service import get_global_nlp_service
 
 class SearchQueryGenerator:
     def __init__(self):
-        # NLPServiceを使用してspaCyモデルを取得（シングルトンパターン）
-        self.nlp_service = NLPService()
+        # グローバルNLPServiceを使用してspaCyモデルを取得（シングルトンパターン）
+        self.nlp_service = get_global_nlp_service()
         
         # 色の形容詞変換マップ
         self.color_adj_to_noun = {

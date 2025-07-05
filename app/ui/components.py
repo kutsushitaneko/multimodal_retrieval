@@ -82,7 +82,7 @@ class UIComponents:
 
     def create_search_vlm_settings(self):
         """検索タブ専用VLM設定セクションのUIコンポーネントを作成"""
-        with gr.Accordion("🤖 VLM設定（検索・回答生成用）", open=False) as search_vlm_settings_accordion:
+        with gr.Accordion("VLM設定（検索・回答生成用）", open=False) as search_vlm_settings_accordion:
             # モデル設定の初期化
             def initialize_search_vlm_models():
                 try:
