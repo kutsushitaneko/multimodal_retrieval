@@ -360,9 +360,9 @@ if __name__ == "__main__":
         print("データベース接続成功!")
         
         # images ディレクトリ内のすべての画像ファイルを取得
-        # 大文字小文字の拡張子とjpeg形式にも対応
+        # 大文字小文字の拡張子とjpeg、webp形式にも対応
         image_files = []
-        for pattern in ["*.jpg", "*.JPG", "*.jpeg", "*.JPEG"]:
+        for pattern in ["*.jpg", "*.JPG", "*.jpeg", "*.JPEG", "*.webp", "*.WEBP"]:
             image_files.extend(glob.glob(os.path.join(IMAGE_DIR, pattern)))
         total_images = len(image_files)
         

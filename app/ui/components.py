@@ -207,7 +207,7 @@ class UIComponents:
                 # ファイル名入力（コピーボタン追加）
                 filename_input = gr.Textbox(
                     label="ファイル名",
-                    placeholder="ファイル名を入力してください（例: image001.jpg）",
+                    placeholder="ファイル名を入力してください（例: image001.jpg, image001.png, image001.webp）",
                     interactive=True,
                     show_copy_button=True
                 )
@@ -216,6 +216,7 @@ class UIComponents:
                 with gr.Row():
                     generate_caption_button = gr.Button("キャプション生成", variant="primary", interactive=False)
                     search_image_button = gr.Button("画像を検索", interactive=False)
+                    copy_filename_button = gr.Button("検索結果からコピー", variant="secondary", interactive=True)
                     clear_button = gr.Button("クリア")
                 
                 # 表示画像
@@ -481,7 +482,7 @@ class UIComponents:
         image_id_state = gr.State(value=None)
         original_caption_state = gr.State(value="")
         
-        return (upload_image, filename_input, generate_caption_button, search_image_button, clear_button,
+        return (upload_image, filename_input, generate_caption_button, search_image_button, copy_filename_button, clear_button,
                 display_image, generated_caption, editable_caption, regenerate_caption_button, 
                 update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
                 delete_accordion, confirm_delete_checkbox, delete_button,

@@ -77,24 +77,109 @@ class NLPService:
             return f"キャプション生成中にエラーが発生しました: {str(e)}"
     
     def _image_to_base64_data_url(self, image_path):
-        """画像をBase64データURLに変換"""
-        with open(image_path, "rb") as image_file:
-            image_data = image_file.read()
+        """画像をBase64データURLに変換（WebP対応強化）"""
+        import os
+        verbose = os.getenv('VERBOSE', '').lower() in ('true', '1', 'yes')
+        
+        try:
+            with open(image_path, "rb") as image_file:
+                image_data = image_file.read()
+        except Exception as e:
+            error_msg = f"画像ファイル読み込みエラー: {image_path} - {str(e)}"
+            if verbose:
+                print(f"[ERROR] {error_msg}")
+            raise ValueError(error_msg)
             
-        # 画像形式を判定
-        image = Image.open(BytesIO(image_data))
-        image_format = image.format.lower()
+        # 画像をPILで開く
+        try:
+            image = Image.open(BytesIO(image_data))
+            original_format = image.format.lower() if image.format else 'unknown'
+            original_mode = image.mode
+            original_size = image.size
+            
+            if verbose:
+                print(f"[DEBUG] 画像変換処理開始: {os.path.basename(image_path)}")
+                print(f"[DEBUG] 元の形式: {original_format}, モード: {original_mode}, サイズ: {original_size}")
+        except Exception as e:
+            error_msg = f"画像データ解析エラー: {os.path.basename(image_path)} - {str(e)}"
+            if verbose:
+                print(f"[ERROR] {error_msg}")
+            raise ValueError(error_msg)
         
-        # Base64エンコード
-        base64_data = base64.b64encode(image_data).decode('utf-8')
+        # WebP画像やアルファチャンネルを持つ画像はJPEG形式に変換
+        if original_format == 'webp' or image.mode in ('RGBA', 'LA'):
+            if verbose:
+                print(f"[DEBUG] WebP/アルファチャンネル画像を検出 - JPEG形式に変換中")
+            
+            # アルファチャンネルがある場合は白い背景に合成
+            if image.mode in ('RGBA', 'LA'):
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                if image.mode == 'RGBA':
+                    background.paste(image, mask=image.split()[-1])
+                else:  # LA (Luminance + Alpha)
+                    background.paste(image, mask=image.split()[-1])
+                image = background
+                if verbose:
+                    print(f"[DEBUG] アルファチャンネルを白背景に合成: {original_mode} -> RGB")
+            elif image.mode not in ('RGB', 'L'):
+                # その他のモードもRGBに変換
+                image = image.convert('RGB')
+                if verbose:
+                    print(f"[DEBUG] カラーモード変換: {original_mode} -> RGB")
+            
+            # JPEG形式で保存
+            try:
+                buffered = BytesIO()
+                image.save(buffered, format="JPEG", quality=95)
+                base64_data = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                
+                if verbose:
+                    jpeg_size = len(buffered.getvalue())
+                    print(f"[DEBUG] JPEG変換完了: サイズ {jpeg_size} bytes, Base64長 {len(base64_data)}")
+                
+                return f"data:image/jpeg;base64,{base64_data}"
+            except Exception as e:
+                error_msg = f"WebP→JPEG変換エラー: {os.path.basename(image_path)} - {str(e)}"
+                if verbose:
+                    print(f"[ERROR] {error_msg}")
+                raise ValueError(error_msg)
         
-        # データURLを作成
-        if image_format == 'jpeg':
+        # JPEG/PNGの場合は元のデータを使用（品質劣化を避けるため）
+        elif original_format in ['jpeg', 'jpg']:
+            base64_data = base64.b64encode(image_data).decode('utf-8')
+            if verbose:
+                print(f"[DEBUG] JPEG画像: 元データを使用, Base64長 {len(base64_data)}")
             return f"data:image/jpeg;base64,{base64_data}"
-        elif image_format == 'png':
+        elif original_format == 'png':
+            base64_data = base64.b64encode(image_data).decode('utf-8')
+            if verbose:
+                print(f"[DEBUG] PNG画像: 元データを使用, Base64長 {len(base64_data)}")
             return f"data:image/png;base64,{base64_data}"
         else:
-            return f"data:image/{image_format};base64,{base64_data}"
+            # その他の形式はJPEG形式に変換
+            if verbose:
+                print(f"[DEBUG] 未知の形式 {original_format} - JPEG形式に変換中")
+            
+            if image.mode not in ('RGB', 'L'):
+                image = image.convert('RGB')
+                if verbose:
+                    print(f"[DEBUG] カラーモード変換: {original_mode} -> RGB")
+            
+            try:
+                buffered = BytesIO()
+                image.save(buffered, format="JPEG", quality=95)
+                base64_data = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                
+                if verbose:
+                    jpeg_size = len(buffered.getvalue())
+                    print(f"[DEBUG] JPEG変換完了: サイズ {jpeg_size} bytes, Base64長 {len(base64_data)}")
+                
+                return f"data:image/jpeg;base64,{base64_data}"
+            except Exception as e:
+                error_msg = f"その他形式→JPEG変換エラー: {os.path.basename(image_path)} - {str(e)}"
+                if verbose:
+                    print(f"[ERROR] {error_msg}")
+                raise ValueError(error_msg)
     
     def _generate_caption_anthropic(self, model_name, image_data_url, prompt_text, temperature, max_tokens):
         """Anthropic APIを使用してキャプション生成"""
@@ -154,14 +239,19 @@ class NLPService:
 
                 # OCIリージョンIDを取得
                 # oci_regionが既にregion_id（例：us-chicago-1）かregion_name（例：US Midwest (Chicago)）かを判定
+                import os
+                verbose = os.getenv('VERBOSE', '').lower() in ('true', '1', 'yes')
+                
                 if oci_region in self.vlm_service.OCI_REGIONS.values():
                     # 既にregion_idの場合はそのまま使用
                     region_id = oci_region
-                    print(f"[DEBUG] OCIリージョン: region_idとして使用 {oci_region}")
+                    if verbose:
+                        print(f"[DEBUG] OCIリージョン: region_idとして使用 {oci_region}")
                 else:
                     # region_nameの場合は変換
                     region_id = self.vlm_service.OCI_REGIONS.get(oci_region, "ap-osaka-1")
-                    print(f"[DEBUG] OCIリージョン: {oci_region} -> {region_id} に変換")
+                    if verbose:
+                        print(f"[DEBUG] OCIリージョン: {oci_region} -> {region_id} に変換")
                 
                 # OCI設定
                 config = oci.config.from_file()
@@ -216,8 +306,11 @@ class NLPService:
 
             except Exception as e:
                 import traceback
+                import os
+                verbose = os.getenv('VERBOSE', '').lower() in ('true', '1', 'yes')
                 error_details = traceback.format_exc()
-                print(f"[DEBUG] OCI API詳細エラー: {error_details}")
+                if verbose:
+                    print(f"[DEBUG] OCI API詳細エラー: {error_details}")
                 return f"OCI API エラー: {str(e)}"
         else:
             return "エラー: このモデルはOCI Llama Visionとして認識されませんでした"

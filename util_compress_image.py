@@ -6,7 +6,7 @@ def compress_images(input_folder, output_folder):
         os.makedirs(output_folder)
 
     for filename in os.listdir(input_folder):
-        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp')):
             input_path = os.path.join(input_folder, filename)
             output_filename = f"{filename.split('.')[0]}.jpg"
             output_path = os.path.join(output_folder, output_filename)

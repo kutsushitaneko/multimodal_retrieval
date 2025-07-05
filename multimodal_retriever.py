@@ -219,7 +219,7 @@ def main():
                 gr.Markdown("画像をアップロードしてキャプションを生成したり、既存の画像のキャプションを編集、画像の削除ができます。")
                 
                 # アップロード・編集セクションのUIコンポーネントを作成
-                (upload_image, filename_input, generate_caption_button, search_image_button, clear_button_upload,
+                (upload_image, filename_input, generate_caption_button, search_image_button, copy_filename_button, clear_button_upload,
                  display_image, generated_caption, editable_caption, regenerate_caption_button, 
                  update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
                  delete_accordion, confirm_delete_checkbox, delete_button,
@@ -235,7 +235,7 @@ def main():
                 
                 # アップロード・編集機能のイベントを登録
                 ui_events.register_upload_edit_events(
-                    upload_image, filename_input, generate_caption_button, search_image_button, clear_button_upload,
+                    upload_image, filename_input, generate_caption_button, search_image_button, copy_filename_button, clear_button_upload,
                     display_image, generated_caption, editable_caption, regenerate_caption_button, 
                     update_database_button, cancel_edit_button, status_message, image_id_state, original_caption_state,
                     delete_accordion, confirm_delete_checkbox, delete_button,
@@ -243,6 +243,35 @@ def main():
                     prompt_name_input, save_prompt_button, cancel_prompt_edit_button, prompt_status_message,
                     confirm_prompt_delete_checkbox, delete_prompt_button,
                     vlm_service_provider_upload, vlm_model_upload, vlm_temperature_upload, vlm_max_tokens_upload, vlm_oci_region_upload, vlm_status_message
+                )
+                
+                # 検索結果からコピーボタンのイベントを登録（タブ間連携）
+                copy_filename_button.click(
+                    fn=ui_events.copy_filename_from_search_result,
+                    inputs=[state],
+                    outputs=[filename_input, display_image, generated_caption, editable_caption, status_message, image_id_state, original_caption_state],
+                    queue=False  # ファイル名コピーは即座に処理
+                ).then(
+                    fn=ui_events.update_upload_button_states_after_search,
+                    inputs=[image_id_state],
+                    outputs=[regenerate_caption_button, update_database_button, cancel_edit_button]
+                ).then(
+                    fn=ui_events.show_delete_accordion_if_existing_image,
+                    inputs=[image_id_state],
+                    outputs=[delete_accordion]
+                )
+                
+                # copy_filename_buttonの状態更新（ギャラリー選択時）
+                vector_gallery.select(
+                    fn=ui_events.update_copy_button_state,
+                    inputs=[state],
+                    outputs=[copy_filename_button]
+                )
+                
+                keyword_gallery.select(
+                    fn=ui_events.update_copy_button_state,
+                    inputs=[state],
+                    outputs=[copy_filename_button]
                 )
     
     # アプリケーションの起動
