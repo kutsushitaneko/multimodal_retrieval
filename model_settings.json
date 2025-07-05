@@ -25,14 +25,6 @@
         "max_tokens": 4000,
         "default_tokens": 4000
     },
-    "meta.llama-4-maverick-17b-128e-instruct-fp8(OCI)": {
-        "model_name": "meta.llama-4-maverick-17b-128e-instruct-fp8",
-        "api_type": "oci.llama.chat",
-        "max_tokens": 4000,
-        "default_tokens": 4000,
-        "vision": true,
-        "default_region": "us-chicago-1"
-    },
     "meta.llama-4-scout-17b-16e-instruct(OCI)": {
         "model_name": "meta.llama-4-scout-17b-16e-instruct",
         "api_type": "oci.llama.chat",
@@ -41,6 +33,14 @@
         "vision": true,
         "default_region": "us-chicago-1"
     },
+    "meta.llama-4-maverick-17b-128e-instruct-fp8(OCI)": {
+        "model_name": "meta.llama-4-maverick-17b-128e-instruct-fp8",
+        "api_type": "oci.llama.chat",
+        "max_tokens": 4000,
+        "default_tokens": 4000,
+        "vision": true,
+        "default_region": "us-chicago-1"
+    },    
     "meta.llama-3.3-70b-instruct(OCI)": {
         "model_name": "meta.llama-3.3-70b-instruct",
         "api_type": "oci.llama.chat",

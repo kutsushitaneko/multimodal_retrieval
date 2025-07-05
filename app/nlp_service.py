@@ -8,22 +8,23 @@ from app.vlm_service import VLMService
 from oci.generative_ai_inference.models import TextContent, ImageContent, ImageUrl, UserMessage, GenericChatRequest, BaseChatRequest
 
 class NLPService:
-    """spaCyモデルとVLMキャプション生成をシングルトンパターンで管理するサービスクラス
+    """spaCyモデルとVLMキャプション生成を管理するサービスクラス
     
-    マルチセッション環境で重いspaCyモデルの重複初期化を防ぐため、
-    アプリケーション全体で1つのモデルインスタンスを共有します。
+    依存関係注入パターンを使用してVLMServiceインスタンスを外部から受け取り、
+    各タブで独立したVLM設定を使用できるようにします。
+    spaCyモデルはインスタンス内でスレッドセーフに管理されます。
     """
-    _instance = None
-    _nlp = None
-    _lock = threading.Lock()
     
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance.vlm_service = VLMService()
-        return cls._instance
+    def __init__(self, vlm_service_instance=None):
+        """NLPServiceを初期化
+        
+        Args:
+            vlm_service_instance (VLMService, optional): 使用するVLMServiceインスタンス。
+                                                       Noneの場合は新しいインスタンスを作成。
+        """
+        self.vlm_service = vlm_service_instance or VLMService()
+        self._nlp = None
+        self._lock = threading.Lock()
     
     def get_nlp(self):
         """spaCyのja_ginzaモデルを取得

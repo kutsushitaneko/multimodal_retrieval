@@ -20,9 +20,19 @@ class UIEvents:
     def __init__(self, search_service):
         """イベントハンドラクラスの初期化"""
         self.search_service = search_service
-        # VLMサービスインスタンスを保持
-        from app.vlm_service import VLMService
-        self.vlm_service = VLMService()
+        
+        # 各タブ専用のVLMServiceインスタンスを作成（完全独立）
+        from app.vlm_service_factory import VLMServiceFactory
+        self.search_vlm_service = VLMServiceFactory.create_search_vlm_service()
+        self.upload_vlm_service = VLMServiceFactory.create_upload_vlm_service()
+        
+        # 各VLMServiceに対応するNLPServiceインスタンス（依存関係注入）
+        from app.nlp_service import NLPService
+        self.search_nlp_service = NLPService(self.search_vlm_service)
+        self.upload_nlp_service = NLPService(self.upload_vlm_service)
+        
+        # 後方互換性のため既存のvlm_serviceプロパティをアップロードタブ用として保持
+        self.vlm_service = self.upload_vlm_service
         
     def register_vlm_settings_events(self, vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message):
         """VLM設定のイベントを登録"""
@@ -75,6 +85,57 @@ class UIEvents:
         self.vlm_service.update_current_vlm_settings(model=model)
         return self.vlm_service.model_changed(model)
         
+    def register_search_vlm_settings_events(self, search_vlm_service_provider, search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region, search_vlm_status_message):
+        """検索タブVLM設定のイベントを登録"""
+        # サービスプロバイダー変更時のイベント
+        search_vlm_service_provider.change(
+            fn=self.search_vlm_service_provider_changed,
+            inputs=[search_vlm_service_provider],
+            outputs=[search_vlm_model, search_vlm_max_tokens, search_vlm_oci_region],
+            queue=False  # VLM設定変更は即座に処理
+        )
+        
+        # VLMモデル変更時のイベント
+        search_vlm_model.change(
+            fn=self.search_vlm_model_changed,
+            inputs=[search_vlm_model],
+            outputs=[search_vlm_max_tokens, search_vlm_oci_region],
+            queue=False  # VLMモデル変更は即座に処理
+        )
+        
+        # temperatureとmax_tokensの変更も追跡
+        search_vlm_temperature.change(
+            fn=lambda temp: self.search_vlm_service.update_current_vlm_settings(temperature=temp),
+            inputs=[search_vlm_temperature],
+            outputs=[]
+        )
+        
+        search_vlm_max_tokens.change(
+            fn=lambda tokens: self.search_vlm_service.update_current_vlm_settings(max_tokens=tokens),
+            inputs=[search_vlm_max_tokens],
+            outputs=[]
+        )
+        
+        # OCIリージョンの変更も追跡
+        search_vlm_oci_region.change(
+            fn=lambda region: [
+                print(f"[DEBUG] 検索タブOCIリージョン変更: {region} -> {self.search_vlm_service.OCI_REGIONS.get(region, region)}"),
+                self.search_vlm_service.update_current_vlm_settings(oci_region=self.search_vlm_service.OCI_REGIONS.get(region, region))
+            ][1],
+            inputs=[search_vlm_oci_region],
+            outputs=[]
+        )
+        
+    def search_vlm_service_provider_changed(self, service_provider):
+        """検索タブVLMサービスプロバイダー変更時の処理"""
+        return self.search_vlm_service.service_provider_changed(service_provider)
+    
+    def search_vlm_model_changed(self, model):
+        """検索タブVLMモデル変更時の処理"""
+        # 検索タブVLMServiceの現在の設定を更新
+        self.search_vlm_service.update_current_vlm_settings(model=model)
+        return self.search_vlm_service.model_changed(model)
+        
     def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, query_examples, executed_sql_text):
         """検索対象変更時のイベントを登録"""
         search_target.change(
@@ -111,7 +172,7 @@ class UIEvents:
             outputs=[morphological_analysis_text]
         )
         
-    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None):
+    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None, answer_question_input=None):
         """検索ボタンのイベントを登録"""
         # 検索時は常にコンポーネントをクリアする（参照画像は検索後に条件に応じて更新される）
         search_button.click(
@@ -140,7 +201,15 @@ class UIEvents:
             outputs=[pagination_row]
         )
         
-    def register_execute_query_button_events(self, execute_query_button, executed_query_text, top_k_slider, keyword_threshold, vector_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text, pagination_row):
+        # 質問文入力エリアが指定されている場合、検索クエリを質問文入力エリアに設定
+        if answer_question_input is not None:
+            search_button.click(
+                fn=lambda query: query if query and query.strip() else "",
+                inputs=[query_input],
+                outputs=[answer_question_input]
+            )
+        
+    def register_execute_query_button_events(self, execute_query_button, executed_query_text, top_k_slider, keyword_threshold, vector_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text, pagination_row, answer_question_input=None):
         """カスタムクエリ実行ボタンのイベントを登録"""
         execute_query_button.click(
             fn=self.clear_before_custom_search,
@@ -156,43 +225,84 @@ class UIEvents:
             outputs=[pagination_row]
         )
         
-    def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text, answer_generate_button=None, answer_text=None, reference_image_text=None, reference_type_radio=None):
+        # 質問文入力エリアが指定されている場合、実行されたクエリを質問文入力エリアに設定
+        if answer_question_input is not None:
+            execute_query_button.click(
+                fn=lambda query: query if query and query.strip() else "",
+                inputs=[executed_query_text],
+                outputs=[answer_question_input]
+            )
+        
+    def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text, answer_generate_button=None, answer_text=None, reference_image_text=None, reference_type_radio=None, answer_question_input=None):
         """クリアボタンのイベントを登録"""
         if answer_generate_button is not None and answer_text is not None:
             # 回答生成関連のコンポーネントもクリアする場合
             if reference_image_text is not None and reference_type_radio is not None:
                 # 参照画像とラジオボタンも含めてクリア
-                clear_button.click(
-                    fn=self.clear_results_with_answer_generation,
-                    inputs=[answer_generate_button, answer_text, reference_image_text, reference_type_radio],
-                    outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, reference_type_radio]
-                ).then(
-                    fn=self.hide_pagination,
-                    inputs=[],
-                    outputs=[pagination_row]
-                )
+                if answer_question_input is not None:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text, reference_image_text, reference_type_radio, answer_question_input],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, reference_type_radio, answer_question_input]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
+                else:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text, reference_image_text, reference_type_radio],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, reference_type_radio]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
             elif reference_image_text is not None:
                 # 参照画像も含めてクリア
-                clear_button.click(
-                    fn=self.clear_results_with_answer_generation,
-                    inputs=[answer_generate_button, answer_text, reference_image_text],
-                    outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text]
-                ).then(
-                    fn=self.hide_pagination,
-                    inputs=[],
-                    outputs=[pagination_row]
-                )
+                if answer_question_input is not None:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text, reference_image_text, None, answer_question_input],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, answer_question_input]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
+                else:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text, reference_image_text],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
             else:
                 # 従来の回答生成関連のクリア
-                clear_button.click(
-                    fn=self.clear_results_with_answer_generation,
-                    inputs=[answer_generate_button, answer_text],
-                    outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_generate_button, answer_text]
-                ).then(
-                    fn=self.hide_pagination,
-                    inputs=[],
-                    outputs=[pagination_row]
-                )
+                if answer_question_input is not None:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text, None, None, answer_question_input],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_generate_button, answer_text, answer_question_input]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
+                else:
+                    clear_button.click(
+                        fn=self.clear_results_with_answer_generation,
+                        inputs=[answer_generate_button, answer_text],
+                        outputs=[query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_generate_button, answer_text]
+                    ).then(
+                        fn=self.hide_pagination,
+                        inputs=[],
+                        outputs=[pagination_row]
+                    )
         else:
             # 従来通りの処理
             if reference_image_text is not None and reference_type_radio is not None:
@@ -229,7 +339,7 @@ class UIEvents:
                     outputs=[pagination_row]
                 )
     
-    def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None):
+    def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None):
         """全件表示ボタンのイベントを登録"""
         if reference_image_text is not None:
             # 参照画像も含めてクリア
@@ -252,6 +362,14 @@ class UIEvents:
                 fn=self.show_all_images,
                 inputs=[top_k_slider, state],
                 outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text]
+            )
+        
+        # 質問文入力エリアが指定されている場合、全件表示時に質問文をクリア
+        if answer_question_input is not None:
+            show_all_button.click(
+                fn=lambda: "",
+                inputs=[],
+                outputs=[answer_question_input]
             )
     
     def register_pagination_events(self, prev_button, next_button, top_k_slider, vector_gallery, page_info, state, keyword_gallery, prev_button_out, next_button_out):
@@ -873,26 +991,36 @@ class UIEvents:
         else:
             return "", None, [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", ""
         
-    def clear_results_with_answer_generation(self, answer_generate_button, answer_text, reference_image_text=None, reference_type_radio=None):
+    def clear_results_with_answer_generation(self, answer_generate_button, answer_text, reference_image_text=None, reference_type_radio=None, answer_question_input=None):
         """すべての結果をクリアする関数（回答生成関連も含む）"""
         clear_result = self.clear_results(reference_image_text, reference_type_radio)
         # 回答生成ボタンを無効化し、回答テキストをクリア
         disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
         cleared_answer = ""
+        cleared_question = ""
         
         # clear_resultsの戻り値を分解して正しい順序で組み立て
         if reference_image_text is not None and reference_type_radio is not None:
             # clear_resultsは13個の要素を返す: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, reference_type_radio
-            # outputsの順序: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, reference_type_radio
-            return clear_result[:12] + (disabled_button, cleared_answer, clear_result[12])
+            # outputsの順序: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, reference_type_radio, answer_question_input
+            if answer_question_input is not None:
+                return clear_result[:12] + (disabled_button, cleared_answer, clear_result[12], cleared_question)
+            else:
+                return clear_result[:12] + (disabled_button, cleared_answer, clear_result[12])
         elif reference_image_text is not None:
             # clear_resultsは12個の要素を返す: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text
-            # outputsの順序: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text
-            return clear_result + (disabled_button, cleared_answer)
+            # outputsの順序: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_generate_button, answer_text, answer_question_input
+            if answer_question_input is not None:
+                return clear_result + (disabled_button, cleared_answer, cleared_question)
+            else:
+                return clear_result + (disabled_button, cleared_answer)
         else:
             # clear_resultsは11個の要素を返す: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text
-            # outputsの順序: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_generate_button, answer_text
-            return clear_result + (disabled_button, cleared_answer)
+            # outputsの順序: query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_generate_button, answer_text, answer_question_input
+            if answer_question_input is not None:
+                return clear_result + (disabled_button, cleared_answer, cleared_question)
+            else:
+                return clear_result + (disabled_button, cleared_answer)
         
     def clear_before_custom_search(self):
         """カスタム検索実行前にクリアする関数"""
@@ -1152,12 +1280,12 @@ class UIEvents:
         
         return gr.update(interactive=prev_interactive), gr.update(interactive=next_interactive)
         
-    def register_answer_generation_events(self, answer_generate_button, answer_text, search_target, search_method, vector_gallery, keyword_gallery, state, reference_type_radio, query_input, answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox, answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button):
+    def register_answer_generation_events(self, answer_generate_button, answer_text, search_target, search_method, vector_gallery, keyword_gallery, state, reference_type_radio, answer_question_input, answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox, answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button):
         """回答生成機能のイベントを登録"""
         # 回答生成ボタンクリック時のイベント
         answer_generate_button.click(
             fn=self.generate_answer,
-            inputs=[query_input, answer_prompt_template_dropdown, state, reference_type_radio],
+            inputs=[answer_question_input, answer_prompt_template_dropdown, state, reference_type_radio],
             outputs=[answer_text]
         )
         
@@ -1196,13 +1324,13 @@ class UIEvents:
             outputs=[answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox, answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button]
         )
         
-    def generate_answer(self, query_input, answer_prompt_template_dropdown, state, reference_type_radio):
+    def generate_answer(self, answer_question_input, answer_prompt_template_dropdown, state, reference_type_radio):
         """VLMを使用して選択された画像とクエリから回答を生成"""
         try:
-            # 現在の検索クエリを取得
-            query_text = query_input if query_input and query_input.strip() else ""
+            # 現在の質問文を取得
+            query_text = answer_question_input if answer_question_input and answer_question_input.strip() else ""
             if not query_text:
-                return "❌ 検索クエリが入力されていません。"
+                return "❌ 質問文が入力されていません。"
             
             # 選択された画像の情報を取得
             if not state or 'selected_result' not in state:
@@ -1244,19 +1372,18 @@ class UIEvents:
                 if 'image' in selected_result and selected_result['image']:
                     image_data = selected_result['image']
             
-            # VLMServiceから現在の設定を取得（クラスインスタンスのvlm_serviceを使用）
-            current_settings = self.vlm_service.get_current_vlm_settings()
+            # 検索タブ専用VLMServiceから現在の設定を取得
+            current_settings = self.search_vlm_service.get_current_vlm_settings()
             
             # デバッグ情報を出力
-            print(f"[DEBUG] VLM設定取得:")
+            print(f"[DEBUG] 検索タブVLM設定取得:")
             print(f"  - モデル: {current_settings.get('model')}")
             print(f"  - Temperature: {current_settings.get('temperature')}")
             print(f"  - Max Tokens: {current_settings.get('max_tokens')}")
             print(f"  - OCIリージョン: {current_settings.get('oci_region')}")
             
-            # VLMを使用して回答を生成
-            from app.nlp_service import NLPService
-            nlp_service = NLPService()
+            # 検索タブ専用NLPServiceを使用して回答を生成
+            nlp_service = self.search_nlp_service
             
             # 画像データがある場合は一時ファイルに保存
             import tempfile
