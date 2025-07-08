@@ -1359,6 +1359,205 @@ class UIEvents:
         
         return gr.update(interactive=prev_interactive), gr.update(interactive=next_interactive)
         
+    def register_search_and_answer_button_events(self, search_and_answer_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown):
+        """検索と回答生成ボタンのイベントを登録"""
+        search_and_answer_button.click(
+            fn=self.execute_search_and_answer,
+            inputs=[query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, answer_question_input, answer_prompt_template_dropdown, reference_type_radio],
+            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_text, answer_generate_button, reference_type_radio]
+        )
+
+    def execute_search_and_answer(self, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, answer_question_input, answer_prompt_template_dropdown, reference_type_radio):
+        """検索と回答生成を連続実行"""
+        import os
+        verbose = os.getenv('VERBOSE', '').lower() in ('true', '1', 'yes')
+        
+        try:
+            if verbose:
+                print(f"\n[DEBUG] ========== 検索と回答生成連続実行開始 ==========")
+                print(f"[DEBUG] 入力パラメータ:")
+                print(f"  - query_input: '{query_input}'")
+                print(f"  - search_target: '{search_target}'")
+                print(f"  - search_method: '{search_method}'")
+                print(f"  - answer_question_input: '{answer_question_input}'")
+                print(f"  - reference_type_radio: '{reference_type_radio}'")
+            
+            # 1. 質問文の設定（検索クエリを質問文に設定）
+            if query_input and query_input.strip():
+                final_answer_question = query_input
+            elif answer_question_input and answer_question_input.strip():
+                final_answer_question = answer_question_input
+            else:
+                if verbose:
+                    print(f"[DEBUG] エラー: 検索クエリと質問文の両方が空です")
+                # エラー状態を返す（既存のclear_before_searchの戻り値形式に合わせる）
+                from app.ui.components import REFERENCE_DOCUMENT_LABEL_TEXT, REFERENCE_IMAGE_PLACEHOLDER_TEXT, REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY, REFERENCE_TYPE_LABEL_TEXT
+                import gradio as gr
+                empty_reference = ""
+                disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                disabled_radio = gr.Radio(
+                    choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                    value=REFERENCE_TYPE_ALL,
+                    label=REFERENCE_TYPE_LABEL_TEXT,
+                    container=True,
+                    interactive=False
+                )
+                error_answer = "❌ 検索クエリまたは質問文が必要です。"
+                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", empty_reference, error_answer, disabled_button, disabled_radio
+            
+            if verbose:
+                print(f"[DEBUG] 使用する質問文: '{final_answer_question}'")
+            
+            # 2. 検索処理の実行
+            if verbose:
+                print(f"[DEBUG] ========== 検索処理開始 ==========")
+            
+            search_results = self.search_service.search_images(
+                query_input, uploaded_image, search_target, search_method, 
+                top_k_slider, vector_threshold, keyword_threshold
+            )
+            
+            if verbose:
+                print(f"[DEBUG] 検索処理完了")
+                print(f"[DEBUG] 検索結果の要素数: {len(search_results) if search_results else 0}")
+            
+            # 3. 検索結果の検証
+            if not search_results or len(search_results) < 9:
+                if verbose:
+                    print(f"[DEBUG] エラー: 検索結果が不正です")
+                # エラー状態を返す
+                from app.ui.components import REFERENCE_DOCUMENT_LABEL_TEXT, REFERENCE_IMAGE_PLACEHOLDER_TEXT, REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY, REFERENCE_TYPE_LABEL_TEXT
+                import gradio as gr
+                empty_reference = ""
+                disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                disabled_radio = gr.Radio(
+                    choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                    value=REFERENCE_TYPE_ALL,
+                    label=REFERENCE_TYPE_LABEL_TEXT,
+                    container=True,
+                    interactive=False
+                )
+                error_answer = "❌ 検索結果が取得できませんでした。"
+                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", empty_reference, error_answer, disabled_button, disabled_radio
+            
+            # 4. 検索結果から必要なデータを抽出
+            vector_gallery_result = search_results[0]
+            keyword_gallery_result = search_results[1]
+            filename_text_result = search_results[2]
+            similarity_text_result = search_results[3]
+            caption_text_result = search_results[4]
+            state_result = search_results[5]
+            executed_query_text_result = search_results[6]
+            executed_sql_text_result = search_results[7]
+            morphological_analysis_text_result = search_results[8]
+            
+            if verbose:
+                print(f"[DEBUG] 検索結果展開完了")
+                print(f"  - state_result type: {type(state_result)}")
+                print(f"  - state_result content keys: {state_result.keys() if isinstance(state_result, dict) else 'N/A'}")
+            
+            # 5. 回答生成用の参照画像設定と回答生成ボタン有効化
+            if verbose:
+                print(f"[DEBUG] ========== 参照画像設定処理開始 ==========")
+            
+            reference_update_result = self.update_reference_image_and_enable_answer_generation(
+                state_result, search_target, search_method, None, None, None
+            )
+            
+            if verbose:
+                print(f"[DEBUG] 参照画像設定完了")
+                print(f"  - reference_update_result: {reference_update_result}")
+            
+            # 6. 回答生成処理の実行
+            if verbose:
+                print(f"[DEBUG] ========== 回答生成処理開始 ==========")
+            
+            answer = self.generate_answer(
+                final_answer_question, answer_prompt_template_dropdown, 
+                state_result, reference_type_radio
+            )
+            
+            if verbose:
+                print(f"[DEBUG] 回答生成完了")
+                print(f"  - 回答長: {len(answer) if answer else 0}")
+                print(f"  - 回答内容（最初の100文字）: {answer[:100] if answer else 'None'}...")
+            
+            # 7. 回答生成ボタンと参照タイプラジオの状態更新
+            from app.ui.components import REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY, REFERENCE_TYPE_LABEL_TEXT
+            
+            # 回答生成条件をチェック
+            has_results = False
+            if state_result:
+                for result_key in ['vector_results', 'keyword_results', 'combined_results']:
+                    if result_key in state_result and state_result[result_key] and len(state_result[result_key]) > 0:
+                        has_results = True
+                        break
+            
+            should_enable = self.check_answer_generation_conditions(search_target, search_method, has_results)
+            
+            import gradio as gr
+            answer_button_update = gr.Button("回答生成", variant="primary", interactive=should_enable)
+            radio_button_update = gr.Radio(
+                choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                value=REFERENCE_TYPE_ALL,
+                label=REFERENCE_TYPE_LABEL_TEXT,
+                container=True,
+                interactive=should_enable
+            )
+            
+            # 8. 参照画像テキストの更新
+            reference_image_filename = ""
+            if reference_update_result and len(reference_update_result) > 0:
+                reference_image_filename = reference_update_result[0] if reference_update_result[0] else ""
+            
+            if verbose:
+                print(f"[DEBUG] 最終結果:")
+                print(f"  - 回答生成ボタン有効: {should_enable}")
+                print(f"  - 参照画像ファイル名: '{reference_image_filename}'")
+                print(f"[DEBUG] ========== 検索と回答生成連続実行完了 ==========\n")
+            
+            # 9. 結果の統合と返却
+            return (
+                vector_gallery_result,          # vector_gallery
+                keyword_gallery_result,         # keyword_gallery
+                filename_text_result,           # filename_text
+                similarity_text_result,         # similarity_text
+                caption_text_result,            # caption_text
+                state_result,                   # state
+                executed_query_text_result,     # executed_query_text
+                executed_sql_text_result,       # executed_sql_text
+                morphological_analysis_text_result,  # morphological_analysis_text
+                reference_image_filename,       # reference_image_text
+                answer,                         # answer_text
+                answer_button_update,           # answer_generate_button
+                radio_button_update             # reference_type_radio
+            )
+            
+        except Exception as e:
+            if verbose:
+                print(f"[DEBUG] ========== 検索と回答生成エラー発生 ==========")
+                print(f"[DEBUG] エラー内容: {e}")
+                print(f"[DEBUG] エラータイプ: {type(e)}")
+                import traceback
+                print(f"[DEBUG] スタックトレース:")
+                traceback.print_exc()
+                print(f"[DEBUG] ==========================================\n")
+            
+            # エラー時の状態を返す
+            from app.ui.components import REFERENCE_DOCUMENT_LABEL_TEXT, REFERENCE_IMAGE_PLACEHOLDER_TEXT, REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY, REFERENCE_TYPE_LABEL_TEXT
+            import gradio as gr
+            empty_reference = ""
+            disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+            disabled_radio = gr.Radio(
+                choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                value=REFERENCE_TYPE_ALL,
+                label=REFERENCE_TYPE_LABEL_TEXT,
+                container=True,
+                interactive=False
+            )
+            error_answer = f"❌ 処理中にエラーが発生しました: {str(e)}"
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", empty_reference, error_answer, disabled_button, disabled_radio
+
     def register_answer_generation_events(self, answer_generate_button, answer_text, search_target, search_method, vector_gallery, keyword_gallery, state, reference_type_radio, answer_question_input, answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox, answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button):
         """回答生成機能のイベントを登録"""
         # 回答生成ボタンクリック時のイベント
@@ -1628,13 +1827,23 @@ class UIEvents:
                     print(f"[DEBUG] ========== 回答生成処理終了 ==========\n")
                 
                 if answer:
+                    # 参照画像のファイル名を取得（明示的選択か自動選択かに関わらず）
+                    reference_filename = ""
                     if auto_selected:
-                        # 自動選択の場合は通知メッセージを追加
-                        final_answer = f"（注：画像が選択されていなかったため、検索結果の先頭画像「{auto_selected_filename}」を参照して回答を生成しました）\n\n{answer}"
+                        # 自動選択の場合
+                        reference_filename = auto_selected_filename
+                    elif selected_result and 'file_name' in selected_result:
+                        # 明示的に選択された場合
+                        reference_filename = selected_result['file_name']
+                    
+                    # 常に参照画像のファイル名を含むメッセージを追加
+                    if reference_filename:
+                        final_answer = f"（「{reference_filename}」を参照して回答を生成しました）\n\n{answer}"
                         if verbose:
-                            print(f"[DEBUG] 自動選択通知メッセージを追加: {auto_selected_filename}")
+                            print(f"[DEBUG] 参照画像通知メッセージを追加: {reference_filename}")
                         return final_answer
                     else:
+                        # ファイル名が取得できない場合はそのまま返す
                         return answer
                 else:
                     if verbose:

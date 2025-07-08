@@ -79,10 +79,11 @@ class UIComponents:
                 
                 with gr.Row():
                     search_button = gr.Button("検索", variant="primary")
+                    search_and_answer_button = gr.Button("検索と回答生成", variant="primary")
                     clear_button = gr.Button("クリア")
                     show_all_button = gr.Button("全件表示")
                     
-        return search_target, search_method, query_input, uploaded_image, uploaded_image_column, search_button, clear_button, show_all_button, query_examples
+        return search_target, search_method, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples
 
     def create_search_vlm_settings(self):
         """検索タブ専用VLM設定セクションのUIコンポーネントを作成"""
@@ -503,8 +504,8 @@ class UIComponents:
                 vector_gallery = gr.Gallery(
                     label="最近アップロードされた画像",
                     show_label=True,
-                    columns=[8],
-                    rows=[1],
+                    columns=[4],
+                    rows=[2],
                     object_fit="contain",
                     container=True,
                     preview=False,
@@ -515,8 +516,8 @@ class UIComponents:
                 keyword_gallery = gr.Gallery(
                     label="全文検索",
                     show_label=True,
-                    columns=[8],
-                    rows=[1],
+                    columns=[4],
+                    rows=[2],
                     object_fit="contain",
                     container=True,
                     preview=False,
@@ -621,7 +622,7 @@ class UIComponents:
                 top_k_slider = gr.Slider(
                     minimum=1, 
                     maximum=48, 
-                    value=16, 
+                    value=8, 
                     step=1, 
                     label="表示する結果の最大数"
                 )
