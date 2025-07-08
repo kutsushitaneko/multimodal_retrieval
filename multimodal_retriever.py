@@ -113,7 +113,7 @@ def main():
             # タブ1: 検索機能
             with gr.Tab("検索と回答生成"):
                 # 検索セクションのUIコンポーネントを作成
-                search_target, search_method, query_input, uploaded_image, search_button, clear_button, show_all_button, query_examples = ui_components.create_search_section()
+                search_target, search_method, query_input, uploaded_image, uploaded_image_column, search_button, clear_button, show_all_button, query_examples = ui_components.create_search_section()
                 
                 # 検索結果セクションのUIコンポーネントを作成
                 vector_gallery, keyword_gallery = ui_components.create_results_section()
@@ -144,11 +144,11 @@ def main():
                 
                 # 各種イベントを登録
                 ui_events.register_search_target_events(
-                    search_target, search_method, query_input, uploaded_image, query_examples, executed_sql_text
+                    search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text
                 )
                 
                 ui_events.register_search_method_events(
-                    search_method, query_input, uploaded_image, similarity_text, 
+                    search_method, query_input, uploaded_image, uploaded_image_column, similarity_text, 
                     executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text
                 )
                 

@@ -6,10 +6,10 @@ class VLMService:
         self.model_settings_path = "model_settings.json"
         self.model_settings = self._load_model_settings()
         
-        # 現在選択されているVLM設定を保持
+        # 現在選択されているVLM設定を保持する辞書
         self.current_vlm_settings = {
             "model": None,
-            "temperature": 0.3,
+            "temperature": 0.0,
             "max_tokens": 4096,
             "oci_region": "ap-osaka-1"
         }

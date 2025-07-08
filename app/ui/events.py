@@ -143,7 +143,7 @@ class UIEvents:
         self.search_vlm_service.update_current_vlm_settings(model=model)
         return self.search_vlm_service.model_changed(model)
         
-    def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, query_examples, executed_sql_text):
+    def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text):
         """検索対象変更時のイベントを登録"""
         search_target.change(
             fn=self.update_search_method_choices,
@@ -152,19 +152,19 @@ class UIEvents:
         ).then(
             fn=self.update_input_visibility,
             inputs=[search_target, search_method],
-            outputs=[query_input, uploaded_image, query_examples]
+            outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
         ).then(
             fn=self.update_sql_text_lines,
             inputs=[search_target],
             outputs=[executed_sql_text]
         )
         
-    def register_search_method_events(self, search_method, query_input, uploaded_image, similarity_text, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text):
+    def register_search_method_events(self, search_method, query_input, uploaded_image, uploaded_image_column, similarity_text, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text):
         """クエリーの種類変更時のイベントを登録"""
         search_method.change(
             fn=self.update_input_visibility,
             inputs=[search_target, search_method],
-            outputs=[query_input, uploaded_image, query_examples]
+            outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
         ).then(
             fn=self.update_score_label,
             inputs=[search_method],
@@ -942,7 +942,7 @@ class UIEvents:
                 visible=True,
                 height=300,
                 width=300
-            ), gr.update(visible=False)
+            ), gr.Column(scale=1, visible=True), gr.update(visible=False)
         else:
             return gr.Textbox(
                 label="検索クエリ",
@@ -954,7 +954,7 @@ class UIEvents:
                 visible=False,
                 height=300,
                 width=300
-            ), gr.update(visible=True)
+            ), gr.Column(scale=1, visible=False), gr.update(visible=True)
             
     def update_score_label(self, search_method):
         """クエリーの種類に応じてスコアラベルを更新する関数"""
