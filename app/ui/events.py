@@ -179,7 +179,7 @@ class UIEvents:
             outputs=[morphological_analysis_text]
         )
         
-    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None):
+    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None, answer_text=None):
         """検索ボタンのイベントを登録"""
         # 質問文入力エリアが指定されている場合、検索クエリを質問文入力エリアに最初に設定
         if answer_question_input is not None:
@@ -190,8 +190,8 @@ class UIEvents:
                 outputs=[answer_question_input]
             ).then(
                 fn=self.clear_before_search,
-                inputs=[reference_image_text],
-                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text] if reference_image_text is not None else [vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
+                inputs=[reference_image_text, answer_text],
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_text] if (reference_image_text is not None and answer_text is not None) else ([vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text] if reference_image_text is not None else ([vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_text] if answer_text is not None else [vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]))
             ).then(
                 fn=self.update_gallery_labels,
                 inputs=[query_input, search_method, search_target],
@@ -222,8 +222,8 @@ class UIEvents:
             # 質問文入力エリアがない場合は従来の処理
             search_button.click(
                 fn=self.clear_before_search,
-                inputs=[reference_image_text],
-                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text] if reference_image_text is not None else [vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
+                inputs=[reference_image_text, answer_text],
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_text] if (reference_image_text is not None and answer_text is not None) else ([vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text] if reference_image_text is not None else ([vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_text] if answer_text is not None else [vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]))
             ).then(
                 fn=self.update_gallery_labels,
                 inputs=[query_input, search_method, search_target],
@@ -1007,9 +1007,20 @@ class UIEvents:
         else:
             return gr.Gallery(label="検索結果", visible=True), gr.Gallery(label="", visible=False)
             
-    def clear_before_search(self, reference_image_text=None):
+    def clear_before_search(self, reference_image_text=None, answer_text=None):
         """検索実行前にクリアする関数"""
-        if reference_image_text is not None:
+        if reference_image_text is not None and answer_text is not None:
+            cleared_reference = gr.Textbox(
+                label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                show_label=True,
+                interactive=False,
+                container=True,
+                show_copy_button=True,
+                value="",
+                placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
+            )
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", cleared_reference, ""
+        elif reference_image_text is not None:
             cleared_reference = gr.Textbox(
                 label=REFERENCE_DOCUMENT_LABEL_TEXT,
                 show_label=True,
@@ -1020,6 +1031,8 @@ class UIEvents:
                 placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
             )
             return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", cleared_reference
+        elif answer_text is not None:
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", ""
         else:
             return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", ""
 

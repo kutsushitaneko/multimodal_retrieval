@@ -156,7 +156,7 @@ def main():
                     search_button, query_input, uploaded_image, search_target, 
                     search_method, top_k_slider, vector_threshold, keyword_threshold, 
                     vector_gallery, keyword_gallery, filename_text, similarity_text, 
-                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio
+                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text
                 )
                 
                 ui_events.register_execute_query_button_events(
