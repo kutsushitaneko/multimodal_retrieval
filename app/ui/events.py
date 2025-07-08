@@ -143,41 +143,87 @@ class UIEvents:
         self.search_vlm_service.update_current_vlm_settings(model=model)
         return self.search_vlm_service.model_changed(model)
         
-    def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text):
+    def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text, search_and_answer_button=None):
         """検索対象変更時のイベントを登録"""
-        search_target.change(
-            fn=self.update_search_method_choices,
-            inputs=[search_target],
-            outputs=[search_method]
-        ).then(
-            fn=self.update_input_visibility,
-            inputs=[search_target, search_method],
-            outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
-        ).then(
-            fn=self.update_sql_text_lines,
-            inputs=[search_target],
-            outputs=[executed_sql_text]
-        )
+        if search_and_answer_button is not None:
+            # search_and_answer_buttonを含む場合の処理
+            search_target.change(
+                fn=self.update_search_method_choices,
+                inputs=[search_target],
+                outputs=[search_method]
+            ).then(
+                fn=self.update_input_visibility,
+                inputs=[search_target, search_method],
+                outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
+            ).then(
+                fn=self.update_sql_text_lines,
+                inputs=[search_target],
+                outputs=[executed_sql_text]
+            ).then(
+                fn=self.update_search_and_answer_button_state,
+                inputs=[search_target, search_method],
+                outputs=[search_and_answer_button]
+            )
+        else:
+            # 従来の処理
+            search_target.change(
+                fn=self.update_search_method_choices,
+                inputs=[search_target],
+                outputs=[search_method]
+            ).then(
+                fn=self.update_input_visibility,
+                inputs=[search_target, search_method],
+                outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
+            ).then(
+                fn=self.update_sql_text_lines,
+                inputs=[search_target],
+                outputs=[executed_sql_text]
+            )
         
-    def register_search_method_events(self, search_method, query_input, uploaded_image, uploaded_image_column, similarity_text, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text):
+    def register_search_method_events(self, search_method, query_input, uploaded_image, uploaded_image_column, similarity_text, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text, search_and_answer_button=None):
         """クエリーの種類変更時のイベントを登録"""
-        search_method.change(
-            fn=self.update_input_visibility,
-            inputs=[search_target, search_method],
-            outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
-        ).then(
-            fn=self.update_score_label,
-            inputs=[search_method],
-            outputs=[similarity_text]
-        ).then(
-            fn=self.update_query_text_interactivity,
-            inputs=[search_method],
-            outputs=[executed_query_text, execute_query_button]
-        ).then(
-            fn=lambda search_target, search_method: self.update_morphological_analysis_visibility(search_target, search_method, ""),
-            inputs=[search_target, search_method],
-            outputs=[morphological_analysis_text]
-        )
+        if search_and_answer_button is not None:
+            # search_and_answer_buttonを含む場合の処理
+            search_method.change(
+                fn=self.update_input_visibility,
+                inputs=[search_target, search_method],
+                outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
+            ).then(
+                fn=self.update_score_label,
+                inputs=[search_method],
+                outputs=[similarity_text]
+            ).then(
+                fn=self.update_query_text_interactivity,
+                inputs=[search_method],
+                outputs=[executed_query_text, execute_query_button]
+            ).then(
+                fn=lambda search_target, search_method: self.update_morphological_analysis_visibility(search_target, search_method, ""),
+                inputs=[search_target, search_method],
+                outputs=[morphological_analysis_text]
+            ).then(
+                fn=self.update_search_and_answer_button_state,
+                inputs=[search_target, search_method],
+                outputs=[search_and_answer_button]
+            )
+        else:
+            # 従来の処理
+            search_method.change(
+                fn=self.update_input_visibility,
+                inputs=[search_target, search_method],
+                outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
+            ).then(
+                fn=self.update_score_label,
+                inputs=[search_method],
+                outputs=[similarity_text]
+            ).then(
+                fn=self.update_query_text_interactivity,
+                inputs=[search_method],
+                outputs=[executed_query_text, execute_query_button]
+            ).then(
+                fn=lambda search_target, search_method: self.update_morphological_analysis_visibility(search_target, search_method, ""),
+                inputs=[search_target, search_method],
+                outputs=[morphological_analysis_text]
+            )
         
     def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None, answer_text=None):
         """検索ボタンのイベントを登録"""
@@ -1361,7 +1407,14 @@ class UIEvents:
         
     def register_search_and_answer_button_events(self, search_and_answer_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown):
         """検索と回答生成ボタンのイベントを登録"""
+        # 検索ボタンと同様のイベントチェーン方式で実装
+        # 1. 検索クエリを質問文入力エリアにコピー
         search_and_answer_button.click(
+            fn=lambda query: query if query and query.strip() else "",
+            inputs=[query_input],
+            outputs=[answer_question_input]
+        ).then(
+            # 2. 検索処理と回答生成を連続実行
             fn=self.execute_search_and_answer,
             inputs=[query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, answer_question_input, answer_prompt_template_dropdown, reference_type_radio],
             outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_text, answer_generate_button, reference_type_radio]
@@ -1880,6 +1933,16 @@ class UIEvents:
             return True
             
         return False
+        
+    def update_search_and_answer_button_state(self, search_target, search_method):
+        """検索と回答生成ボタンの状態を更新する関数"""
+        import gradio as gr
+        
+        # クエリーの種類が「画像」の場合は無効にする
+        if search_method == "画像":
+            return gr.Button("検索と回答生成", variant="secondary", interactive=False)
+        else:
+            return gr.Button("検索と回答生成", variant="primary", interactive=True)
         
     def show_selected_image_info(self, evt: gr.SelectData, results):
         """選択された画像の情報を表示する関数"""

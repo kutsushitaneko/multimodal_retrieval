@@ -144,12 +144,12 @@ def main():
                 
                 # 各種イベントを登録
                 ui_events.register_search_target_events(
-                    search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text
+                    search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text, search_and_answer_button
                 )
                 
                 ui_events.register_search_method_events(
                     search_method, query_input, uploaded_image, uploaded_image_column, similarity_text, 
-                    executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text
+                    executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text, search_and_answer_button
                 )
                 
                 ui_events.register_search_button_events(
