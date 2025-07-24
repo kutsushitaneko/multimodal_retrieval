@@ -95,7 +95,7 @@ def main():
     # Gradioインターフェースの作成
     with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕", delete_cache=(86400, 86400)) as demo:
         gr.Markdown(f"# 🐕マルチモーダル・レトリバー🐕 by {config.embed_model_id}")
-        gr.Markdown("画像を自然言語やアップロードした画像で検索できます。例: 「ハリーにホグワーツの入学案内を持ってきたのは誰？」など")
+        gr.Markdown("画像を自然言語で検索したり、検索画像を元に質問に答えることができます。アップロード画像で類似した画像を検索できます。")
         
         state = gr.State({
             "current_page": 1,

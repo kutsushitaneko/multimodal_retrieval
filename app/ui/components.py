@@ -649,7 +649,7 @@ class UIComponents:
                     value=REFERENCE_TYPE_ALL,
                     label=REFERENCE_TYPE_LABEL_TEXT,
                     container=True,
-                    interactive=False,
+                    interactive=True,
                     scale=1
                 )
             with gr.Row():

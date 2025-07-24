@@ -1,4 +1,12 @@
 {
+    "xai.grok-4(OCI)": {
+        "model_name": "xai.grok-4",
+        "api_type": "oci.xai.chat",
+        "max_tokens": 128000,
+        "default_tokens": 4000,
+        "vision": true,
+        "default_region": "us-chicago-1"
+    },
     "xai.grok-3(OCI)": {
         "model_name": "xai.grok-3",
         "api_type": "oci.llama.chat",

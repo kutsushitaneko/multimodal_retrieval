@@ -4,6 +4,8 @@ grant execute on DBMS_CLOUD to labuser;
 grant execute on DBMS_CLOUD_AI to labuser;
 grant execute on DBMS_VECTOR to labuser;
 grant execute on DBMS_VECTOR_CHAIN to labuser;
+grant execute on DBMS_CLOUD_PIPELINE to labuser;
+GRANT EXECUTE ON DBMS_RESULT_CACHE TO labuser;
 
 
 BEGIN
