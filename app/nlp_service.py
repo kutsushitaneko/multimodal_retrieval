@@ -423,7 +423,7 @@ class NLPService:
                             ]
                         }
                     ],
-                    "reasoning": {"effort": "medium"}  # サンプルに基づき固定値を設定
+                    "reasoning": {"effort": "medium"}  # デフォルト値を設定
                 }
                 
                 response = client.responses.create(**params)
