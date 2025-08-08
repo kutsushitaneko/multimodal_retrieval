@@ -139,13 +139,19 @@ class UIComponents:
                 interactive=True
             )
             
-            # 温度設定
+            # 温度設定（モデル設定から初期値を取得）
+            try:
+                from app.vlm_service import VLMService
+                _temp_vlm = VLMService()
+                search_initial_temperature = _temp_vlm.get_model_default_temperature(search_default_vlm) if search_default_vlm != "エラー" else 0.0
+            except Exception:
+                search_initial_temperature = 0.0
             search_vlm_temperature = gr.Slider(
                 label="Temperature",
                 minimum=0.0,
                 maximum=1.0,
                 step=0.1,
-                value=0.0,
+                value=search_initial_temperature,
                 interactive=True
             )
             
@@ -412,13 +418,19 @@ class UIComponents:
                         interactive=True
                     )
                     
-                    # 温度設定
+                    # 温度設定（モデル設定から初期値を取得）
+                    try:
+                        from app.vlm_service import VLMService
+                        _temp_vlm = VLMService()
+                        initial_temperature = _temp_vlm.get_model_default_temperature(default_vlm) if default_vlm != "エラー" else 0.0
+                    except Exception:
+                        initial_temperature = 0.0
                     vlm_temperature = gr.Slider(
                         label="Temperature",
                         minimum=0.0,
                         maximum=1.0,
                         step=0.1,
-                        value=0.0,
+                        value=initial_temperature,
                         interactive=True
                     )
                     

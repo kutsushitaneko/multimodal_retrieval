@@ -39,7 +39,7 @@ class UIEvents:
         vlm_service_provider.change(
             fn=self.vlm_service_provider_changed,
             inputs=[vlm_service_provider],
-            outputs=[vlm_model, vlm_max_tokens, vlm_oci_region],
+            outputs=[vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region],
             queue=False  # VLM設定変更は即座に処理
         )
         
@@ -47,7 +47,7 @@ class UIEvents:
         vlm_model.change(
             fn=self.vlm_model_changed,
             inputs=[vlm_model],
-            outputs=[vlm_max_tokens, vlm_oci_region],
+            outputs=[vlm_temperature, vlm_max_tokens, vlm_oci_region],
             queue=False  # VLMモデル変更は即座に処理
         )
         
@@ -94,7 +94,7 @@ class UIEvents:
         search_vlm_service_provider.change(
             fn=self.search_vlm_service_provider_changed,
             inputs=[search_vlm_service_provider],
-            outputs=[search_vlm_model, search_vlm_max_tokens, search_vlm_oci_region],
+            outputs=[search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region],
             queue=False  # VLM設定変更は即座に処理
         )
         
@@ -102,7 +102,7 @@ class UIEvents:
         search_vlm_model.change(
             fn=self.search_vlm_model_changed,
             inputs=[search_vlm_model],
-            outputs=[search_vlm_max_tokens, search_vlm_oci_region],
+            outputs=[search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region],
             queue=False  # VLMモデル変更は即座に処理
         )
         

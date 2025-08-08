@@ -175,6 +175,7 @@
         "api_type": "openai.reasoning",
         "max_tokens": 128000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "gpt-5-mini(OpenAI)": {
@@ -182,6 +183,7 @@
         "api_type": "openai.reasoning",
         "max_tokens": 128000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "gpt-5(OpnAI)": {
@@ -189,6 +191,7 @@
         "api_type": "openai.reasoning",
         "max_tokens": 128000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "o4-mini-2025-04-16(OpenAI)": {
@@ -196,6 +199,7 @@
         "api_type": "openai.chat.completion.reasoning",
         "max_tokens": 100000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "o3-pro-2025-06-10(OpenAI)": {
@@ -203,6 +207,7 @@
         "api_type": "openai.reasoning",
         "max_tokens": 100000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "o3-2025-04-16(OpenAI)": {
@@ -210,6 +215,7 @@
         "api_type": "openai.chat.completion.reasoning",
         "max_tokens": 100000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "o3-mini-2025-01-31(OpenAI)": {
@@ -217,6 +223,7 @@
         "api_type": "openai.chat.completion.reasoning",
         "max_tokens": 100000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "gpt-4.1-2025-04-14(OpenAI)": {
