@@ -369,7 +369,7 @@ class NLPService:
                 chat_request.max_tokens = max_tokens
                 chat_request.is_stream = False
                 chat_request.temperature = temperature
-                chat_request.top_p = 0.9
+                chat_request.top_p = 1.0
                 # chat_request.top_k = -1
                 # chat_request.frequency_penalty = 0.5
                 # chat_request.presence_penalty = 0.5
