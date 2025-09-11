@@ -1,1 +1,1 @@
-CREATE USER devday25user IDENTIFIED BY "Welcome12345#";
+CREATE USER your_db_user IDENTIFIED BY "Welcome12345#";

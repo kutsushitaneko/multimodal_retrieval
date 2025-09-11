@@ -1,10 +1,35 @@
 # マルチモーダル画像検索アプリケーション
 
+## アプリケーションのファイル説明
+- アプリ本体： multimodal_retriever.py
+- 環境変数：.env （例：.env_example）
+- MLLM の定義：model_settings.json
+- 画像のバッチ登録スクリプト：batch_injestion.py
+- データベース環境構築SQL： sql フォルダに配置
+- app 配下の class は、docs/app_classes.md　に説明あり
+- Python ライブライの依存関係：requirements.txt
+- キャプション生成用プロンプト： prompt フォルダ
+
+## データベースの準備
+### データベースユーザーの作成
+下記SQLスクリプトを sqlplus などで実行
+- sql/create_user_user.sql
+- sql/grant_to_user.sql
+- sql/create_tables.sql
+- sql/create_stoplist.sql
+
 ## 環境設定
+
+### Python バージョン
+3.12.x でのみ動作確認済み
+### 依存パッケージのインストール
+```
+uv pip install -r requirements.txt
+```
 
 ### .envファイルの設定
 
-アプリケーションの設定は`.env`ファイルで管理されます。以下の項目を設定してください：
+アプリケーションの設定は`.env`ファイルで管理されます。.env_example を参考に .env ファイルを作成して以下の項目を設定してください
 
 #### データベース設定
 ```
@@ -32,17 +57,23 @@ AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 AWS_DEFAULT_REGION=us-west-2
 ```
 
-# 埋め込みモデルの設定
+#### 埋め込みモデルの設定
+```
 EMBED_MODEL_PROVIDER=OCI or CohereAI
 EMBED_MODEL_ID=embed-v4.0
+```
 
-# バッチ投入時のマルチモーダルLLM（VLM）の設定（UIでは、画面上で選択）
+#### バッチ投入時のマルチモーダルLLM（VLM）の設定（UIでは、画面上で選択）
+```
 MLLM_MODEL_PROVIDER=OCI
 MLLM_MODEL_ID=meta.llama-4-maverick-17b-128e-instruct-fp8
+```
 
-# MLLM専用リージョン（オプション）
-# イメージのバッチ登録で、MLLM_MODEL_PROVIDER=OCIでかつMLLMで異なるリージョンを使用したい場合のみ設定（Gradio UI では使用していない）
+#### MLLM専用リージョン（オプション）
+#### イメージのバッチ登録で、MLLM_MODEL_PROVIDER=OCIでかつMLLMで異なるリージョンを使用したい場合のみ設定（Gradio UI では使用していない）
+```
 #OCI_REGION_OVERRIDE_FOR_MLLM=us-chicago-1
+```
 
 #### アプリケーション実行環境設定
 
@@ -72,7 +103,7 @@ REMOTE_SERVER_NAME=0.0.0.0
 REMOTE_SERVER_PORT=8899
 ```
 
-### 使用例
+##### アプリケーション実行環境設定例
 
 **ローカル開発環境での実行:**
 ```
@@ -119,3 +150,7 @@ batch_injestion.py
 ```
 ### UI で1枚づつ登録
 アプリを起動して、「イメージ管理」タブの画像アップロードから登録します。
+
+## その他
+### util_compress_image.py
+アプリを OCI などで実行しているとブラウザへの画像転送に時間がかかります。画面表示が遅い場合は、DBが遅いのではなく画像転送である確率が高いです。その場合は、アップロードする画像のサイズを小さくしてください。このユーティリティは、images_original フォルダにある画像を一辺が最大1024ピクセルに縮小して images フォルダに配置します。
