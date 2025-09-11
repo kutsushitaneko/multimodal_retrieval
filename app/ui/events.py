@@ -39,7 +39,7 @@ class UIEvents:
         vlm_service_provider.change(
             fn=self.vlm_service_provider_changed,
             inputs=[vlm_service_provider],
-            outputs=[vlm_model, vlm_max_tokens, vlm_oci_region],
+            outputs=[vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region],
             queue=False  # VLM設定変更は即座に処理
         )
         
@@ -47,7 +47,7 @@ class UIEvents:
         vlm_model.change(
             fn=self.vlm_model_changed,
             inputs=[vlm_model],
-            outputs=[vlm_max_tokens, vlm_oci_region],
+            outputs=[vlm_temperature, vlm_max_tokens, vlm_oci_region],
             queue=False  # VLMモデル変更は即座に処理
         )
         
@@ -94,7 +94,7 @@ class UIEvents:
         search_vlm_service_provider.change(
             fn=self.search_vlm_service_provider_changed,
             inputs=[search_vlm_service_provider],
-            outputs=[search_vlm_model, search_vlm_max_tokens, search_vlm_oci_region],
+            outputs=[search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region],
             queue=False  # VLM設定変更は即座に処理
         )
         
@@ -102,7 +102,7 @@ class UIEvents:
         search_vlm_model.change(
             fn=self.search_vlm_model_changed,
             inputs=[search_vlm_model],
-            outputs=[search_vlm_max_tokens, search_vlm_oci_region],
+            outputs=[search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region],
             queue=False  # VLMモデル変更は即座に処理
         )
         
@@ -143,43 +143,89 @@ class UIEvents:
         self.search_vlm_service.update_current_vlm_settings(model=model)
         return self.search_vlm_service.model_changed(model)
         
-    def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, query_examples, executed_sql_text):
+    def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text, search_and_answer_button=None):
         """検索対象変更時のイベントを登録"""
-        search_target.change(
-            fn=self.update_search_method_choices,
-            inputs=[search_target],
-            outputs=[search_method]
-        ).then(
-            fn=self.update_input_visibility,
-            inputs=[search_target, search_method],
-            outputs=[query_input, uploaded_image, query_examples]
-        ).then(
-            fn=self.update_sql_text_lines,
-            inputs=[search_target],
-            outputs=[executed_sql_text]
-        )
+        if search_and_answer_button is not None:
+            # search_and_answer_buttonを含む場合の処理
+            search_target.change(
+                fn=self.update_search_method_choices,
+                inputs=[search_target],
+                outputs=[search_method]
+            ).then(
+                fn=self.update_input_visibility,
+                inputs=[search_target, search_method],
+                outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
+            ).then(
+                fn=self.update_sql_text_lines,
+                inputs=[search_target],
+                outputs=[executed_sql_text]
+            ).then(
+                fn=self.update_search_and_answer_button_state,
+                inputs=[search_target, search_method],
+                outputs=[search_and_answer_button]
+            )
+        else:
+            # 従来の処理
+            search_target.change(
+                fn=self.update_search_method_choices,
+                inputs=[search_target],
+                outputs=[search_method]
+            ).then(
+                fn=self.update_input_visibility,
+                inputs=[search_target, search_method],
+                outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
+            ).then(
+                fn=self.update_sql_text_lines,
+                inputs=[search_target],
+                outputs=[executed_sql_text]
+            )
         
-    def register_search_method_events(self, search_method, query_input, uploaded_image, similarity_text, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text):
+    def register_search_method_events(self, search_method, query_input, uploaded_image, uploaded_image_column, similarity_text, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text, search_and_answer_button=None):
         """クエリーの種類変更時のイベントを登録"""
-        search_method.change(
-            fn=self.update_input_visibility,
-            inputs=[search_target, search_method],
-            outputs=[query_input, uploaded_image, query_examples]
-        ).then(
-            fn=self.update_score_label,
-            inputs=[search_method],
-            outputs=[similarity_text]
-        ).then(
-            fn=self.update_query_text_interactivity,
-            inputs=[search_method],
-            outputs=[executed_query_text, execute_query_button]
-        ).then(
-            fn=lambda search_target, search_method: self.update_morphological_analysis_visibility(search_target, search_method, ""),
-            inputs=[search_target, search_method],
-            outputs=[morphological_analysis_text]
-        )
+        if search_and_answer_button is not None:
+            # search_and_answer_buttonを含む場合の処理
+            search_method.change(
+                fn=self.update_input_visibility,
+                inputs=[search_target, search_method],
+                outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
+            ).then(
+                fn=self.update_score_label,
+                inputs=[search_method],
+                outputs=[similarity_text]
+            ).then(
+                fn=self.update_query_text_interactivity,
+                inputs=[search_method],
+                outputs=[executed_query_text, execute_query_button]
+            ).then(
+                fn=lambda search_target, search_method: self.update_morphological_analysis_visibility(search_target, search_method, ""),
+                inputs=[search_target, search_method],
+                outputs=[morphological_analysis_text]
+            ).then(
+                fn=self.update_search_and_answer_button_state,
+                inputs=[search_target, search_method],
+                outputs=[search_and_answer_button]
+            )
+        else:
+            # 従来の処理
+            search_method.change(
+                fn=self.update_input_visibility,
+                inputs=[search_target, search_method],
+                outputs=[query_input, uploaded_image, uploaded_image_column, query_examples]
+            ).then(
+                fn=self.update_score_label,
+                inputs=[search_method],
+                outputs=[similarity_text]
+            ).then(
+                fn=self.update_query_text_interactivity,
+                inputs=[search_method],
+                outputs=[executed_query_text, execute_query_button]
+            ).then(
+                fn=lambda search_target, search_method: self.update_morphological_analysis_visibility(search_target, search_method, ""),
+                inputs=[search_target, search_method],
+                outputs=[morphological_analysis_text]
+            )
         
-    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None):
+    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None, answer_text=None):
         """検索ボタンのイベントを登録"""
         # 質問文入力エリアが指定されている場合、検索クエリを質問文入力エリアに最初に設定
         if answer_question_input is not None:
@@ -190,8 +236,8 @@ class UIEvents:
                 outputs=[answer_question_input]
             ).then(
                 fn=self.clear_before_search,
-                inputs=[reference_image_text],
-                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text] if reference_image_text is not None else [vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
+                inputs=[reference_image_text, answer_text],
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_text] if (reference_image_text is not None and answer_text is not None) else ([vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text] if reference_image_text is not None else ([vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_text] if answer_text is not None else [vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]))
             ).then(
                 fn=self.update_gallery_labels,
                 inputs=[query_input, search_method, search_target],
@@ -222,8 +268,8 @@ class UIEvents:
             # 質問文入力エリアがない場合は従来の処理
             search_button.click(
                 fn=self.clear_before_search,
-                inputs=[reference_image_text],
-                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text] if reference_image_text is not None else [vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]
+                inputs=[reference_image_text, answer_text],
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_text] if (reference_image_text is not None and answer_text is not None) else ([vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text] if reference_image_text is not None else ([vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, answer_text] if answer_text is not None else [vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text]))
             ).then(
                 fn=self.update_gallery_labels,
                 inputs=[query_input, search_method, search_target],
@@ -942,7 +988,7 @@ class UIEvents:
                 visible=True,
                 height=300,
                 width=300
-            ), gr.update(visible=False)
+            ), gr.Column(scale=1, visible=True), gr.update(visible=False)
         else:
             return gr.Textbox(
                 label="検索クエリ",
@@ -954,7 +1000,7 @@ class UIEvents:
                 visible=False,
                 height=300,
                 width=300
-            ), gr.update(visible=True)
+            ), gr.Column(scale=1, visible=False), gr.update(visible=True)
             
     def update_score_label(self, search_method):
         """クエリーの種類に応じてスコアラベルを更新する関数"""
@@ -1007,9 +1053,20 @@ class UIEvents:
         else:
             return gr.Gallery(label="検索結果", visible=True), gr.Gallery(label="", visible=False)
             
-    def clear_before_search(self, reference_image_text=None):
+    def clear_before_search(self, reference_image_text=None, answer_text=None):
         """検索実行前にクリアする関数"""
-        if reference_image_text is not None:
+        if reference_image_text is not None and answer_text is not None:
+            cleared_reference = gr.Textbox(
+                label=REFERENCE_DOCUMENT_LABEL_TEXT,
+                show_label=True,
+                interactive=False,
+                container=True,
+                show_copy_button=True,
+                value="",
+                placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
+            )
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", cleared_reference, ""
+        elif reference_image_text is not None:
             cleared_reference = gr.Textbox(
                 label=REFERENCE_DOCUMENT_LABEL_TEXT,
                 show_label=True,
@@ -1020,6 +1077,8 @@ class UIEvents:
                 placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
             )
             return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", cleared_reference
+        elif answer_text is not None:
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", ""
         else:
             return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", ""
 
@@ -1346,6 +1405,212 @@ class UIEvents:
         
         return gr.update(interactive=prev_interactive), gr.update(interactive=next_interactive)
         
+    def register_search_and_answer_button_events(self, search_and_answer_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown):
+        """検索と回答生成ボタンのイベントを登録"""
+        # 検索ボタンと同様のイベントチェーン方式で実装
+        # 1. 検索クエリを質問文入力エリアにコピー
+        search_and_answer_button.click(
+            fn=lambda query: query if query and query.strip() else "",
+            inputs=[query_input],
+            outputs=[answer_question_input]
+        ).then(
+            # 2. 検索処理と回答生成を連続実行
+            fn=self.execute_search_and_answer,
+            inputs=[query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, answer_question_input, answer_prompt_template_dropdown, reference_type_radio],
+            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_text, answer_generate_button, reference_type_radio]
+        )
+
+    def execute_search_and_answer(self, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, answer_question_input, answer_prompt_template_dropdown, reference_type_radio):
+        """検索と回答生成を連続実行"""
+        import os
+        verbose = os.getenv('VERBOSE', '').lower() in ('true', '1', 'yes')
+        
+        try:
+            if verbose:
+                print(f"\n[DEBUG] ========== 検索と回答生成連続実行開始 ==========")
+                print(f"[DEBUG] 入力パラメータ:")
+                print(f"  - query_input: '{query_input}'")
+                print(f"  - search_target: '{search_target}'")
+                print(f"  - search_method: '{search_method}'")
+                print(f"  - answer_question_input: '{answer_question_input}'")
+                print(f"  - reference_type_radio: '{reference_type_radio}'")
+            
+            # 1. 質問文の設定（検索クエリを質問文に設定）
+            if query_input and query_input.strip():
+                final_answer_question = query_input
+            elif answer_question_input and answer_question_input.strip():
+                final_answer_question = answer_question_input
+            else:
+                if verbose:
+                    print(f"[DEBUG] エラー: 検索クエリと質問文の両方が空です")
+                # エラー状態を返す（既存のclear_before_searchの戻り値形式に合わせる）
+                from app.ui.components import REFERENCE_DOCUMENT_LABEL_TEXT, REFERENCE_IMAGE_PLACEHOLDER_TEXT, REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY, REFERENCE_TYPE_LABEL_TEXT
+                import gradio as gr
+                empty_reference = ""
+                disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                disabled_radio = gr.Radio(
+                    choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                    value=REFERENCE_TYPE_ALL,
+                    label=REFERENCE_TYPE_LABEL_TEXT,
+                    container=True,
+                    interactive=False
+                )
+                error_answer = "❌ 検索クエリまたは質問文が必要です。"
+                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", empty_reference, error_answer, disabled_button, disabled_radio
+            
+            if verbose:
+                print(f"[DEBUG] 使用する質問文: '{final_answer_question}'")
+            
+            # 2. 検索処理の実行
+            if verbose:
+                print(f"[DEBUG] ========== 検索処理開始 ==========")
+            
+            search_results = self.search_service.search_images(
+                query_input, uploaded_image, search_target, search_method, 
+                top_k_slider, vector_threshold, keyword_threshold
+            )
+            
+            if verbose:
+                print(f"[DEBUG] 検索処理完了")
+                print(f"[DEBUG] 検索結果の要素数: {len(search_results) if search_results else 0}")
+            
+            # 3. 検索結果の検証
+            if not search_results or len(search_results) < 9:
+                if verbose:
+                    print(f"[DEBUG] エラー: 検索結果が不正です")
+                # エラー状態を返す
+                from app.ui.components import REFERENCE_DOCUMENT_LABEL_TEXT, REFERENCE_IMAGE_PLACEHOLDER_TEXT, REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY, REFERENCE_TYPE_LABEL_TEXT
+                import gradio as gr
+                empty_reference = ""
+                disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+                disabled_radio = gr.Radio(
+                    choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                    value=REFERENCE_TYPE_ALL,
+                    label=REFERENCE_TYPE_LABEL_TEXT,
+                    container=True,
+                    interactive=False
+                )
+                error_answer = "❌ 検索結果が取得できませんでした。"
+                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", empty_reference, error_answer, disabled_button, disabled_radio
+            
+            # 4. 検索結果から必要なデータを抽出
+            vector_gallery_result = search_results[0]
+            keyword_gallery_result = search_results[1]
+            filename_text_result = search_results[2]
+            similarity_text_result = search_results[3]
+            caption_text_result = search_results[4]
+            state_result = search_results[5]
+            executed_query_text_result = search_results[6]
+            executed_sql_text_result = search_results[7]
+            morphological_analysis_text_result = search_results[8]
+            
+            if verbose:
+                print(f"[DEBUG] 検索結果展開完了")
+                print(f"  - state_result type: {type(state_result)}")
+                print(f"  - state_result content keys: {state_result.keys() if isinstance(state_result, dict) else 'N/A'}")
+            
+            # 5. 回答生成用の参照画像設定と回答生成ボタン有効化
+            if verbose:
+                print(f"[DEBUG] ========== 参照画像設定処理開始 ==========")
+            
+            reference_update_result = self.update_reference_image_and_enable_answer_generation(
+                state_result, search_target, search_method, None, None, None
+            )
+            
+            if verbose:
+                print(f"[DEBUG] 参照画像設定完了")
+                print(f"  - reference_update_result: {reference_update_result}")
+            
+            # 6. 回答生成処理の実行
+            if verbose:
+                print(f"[DEBUG] ========== 回答生成処理開始 ==========")
+            
+            answer = self.generate_answer(
+                final_answer_question, answer_prompt_template_dropdown, 
+                state_result, reference_type_radio
+            )
+            
+            if verbose:
+                print(f"[DEBUG] 回答生成完了")
+                print(f"  - 回答長: {len(answer) if answer else 0}")
+                print(f"  - 回答内容（最初の100文字）: {answer[:100] if answer else 'None'}...")
+            
+            # 7. 回答生成ボタンと参照タイプラジオの状態更新
+            from app.ui.components import REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY, REFERENCE_TYPE_LABEL_TEXT
+            
+            # 回答生成条件をチェック
+            has_results = False
+            if state_result:
+                for result_key in ['vector_results', 'keyword_results', 'combined_results']:
+                    if result_key in state_result and state_result[result_key] and len(state_result[result_key]) > 0:
+                        has_results = True
+                        break
+            
+            should_enable = self.check_answer_generation_conditions(search_target, search_method, has_results)
+            
+            import gradio as gr
+            answer_button_update = gr.Button("回答生成", variant="primary", interactive=should_enable)
+            radio_button_update = gr.Radio(
+                choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                value=REFERENCE_TYPE_ALL,
+                label=REFERENCE_TYPE_LABEL_TEXT,
+                container=True,
+                interactive=should_enable
+            )
+            
+            # 8. 参照画像テキストの更新
+            reference_image_filename = ""
+            if reference_update_result and len(reference_update_result) > 0:
+                reference_image_filename = reference_update_result[0] if reference_update_result[0] else ""
+            
+            if verbose:
+                print(f"[DEBUG] 最終結果:")
+                print(f"  - 回答生成ボタン有効: {should_enable}")
+                print(f"  - 参照画像ファイル名: '{reference_image_filename}'")
+                print(f"[DEBUG] ========== 検索と回答生成連続実行完了 ==========\n")
+            
+            # 9. 結果の統合と返却
+            return (
+                vector_gallery_result,          # vector_gallery
+                keyword_gallery_result,         # keyword_gallery
+                filename_text_result,           # filename_text
+                similarity_text_result,         # similarity_text
+                caption_text_result,            # caption_text
+                state_result,                   # state
+                executed_query_text_result,     # executed_query_text
+                executed_sql_text_result,       # executed_sql_text
+                morphological_analysis_text_result,  # morphological_analysis_text
+                reference_image_filename,       # reference_image_text
+                answer,                         # answer_text
+                answer_button_update,           # answer_generate_button
+                radio_button_update             # reference_type_radio
+            )
+            
+        except Exception as e:
+            if verbose:
+                print(f"[DEBUG] ========== 検索と回答生成エラー発生 ==========")
+                print(f"[DEBUG] エラー内容: {e}")
+                print(f"[DEBUG] エラータイプ: {type(e)}")
+                import traceback
+                print(f"[DEBUG] スタックトレース:")
+                traceback.print_exc()
+                print(f"[DEBUG] ==========================================\n")
+            
+            # エラー時の状態を返す
+            from app.ui.components import REFERENCE_DOCUMENT_LABEL_TEXT, REFERENCE_IMAGE_PLACEHOLDER_TEXT, REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY, REFERENCE_TYPE_LABEL_TEXT
+            import gradio as gr
+            empty_reference = ""
+            disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
+            disabled_radio = gr.Radio(
+                choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                value=REFERENCE_TYPE_ALL,
+                label=REFERENCE_TYPE_LABEL_TEXT,
+                container=True,
+                interactive=False
+            )
+            error_answer = f"❌ 処理中にエラーが発生しました: {str(e)}"
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", empty_reference, error_answer, disabled_button, disabled_radio
+
     def register_answer_generation_events(self, answer_generate_button, answer_text, search_target, search_method, vector_gallery, keyword_gallery, state, reference_type_radio, answer_question_input, answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox, answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button):
         """回答生成機能のイベントを登録"""
         # 回答生成ボタンクリック時のイベント
@@ -1615,13 +1880,23 @@ class UIEvents:
                     print(f"[DEBUG] ========== 回答生成処理終了 ==========\n")
                 
                 if answer:
+                    # 参照画像のファイル名を取得（明示的選択か自動選択かに関わらず）
+                    reference_filename = ""
                     if auto_selected:
-                        # 自動選択の場合は通知メッセージを追加
-                        final_answer = f"（注：画像が選択されていなかったため、検索結果の先頭画像「{auto_selected_filename}」を参照して回答を生成しました）\n\n{answer}"
+                        # 自動選択の場合
+                        reference_filename = auto_selected_filename
+                    elif selected_result and 'file_name' in selected_result:
+                        # 明示的に選択された場合
+                        reference_filename = selected_result['file_name']
+                    
+                    # 常に参照画像のファイル名を含むメッセージを追加
+                    if reference_filename:
+                        final_answer = f"（「{reference_filename}」を参照して回答を生成しました）\n\n{answer}"
                         if verbose:
-                            print(f"[DEBUG] 自動選択通知メッセージを追加: {auto_selected_filename}")
+                            print(f"[DEBUG] 参照画像通知メッセージを追加: {reference_filename}")
                         return final_answer
                     else:
+                        # ファイル名が取得できない場合はそのまま返す
                         return answer
                 else:
                     if verbose:
@@ -1658,6 +1933,16 @@ class UIEvents:
             return True
             
         return False
+        
+    def update_search_and_answer_button_state(self, search_target, search_method):
+        """検索と回答生成ボタンの状態を更新する関数"""
+        import gradio as gr
+        
+        # クエリーの種類が「画像」の場合は無効にする
+        if search_method == "画像":
+            return gr.Button("検索と回答生成", variant="secondary", interactive=False)
+        else:
+            return gr.Button("検索と回答生成", variant="primary", interactive=True)
         
     def show_selected_image_info(self, evt: gr.SelectData, results):
         """選択された画像の情報を表示する関数"""
@@ -2354,54 +2639,6 @@ class UIEvents:
         except Exception as e:
             print(f"画像検索エラー: {e}")
             return None, "", "", f"❌ エラーが発生しました: {str(e)}", None, ""
-
-    def regenerate_caption(self, display_image, image_id, selected_prompt_template="デフォルト"):
-        """キャプションを再生成（編集側にのみ新しいキャプションを表示）"""
-        if display_image is None:
-            return "", "❌ 画像が表示されていません。"
-            
-        try:
-            # 画像データをバイト配列に変換
-            # RGBA形式の場合はRGB形式に変換（JPEG形式はアルファチャンネルをサポートしないため）
-            processed_image = display_image
-            if processed_image.mode in ('RGBA', 'LA'):
-                # 白い背景に合成
-                background = Image.new('RGB', processed_image.size, (255, 255, 255))
-                if processed_image.mode == 'RGBA':
-                    background.paste(processed_image, mask=processed_image.split()[-1])  # アルファチャンネルをマスクとして使用
-                else:  # LA (Luminance + Alpha)
-                    background.paste(processed_image, mask=processed_image.split()[-1])
-                processed_image = background
-            elif processed_image.mode not in ('RGB', 'L'):
-                # その他のモードもRGBに変換
-                processed_image = processed_image.convert('RGB')
-                
-            buffered = BytesIO()
-            processed_image.save(buffered, format="JPEG")
-            image_data = buffered.getvalue()
-            
-            # データベースサービスを通じてキャプションを生成
-            database_service = self.search_service.database_service
-            
-            # 設定を取得
-            from app.config import Config
-            config = Config()
-            oci_client = config.get_oci_generative_ai_client()
-            
-            # 選択されたプロンプトテンプレートを読み込み
-            custom_prompt = self.get_current_prompt(selected_prompt_template)
-            
-            new_caption = database_service.get_image_caption(
-                oci_client, image_data, config.mllm_model_id, config.compartment_id, custom_prompt
-            )
-            
-            # 右側（編集可能なキャプション）にのみ新しいキャプションを表示
-            # 左側は変更しないので出力対象から除外
-            return new_caption, "✅ キャプションを再生成しました。"
-            
-        except Exception as e:
-            print(f"キャプション再生成エラー: {e}")
-            return "", f"❌ エラーが発生しました: {str(e)}"
 
     def disable_database_button_during_regeneration(self):
         """キャプション再生成中にデータベース更新ボタンを無効化"""

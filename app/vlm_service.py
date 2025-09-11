@@ -6,10 +6,10 @@ class VLMService:
         self.model_settings_path = "model_settings.json"
         self.model_settings = self._load_model_settings()
         
-        # 現在選択されているVLM設定を保持
+        # 現在選択されているVLM設定を保持する辞書
         self.current_vlm_settings = {
             "model": None,
-            "temperature": 0.3,
+            "temperature": 0.0,
             "max_tokens": 4096,
             "oci_region": "ap-osaka-1"
         }
@@ -42,6 +42,8 @@ class VLMService:
                 first_model = list(vlm_models.keys())[0]
                 self.current_vlm_settings["model"] = first_model
                 self.current_vlm_settings["max_tokens"] = self.get_model_default_tokens(first_model)
+                # Temperature の初期値をモデル設定から反映
+                self.current_vlm_settings["temperature"] = self.get_model_default_temperature(first_model)
                 api_type = self.get_api_type(first_model)
                 if api_type.startswith("oci"):
                     default_region = self.get_model_default_region(first_model)
@@ -97,6 +99,35 @@ class VLMService:
     def get_model_default_region(self, model_display_name):
         """モデルのデフォルトリージョンを取得"""
         return self.model_settings.get(model_display_name, {}).get("default_region", None)
+
+    def get_model_default_temperature(self, model_display_name):
+        """モデルのデフォルト温度を取得
+        
+        優先順: default_temperature -> temperature -> 0.0
+        値域は [0.0, 1.0] にクランプし、数値以外は 0.0 にフォールバック。
+        """
+        model_info = self.model_settings.get(model_display_name, {})
+        # 優先順に取得
+        raw_value = None
+        if "default_temperature" in model_info:
+            raw_value = model_info.get("default_temperature")
+        elif "temperature" in model_info:
+            raw_value = model_info.get("temperature")
+        else:
+            raw_value = 0.0
+
+        # 数値化とクランプ
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            value = 0.0
+
+        # クランプ
+        if value < 0.0:
+            value = 0.0
+        if value > 1.0:
+            value = 1.0
+        return value
     
     def get_service_provider_from_api_type(self, api_type):
         """APIタイプからサービスプロバイダーを取得"""
@@ -194,6 +225,7 @@ class VLMService:
         # 選択されたモデルに応じて他の設定も更新
         max_tokens_limit = self.get_model_max_tokens(selected_model)
         default_tokens = self.get_model_default_tokens(selected_model)
+        default_temperature = self.get_model_default_temperature(selected_model)
         api_type = self.get_api_type(selected_model)
         
         # OCIモデルかどうかをチェック
@@ -217,6 +249,16 @@ class VLMService:
         else:
             selected_region = "Japan Central (Osaka)"
         
+        # Temperature スライダー
+        temperature_slider = gr.Slider(
+            label="Temperature",
+            minimum=0.0,
+            maximum=1.0,
+            step=0.1,
+            value=default_temperature,
+            interactive=True
+        )
+
         max_tokens_slider = gr.Slider(
             label="Max tokens", 
             minimum=1, 
@@ -233,8 +275,10 @@ class VLMService:
             interactive=True, 
             visible=is_oci_model
         )
-        
-        return model_dropdown, max_tokens_slider, oci_region_dropdown
+        # 内部状態も同期
+        self.update_current_vlm_settings(model=selected_model, temperature=default_temperature, max_tokens=default_tokens)
+
+        return model_dropdown, temperature_slider, max_tokens_slider, oci_region_dropdown
     
     def model_changed(self, model):
         """モデル変更時の処理"""
@@ -242,6 +286,7 @@ class VLMService:
         
         max_tokens_limit = self.get_model_max_tokens(model)
         default_tokens = self.get_model_default_tokens(model)
+        default_temperature = self.get_model_default_temperature(model)
         api_type = self.get_api_type(model)
         
         # OCIモデルかどうかをチェック
@@ -263,7 +308,16 @@ class VLMService:
                 selected_region = "Japan Central (Osaka)"
         else:
             selected_region = "Japan Central (Osaka)"
-        
+        # Temperature スライダー
+        temperature_slider = gr.Slider(
+            label="Temperature",
+            minimum=0.0,
+            maximum=1.0,
+            step=0.1,
+            value=default_temperature,
+            interactive=True
+        )
+
         max_tokens_slider = gr.Slider(
             label="Max tokens", 
             minimum=1, 
@@ -280,5 +334,7 @@ class VLMService:
             interactive=True, 
             visible=is_oci_model
         )
-        
-        return max_tokens_slider, oci_region_dropdown 
+        # 内部状態も同期
+        self.update_current_vlm_settings(temperature=default_temperature, max_tokens=default_tokens)
+
+        return temperature_slider, max_tokens_slider, oci_region_dropdown

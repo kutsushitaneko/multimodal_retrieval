@@ -95,7 +95,7 @@ def main():
     # Gradioインターフェースの作成
     with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕", delete_cache=(86400, 86400)) as demo:
         gr.Markdown(f"# 🐕マルチモーダル・レトリバー🐕 by {config.embed_model_id}")
-        gr.Markdown("画像を自然言語やアップロードした画像で検索できます。例: 「ハリーにホグワーツの入学案内を持ってきたのは誰？」など")
+        gr.Markdown("画像を自然言語で検索したり、検索画像を元に質問に答えることができます。アップロード画像で類似した画像を検索できます。")
         
         state = gr.State({
             "current_page": 1,
@@ -113,7 +113,7 @@ def main():
             # タブ1: 検索機能
             with gr.Tab("検索と回答生成"):
                 # 検索セクションのUIコンポーネントを作成
-                search_target, search_method, query_input, uploaded_image, search_button, clear_button, show_all_button, query_examples = ui_components.create_search_section()
+                search_target, search_method, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples = ui_components.create_search_section()
                 
                 # 検索結果セクションのUIコンポーネントを作成
                 vector_gallery, keyword_gallery = ui_components.create_results_section()
@@ -144,19 +144,26 @@ def main():
                 
                 # 各種イベントを登録
                 ui_events.register_search_target_events(
-                    search_target, search_method, query_input, uploaded_image, query_examples, executed_sql_text
+                    search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text, search_and_answer_button
                 )
                 
                 ui_events.register_search_method_events(
-                    search_method, query_input, uploaded_image, similarity_text, 
-                    executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text
+                    search_method, query_input, uploaded_image, uploaded_image_column, similarity_text, 
+                    executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text, search_and_answer_button
                 )
                 
                 ui_events.register_search_button_events(
                     search_button, query_input, uploaded_image, search_target, 
                     search_method, top_k_slider, vector_threshold, keyword_threshold, 
                     vector_gallery, keyword_gallery, filename_text, similarity_text, 
-                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio
+                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text
+                )
+                
+                ui_events.register_search_and_answer_button_events(
+                    search_and_answer_button, query_input, uploaded_image, search_target, 
+                    search_method, top_k_slider, vector_threshold, keyword_threshold, 
+                    vector_gallery, keyword_gallery, filename_text, similarity_text, 
+                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown
                 )
                 
                 ui_events.register_execute_query_button_events(

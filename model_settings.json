@@ -1,12 +1,4 @@
 {
-    "xai.grok-3(OCI)": {
-        "model_name": "xai.grok-3",
-        "api_type": "oci.llama.chat",
-        "max_tokens": 131072,
-        "default_tokens": 4000,
-        "vision": false,
-        "default_region": "us-chicago-1"
-    },
     "cohere.command-a-03-2025(OCI)": {
         "model_name": "cohere.command-a-03-2025",
         "api_type": "oci.cohere.chat",
@@ -53,6 +45,22 @@
         "max_tokens": 4000,
         "default_tokens": 4000,
         "vision": true
+    },
+    "xai.grok-4(OCI)": {
+        "model_name": "xai.grok-4",
+        "api_type": "oci.xai.chat",
+        "max_tokens": 128000,
+        "default_tokens": 4000,
+        "vision": true,
+        "default_region": "us-chicago-1"
+    },
+    "xai.grok-3(OCI)": {
+        "model_name": "xai.grok-3",
+        "api_type": "oci.llama.chat",
+        "max_tokens": 131072,
+        "default_tokens": 4000,
+        "vision": false,
+        "default_region": "us-chicago-1"
     },
     "command-a-03-2025(CohereAI)": {
         "model_name": "command-a-03-2025",
@@ -161,12 +169,37 @@
         "max_tokens": 4096,
         "default_tokens": 4096,
         "vision": false
-    },   
+    }, 
+    "gpt-5-nano(OpenAI)": {
+        "model_name": "gpt-5-nano",
+        "api_type": "openai.reasoning",
+        "max_tokens": 128000,
+        "default_tokens": 4096,
+        "default_temperature": 1.0,
+        "vision": true
+    },
+    "gpt-5-mini(OpenAI)": {
+        "model_name": "gpt-5-mini",
+        "api_type": "openai.reasoning",
+        "max_tokens": 128000,
+        "default_tokens": 4096,
+        "default_temperature": 1.0,
+        "vision": true
+    },
+    "gpt-5(OpnAI)": {
+        "model_name": "gpt-5",
+        "api_type": "openai.reasoning",
+        "max_tokens": 128000,
+        "default_tokens": 4096,
+        "default_temperature": 1.0,
+        "vision": true
+    },
     "o4-mini-2025-04-16(OpenAI)": {
         "model_name": "o4-mini-2025-04-16",
         "api_type": "openai.chat.completion.reasoning",
         "max_tokens": 100000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "o3-pro-2025-06-10(OpenAI)": {
@@ -174,6 +207,7 @@
         "api_type": "openai.reasoning",
         "max_tokens": 100000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "o3-2025-04-16(OpenAI)": {
@@ -181,6 +215,7 @@
         "api_type": "openai.chat.completion.reasoning",
         "max_tokens": 100000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "o3-mini-2025-01-31(OpenAI)": {
@@ -188,6 +223,7 @@
         "api_type": "openai.chat.completion.reasoning",
         "max_tokens": 100000,
         "default_tokens": 4096,
+        "default_temperature": 1.0,
         "vision": true
     },
     "gpt-4.1-2025-04-14(OpenAI)": {
@@ -209,7 +245,7 @@
         "api_type": "openai.chat.completion.reasoning",
         "max_tokens": 32768,
         "default_tokens": 4096,
-        "vision": true
+        "vision": false
     },
     "gpt-4o(OpenAI)": {
         "model_name": "gpt-4o",

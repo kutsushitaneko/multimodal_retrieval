@@ -16,25 +16,27 @@ class UIComponents:
         """検索セクションのUIコンポーネントを作成"""
         with gr.Row():
             with gr.Accordion("検索", open=True):
+                with gr.Accordion("検索設定", open=False):
+                    with gr.Row(): 
+                        with gr.Column():
+                            search_target = gr.Radio(
+                                choices=["画像ベクトル", "キャプション（テキストベクトルと全文）"],
+                                value="画像ベクトル",
+                                label="検索対象",
+                                container=True
+                            )
+                        with gr.Column():   
+                            # クエリーの種類のラジオボタン（キャプション検索の場合は非表示）
+                            search_method = gr.Radio(
+                                choices=["テキスト", "画像"],
+                                value="テキスト",
+                                label="クエリーの種類",
+                                container=True,
+                                visible=True
+                            )
                 with gr.Row():
                     with gr.Column(scale=2):
-                        with gr.Row(): 
-                            with gr.Column():
-                                search_target = gr.Radio(
-                                    choices=["画像ベクトル", "キャプション（テキストベクトルと全文）"],
-                                    value="画像ベクトル",
-                                    label="検索対象",
-                                    container=True
-                                )
-                            with gr.Column():   
-                                # クエリーの種類のラジオボタン（キャプション検索の場合は非表示）
-                                search_method = gr.Radio(
-                                    choices=["テキスト", "画像"],
-                                    value="テキスト",
-                                    label="クエリーの種類",
-                                    container=True,
-                                    visible=True
-                                )
+                        
                         with gr.Row():
                             # 初期状態でクエリ入力フィールドを表示
                             query_input = gr.Textbox(
@@ -46,16 +48,18 @@ class UIComponents:
                             # 検索クエリのサンプル例を追加（Columnで囲む）
                             with gr.Column(visible=True) as query_examples:
                                 with gr.Accordion("検索クエリの例", open=False):
-                                    query_examples_inner = gr.Examples(
+                                    gr.Examples(
                                         examples=[
                                             "富士山と寺院", 
                                             "縞模様の猫", 
                                             "三匹の白い子猫", 
                                             "ハリーにホグワーツの入学案内を持ってきたのは誰？", 
                                             "スターライトブレイカーとは何？",
-                                            "推しの子の主人公は誰？",
+                                            "練馬区がアニメ発祥の地と謳っている看板があるのはどこですか？",
                                             "lost in the middle とは？",
                                             "MCPは、アプリ開発者にとってどんなメリットがありますか？",
+                                            "ORA-00923 とは何ですか？",
+                                            "Oracle Autonomous Database は、Generative AI Agents のナレッジベースとして利用できますか？",
                                             "川口市栄町の7月の金属ゴミの回収日はいつ？",
                                             "2312.10997のタイトルは？", 
                                             "https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16"
@@ -63,7 +67,7 @@ class UIComponents:
                                         inputs=query_input,
                                         label="クリックして選択"
                                     )
-                    with gr.Column(scale=1):
+                    with gr.Column(scale=1, visible=False) as uploaded_image_column:
                         # 画像アップロードフィールドは初期状態では非表示
                         uploaded_image = gr.Image(
                             label="画像をアップロード",
@@ -75,10 +79,11 @@ class UIComponents:
                 
                 with gr.Row():
                     search_button = gr.Button("検索", variant="primary")
+                    search_and_answer_button = gr.Button("検索と回答生成", variant="primary")
                     clear_button = gr.Button("クリア")
                     show_all_button = gr.Button("全件表示")
                     
-        return search_target, search_method, query_input, uploaded_image, search_button, clear_button, show_all_button, query_examples
+        return search_target, search_method, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples
 
     def create_search_vlm_settings(self):
         """検索タブ専用VLM設定セクションのUIコンポーネントを作成"""
@@ -134,13 +139,19 @@ class UIComponents:
                 interactive=True
             )
             
-            # 温度設定
+            # 温度設定（モデル設定から初期値を取得）
+            try:
+                from app.vlm_service import VLMService
+                _temp_vlm = VLMService()
+                search_initial_temperature = _temp_vlm.get_model_default_temperature(search_default_vlm) if search_default_vlm != "エラー" else 0.0
+            except Exception:
+                search_initial_temperature = 0.0
             search_vlm_temperature = gr.Slider(
                 label="Temperature",
                 minimum=0.0,
                 maximum=1.0,
                 step=0.1,
-                value=0.3,
+                value=search_initial_temperature,
                 interactive=True
             )
             
@@ -207,8 +218,8 @@ class UIComponents:
                 
                 # ファイル名入力（コピーボタン追加）
                 filename_input = gr.Textbox(
-                    label="ファイル名",
-                    placeholder="ファイル名を入力してください（例: image001.jpg, image001.png, image001.webp）",
+                    label="画像ファイル名",
+                    placeholder="画像ファイル名を入力してください（例: image001.jpg）",
                     interactive=True,
                     show_copy_button=True
                 )
@@ -407,13 +418,19 @@ class UIComponents:
                         interactive=True
                     )
                     
-                    # 温度設定
+                    # 温度設定（モデル設定から初期値を取得）
+                    try:
+                        from app.vlm_service import VLMService
+                        _temp_vlm = VLMService()
+                        initial_temperature = _temp_vlm.get_model_default_temperature(default_vlm) if default_vlm != "エラー" else 0.0
+                    except Exception:
+                        initial_temperature = 0.0
                     vlm_temperature = gr.Slider(
                         label="Temperature",
                         minimum=0.0,
                         maximum=1.0,
                         step=0.1,
-                        value=0.3,
+                        value=initial_temperature,
                         interactive=True
                     )
                     
@@ -499,8 +516,8 @@ class UIComponents:
                 vector_gallery = gr.Gallery(
                     label="最近アップロードされた画像",
                     show_label=True,
-                    columns=[8],
-                    rows=[1],
+                    columns=[4],
+                    rows=[2],
                     object_fit="contain",
                     container=True,
                     preview=False,
@@ -511,8 +528,8 @@ class UIComponents:
                 keyword_gallery = gr.Gallery(
                     label="全文検索",
                     show_label=True,
-                    columns=[8],
-                    rows=[1],
+                    columns=[4],
+                    rows=[2],
                     object_fit="contain",
                     container=True,
                     preview=False,
@@ -617,7 +634,7 @@ class UIComponents:
                 top_k_slider = gr.Slider(
                     minimum=1, 
                     maximum=48, 
-                    value=16, 
+                    value=8, 
                     step=1, 
                     label="表示する結果の最大数"
                 )
@@ -644,7 +661,7 @@ class UIComponents:
                     value=REFERENCE_TYPE_ALL,
                     label=REFERENCE_TYPE_LABEL_TEXT,
                     container=True,
-                    interactive=False,
+                    interactive=True,
                     scale=1
                 )
             with gr.Row():
