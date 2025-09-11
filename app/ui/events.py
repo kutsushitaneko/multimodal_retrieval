@@ -2640,54 +2640,6 @@ class UIEvents:
             print(f"画像検索エラー: {e}")
             return None, "", "", f"❌ エラーが発生しました: {str(e)}", None, ""
 
-    def regenerate_caption(self, display_image, image_id, selected_prompt_template="デフォルト"):
-        """キャプションを再生成（編集側にのみ新しいキャプションを表示）"""
-        if display_image is None:
-            return "", "❌ 画像が表示されていません。"
-            
-        try:
-            # 画像データをバイト配列に変換
-            # RGBA形式の場合はRGB形式に変換（JPEG形式はアルファチャンネルをサポートしないため）
-            processed_image = display_image
-            if processed_image.mode in ('RGBA', 'LA'):
-                # 白い背景に合成
-                background = Image.new('RGB', processed_image.size, (255, 255, 255))
-                if processed_image.mode == 'RGBA':
-                    background.paste(processed_image, mask=processed_image.split()[-1])  # アルファチャンネルをマスクとして使用
-                else:  # LA (Luminance + Alpha)
-                    background.paste(processed_image, mask=processed_image.split()[-1])
-                processed_image = background
-            elif processed_image.mode not in ('RGB', 'L'):
-                # その他のモードもRGBに変換
-                processed_image = processed_image.convert('RGB')
-                
-            buffered = BytesIO()
-            processed_image.save(buffered, format="JPEG")
-            image_data = buffered.getvalue()
-            
-            # データベースサービスを通じてキャプションを生成
-            database_service = self.search_service.database_service
-            
-            # 設定を取得
-            from app.config import Config
-            config = Config()
-            oci_client = config.get_oci_generative_ai_client()
-            
-            # 選択されたプロンプトテンプレートを読み込み
-            custom_prompt = self.get_current_prompt(selected_prompt_template)
-            
-            new_caption = database_service.get_image_caption(
-                oci_client, image_data, config.mllm_model_id, config.compartment_id, custom_prompt
-            )
-            
-            # 右側（編集可能なキャプション）にのみ新しいキャプションを表示
-            # 左側は変更しないので出力対象から除外
-            return new_caption, "✅ キャプションを再生成しました。"
-            
-        except Exception as e:
-            print(f"キャプション再生成エラー: {e}")
-            return "", f"❌ エラーが発生しました: {str(e)}"
-
     def disable_database_button_during_regeneration(self):
         """キャプション再生成中にデータベース更新ボタンを無効化"""
         return gr.update(interactive=False)
