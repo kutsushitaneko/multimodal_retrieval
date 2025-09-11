@@ -1,4 +1,11 @@
-# マルチモーダル画像検索アプリケーション
+# 🐕マルチモーダル・レトリバー🐕 by cohere.embed-v4.0
+- OCI/Cohre AI の埋め込みモデルと Oracle Database AI Vector Search を使ったマルチモーダルセマンティック検索
+    - テキストによる画像検索
+    - 画像による画像検索
+- Oracle Text を使った全文検索
+    - 検索対象は画像のキャプション
+- RAG
+    - セマンティック検索、もしくは、全文検索の検索結果の１画像を元にした回答生成（複数画像は未対応）
 
 ## アプリケーションのファイル説明
 - アプリ本体： multimodal_retriever.py
@@ -9,6 +16,7 @@
 - app 配下の class は、docs/app_classes.md　に説明あり
 - Python ライブライの依存関係：requirements.txt
 - キャプション生成用プロンプト： prompt フォルダ
+- アプリ起動用バッチスクリプト： run.sh
 
 ## データベースの準備
 ### データベースユーザーの作成
