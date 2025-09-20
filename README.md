@@ -42,7 +42,9 @@
 下記SQLスクリプトを sqlplus などで実行
 - sql/create_user_user.sql
 - sql/grant_to_user.sql
+### データベース・テーブルの作成
 - sql/create_tables.sql
+### Oracle Text ストップリストの作成
 - sql/create_stoplist.sql
 
 ## 環境設定
