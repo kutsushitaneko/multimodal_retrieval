@@ -1,11 +1,30 @@
 # 🐕マルチモーダル・レトリバー🐕 by cohere.embed-v4.0
-- OCI/Cohre AI の埋め込みモデルと Oracle Database AI Vector Search を使ったマルチモーダルセマンティック検索
-    - テキストによる画像検索
-    - 画像による画像検索
-- Oracle Text を使った全文検索
+## 機能
+- OCI Generative AI もしくは Cohre AI の埋め込みモデル Cohere Embed 4 と Oracle Database AI Vector Search を使ったマルチモーダルセマンティック検索
+    - テキストによる画像検索（クエリーテキスト⇒テキストベクトル⇒画像ベクトル⇒画像）
+    - 画像による画像検索（クエリー画像⇒画像ベクトル⇒画像ベクトル⇒画像）
+- Oracle Text を使った全文検索（クエリーテキスト⇒形態素解析⇒画像キャプションの全文検索⇒画像）
     - 検索対象は画像のキャプション
 - RAG
     - セマンティック検索、もしくは、全文検索の検索結果の１画像を元にした回答生成（複数画像は未対応）
+
+## デモ画像
+#### マルチモーダルRAGのデモ（PowerPointスライドの自然言語検索と回答生成及び画像による類似画像の検索デモ）
+[![マルチモーダルRAGのデモ（PowerPointスライドの自然言語検索と回答生成及び画像による類似画像の検索デモ）](https://img.youtube.com/vi/J6AwW_afEAc/0.jpg)](https://youtu.be/J6AwW_afEAc)
+#### マルチモーダルRAGのデモ（ゴミ収集日の確認）
+[![マルチモーダルRAGのデモ（ゴミ収集日の確認）](https://img.youtube.com/vi/roF3rKRjhpM/0.jpg)](https://youtu.be/roF3rKRjhpM)
+#### マルチモーダルRAGのデモ（写真に対するRAG）
+[![マルチモーダルRAGのデモ（写真に対するRAG）](https://img.youtube.com/vi/vExpf6bL9rQ/0.jpg)](https://youtu.be/vExpf6bL9rQ)
+
+## 対応マルチモーダル埋め込みモデル
+- OCI Generative AI Service の Cohere Embed 4
+- Cohere AI の Cohere Embed 4
+
+## 対応マルチモーダルLLM（VLM）プロバイダー
+- OCI Generative AI Service
+- OpenAI
+- Anthropic
+- Amazon Bedrock
 
 ## アプリケーションのファイル説明
 - アプリ本体： multimodal_retriever.py
