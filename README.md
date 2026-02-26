@@ -1,4 +1,5 @@
 # 🐕マルチモーダル・レトリバー🐕 by cohere.embed-v4.0
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kutsushitaneko/multimodal_retrieval)
 ## 機能
 - OCI Generative AI もしくは Cohre AI の埋め込みモデル Cohere Embed 4 と Oracle Database AI Vector Search を使ったマルチモーダルセマンティック検索
     - テキストによる画像検索（クエリーテキスト⇒テキストベクトル⇒画像ベクトル⇒画像）
