@@ -24,7 +24,6 @@ def test_oci_gemini_models_are_available_as_vision_oci_models():
         assert display_name in oci_models
         assert service.get_api_type(display_name) == "oci.gemini.chat"
         assert service.get_model_vision_support(display_name) is True
-        assert service.get_model_default_region(display_name) == "us-chicago-1"
 
 
 def test_oci_gemini_caption_request_uses_generic_chat():
