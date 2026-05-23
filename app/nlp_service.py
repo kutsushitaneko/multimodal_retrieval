@@ -400,6 +400,81 @@ class NLPService:
                 if verbose:
                     print(f"[DEBUG] OCI API詳細エラー: {error_details}")
                 return f"OCI API エラー: {str(e)}"
+        elif api_type in ["oci.gemini.chat"]:
+            try:
+                media_type = image_data_url.split(';')[0].split(':')[1]
+                base64_data = image_data_url.split(',')[1]
+            except Exception:
+                return "エラー: 画像データの形式が不正です"
+
+            try:
+                import oci
+                from oci.generative_ai_inference import GenerativeAiInferenceClient
+                from oci.generative_ai_inference.models import ChatDetails, OnDemandServingMode
+                import os
+
+                verbose = os.getenv('VERBOSE', '').lower() in ('true', '1', 'yes')
+
+                if oci_region in self.vlm_service.OCI_REGIONS.values():
+                    region_id = oci_region
+                    if verbose:
+                        print(f"[DEBUG] OCIリージョン: region_idとして使用 {oci_region}")
+                else:
+                    region_id = self.vlm_service.OCI_REGIONS.get(oci_region, "us-chicago-1")
+                    if verbose:
+                        print(f"[DEBUG] OCIリージョン: {oci_region} -> {region_id} に変換")
+
+                config = oci.config.from_file()
+                config["region"] = region_id
+
+                client = GenerativeAiInferenceClient(config)
+
+                compartment_id = os.getenv("OCI_COMPARTMENT_ID")
+                if not compartment_id:
+                    return "エラー: OCI_COMPARTMENT_IDが設定されていません"
+
+                content1 = TextContent()
+                content1.text = prompt_text
+                content2 = ImageContent()
+                image_url_obj = ImageUrl()
+                image_url_obj.url = f"data:{media_type};base64,{base64_data}"
+                content2.image_url = image_url_obj
+                message = UserMessage()
+                message.content = [content1, content2]
+
+                chat_request = GenericChatRequest()
+                chat_request.messages = [message]
+                chat_request.api_format = BaseChatRequest.API_FORMAT_GENERIC
+                chat_request.num_generations = 1
+                chat_request.max_tokens = max_tokens
+                chat_request.is_stream = False
+                chat_request.temperature = temperature
+                chat_request.top_p = 1.0
+
+                chat_details = ChatDetails()
+                chat_details.serving_mode = OnDemandServingMode(model_id=model_name)
+                chat_details.compartment_id = compartment_id
+                chat_details.chat_request = chat_request
+
+                response = client.chat(chat_details)
+
+                if hasattr(response, 'data') and hasattr(response.data, 'chat_response'):
+                    if hasattr(response.data.chat_response, 'choices') and len(response.data.chat_response.choices) > 0:
+                        choice = response.data.chat_response.choices[0]
+                        if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
+                            for content in choice.message.content:
+                                if hasattr(content, 'text'):
+                                    return content.text
+                return f"OCI APIからのレスポンス構造が予期しない形式です: {type(response.data)}"
+
+            except Exception as e:
+                import traceback
+                import os
+                verbose = os.getenv('VERBOSE', '').lower() in ('true', '1', 'yes')
+                error_details = traceback.format_exc()
+                if verbose:
+                    print(f"[DEBUG] OCI Gemini API詳細エラー: {error_details}")
+                return f"OCI Gemini API エラー: {str(e)}"
         else:
             return "エラー: このモデルはOCI Generative AI の Vision 対応モデルとして認識されませんでした"
 

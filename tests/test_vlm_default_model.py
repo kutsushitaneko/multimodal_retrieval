@@ -8,10 +8,17 @@ from app.vlm_service import VLMService, resolve_default_vlm_display_name, build_
 VLM_MODELS = {
     "meta.llama-4-scout-17b-16e-instruct(OCI)": {
         "model_name": "meta.llama-4-scout-17b-16e-instruct",
+        "api_type": "oci.llama.chat",
         "vision": True,
     },
     "meta.llama-4-maverick-17b-128e-instruct-fp8(OCI)": {
         "model_name": "meta.llama-4-maverick-17b-128e-instruct-fp8",
+        "api_type": "oci.llama.chat",
+        "vision": True,
+    },
+    "google.gemini-2.5-flash(OCI)": {
+        "model_name": "google.gemini-2.5-flash",
+        "api_type": "oci.gemini.chat",
         "vision": True,
     },
 }
@@ -33,6 +40,12 @@ class TestResolveDefaultVlmDisplayName:
             VLM_MODELS, "meta.llama-4-scout-17b-16e-instruct(OCI)"
         )
         assert result == "meta.llama-4-scout-17b-16e-instruct(OCI)"
+
+    def test_matches_oci_gemini_by_model_name(self):
+        result = resolve_default_vlm_display_name(
+            VLM_MODELS, "google.gemini-2.5-flash"
+        )
+        assert result == "google.gemini-2.5-flash(OCI)"
 
 
 class TestBuildVlmUiInitialization:
