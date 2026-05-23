@@ -4,6 +4,15 @@ import cohere
 import oracledb
 from dotenv import load_dotenv, find_dotenv
 
+POOL_ALIAS = "multimodal_retriever"
+DEFAULT_POOL_MIN = 2
+DEFAULT_POOL_MAX = 10
+DEFAULT_POOL_INCREMENT = 1
+DEFAULT_POOL_TIMEOUT = 60
+DEFAULT_PING_INTERVAL = 30
+DEFAULT_PING_TIMEOUT = 5000
+
+
 class Config:
     def __init__(self):
         # 環境変数を読み込む
@@ -78,16 +87,6 @@ class Config:
         self.local_share = os.getenv("LOCAL_SHARE", "false").lower() == "true"
         self.local_inbrowser = os.getenv("LOCAL_INBROWSER", "true").lower() == "true"
         
-    def get_db_connection(self):
-        # データベース接続を確立
-        db_connection = oracledb.connect(
-            user=self.db_user, 
-            password=self.db_password, 
-            dsn=self.db_dsn
-        )
-        # print("データベース接続成功!")
-        return db_connection
-        
     def get_cohere_client(self):
         # Cohereクライアントを初期化
         return cohere.Client(api_key=self.cohere_api_key) 
@@ -101,32 +100,32 @@ class Config:
         )
     
     def get_db_pool(self):
-        # コネクションプールを生成
-        pool = oracledb.create_pool(
+        """アプリプロセス内で共有する単一のコネクションプールを返す"""
+        existing_pool = oracledb.get_pool(POOL_ALIAS)
+        if existing_pool is not None:
+            return existing_pool
+
+        return oracledb.create_pool(
             user=self.db_user,
             password=self.db_password,
             dsn=self.db_dsn,
-            min=2,
-            max=10,
-            increment=1,
-            timeout=60,
-            getmode=oracledb.POOL_GETMODE_WAIT
+            min=DEFAULT_POOL_MIN,
+            max=DEFAULT_POOL_MAX,
+            increment=DEFAULT_POOL_INCREMENT,
+            timeout=DEFAULT_POOL_TIMEOUT,
+            getmode=oracledb.POOL_GETMODE_WAIT,
+            ping_interval=DEFAULT_PING_INTERVAL,
+            ping_timeout=DEFAULT_PING_TIMEOUT,
+            pool_alias=POOL_ALIAS,
         )
-        return pool
-        
-    def check_pool_health(self, pool):
-        """コネクションプールの健全性を確認するメソッド"""
-        try:
-            with pool.acquire() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT 1 FROM DUAL")
-                result = cursor.fetchone()
-                cursor.close()
-                return result is not None and result[0] == 1
-        except oracledb.DatabaseError as e:
-            print(f"プール健全性チェックエラー: {e}")
-            return False
-    
+
+    @staticmethod
+    def close_db_pool():
+        """アプリ終了時にコネクションプールをクローズする"""
+        pool = oracledb.get_pool(POOL_ALIAS)
+        if pool is not None:
+            pool.close()
+
     def get_launch_config(self):
         """Gradioアプリケーションの起動設定を取得"""
         if self.app_mode == "remote":

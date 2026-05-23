@@ -2387,12 +2387,7 @@ class UIEvents:
             return generated_caption, edited_caption, "❌ ファイル名を入力してください。", original_caption, gr.Button("データベースへ登録", interactive=True, variant="primary"), image_id
             
         try:
-            from app.database_service import DatabaseService
-            from app.config import Config
-            
-            config = Config()
-            db_pool = config.get_db_pool()
-            database_service = DatabaseService(db_pool)
+            database_service = self.search_service.database_service
             embedding_service = self.search_service.embedding_service
             
             if image_id is None:
@@ -2446,27 +2441,25 @@ class UIEvents:
                 image_embedding = embedding_service.get_image_embedding(pil_image)
                 caption_embedding = embedding_service.get_text_embedding(caption_to_register, "search_document")
                 
-                # データベースに直接挿入
-                def operation():
-                    with database_service.db_pool.acquire() as conn:
-                        cursor = conn.cursor()
-                        try:
-                            cursor.execute("""
-                                INSERT INTO IMAGES (file_name, caption, caption_embedding, image_data, image_embedding)
-                                VALUES (:1, :2, :3, :4, :5)
-                            """, (
-                                filename,
-                                caption_to_register,
-                                caption_embedding,
-                                image_data,
-                                image_embedding
-                            ))
-                            
-                            conn.commit()
-                            print(f"画像 '{filename}' が正常に挿入されました。")
-                            return True
-                        finally:
-                            cursor.close()
+                def operation(conn):
+                    cursor = conn.cursor()
+                    try:
+                        cursor.execute("""
+                            INSERT INTO IMAGES (file_name, caption, caption_embedding, image_data, image_embedding)
+                            VALUES (:1, :2, :3, :4, :5)
+                        """, (
+                            filename,
+                            caption_to_register,
+                            caption_embedding,
+                            image_data,
+                            image_embedding
+                        ))
+
+                        conn.commit()
+                        print(f"画像 '{filename}' が正常に挿入されました。")
+                        return True
+                    finally:
+                        cursor.close()
                 
                 import array
                 image_embedding = array.array('f', image_embedding)
