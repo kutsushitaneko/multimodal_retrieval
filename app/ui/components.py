@@ -89,39 +89,26 @@ class UIComponents:
         """検索タブ専用VLM設定セクションのUIコンポーネントを作成"""
         with gr.Accordion("VLM設定（検索・回答生成用）", open=False) as search_vlm_settings_accordion:
             # モデル設定の初期化
-            def initialize_search_vlm_models():
-                try:
-                    # VLMServiceを使用して一貫したフィルタリングを適用
-                    from app.vlm_service import VLMService
-                    vlm_service = VLMService()
-                    
-                    # サービスプロバイダー一覧を取得（VLMServiceのメソッドを使用）
-                    provider_choices = vlm_service.get_available_service_providers()
-                    # Vision対応モデルを取得
-                    vlm_models = vlm_service.get_vlm_models()
-                    
-                    # VLMモデル設定の初期化
-                    all_models = vlm_service.model_settings
-                    non_vision_count = len(all_models) - len(vlm_models)
-                    vlm_choices = list(vlm_models.keys()) if vlm_models else ["Vision対応モデルがありません"]
-                    default_vlm = vlm_choices[0] if vlm_choices else "Vision対応モデルがありません"
-                    
-                    # デバッグ情報を出力
-                    print(f"🔍 検索タブVLM設定セクション初期化")
-                    print(f"✅ Vision対応モデル数: {len(vlm_models)}")
-                    print(f"❌ Vision非対応モデル数: {non_vision_count}")
-                    print(f"📊 総モデル数: {len(all_models)}")
-                    print(f"🎯 デフォルトVLMモデル: {default_vlm}")
-                    print(f"🌐 利用可能なプロバイダー: {provider_choices}")
-                    
-                    return vlm_choices, default_vlm, provider_choices, vlm_models
-                except Exception as e:
-                    print(f"検索タブVLMモデル初期化エラー: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    return ["エラー"], "エラー", ["すべて"], {}
-            
-            search_vlm_choices, search_default_vlm, search_provider_choices, search_vlm_models = initialize_search_vlm_models()
+            try:
+                from app.vlm_service import build_vlm_ui_initialization
+                print("🔍 検索タブVLM設定セクション初期化")
+                (
+                    search_vlm_choices,
+                    search_default_vlm,
+                    search_provider_choices,
+                    search_vlm_models,
+                    _search_vlm_service,
+                ) = build_vlm_ui_initialization()
+            except Exception as e:
+                print(f"検索タブVLMモデル初期化エラー: {e}")
+                import traceback
+                traceback.print_exc()
+                search_vlm_choices, search_default_vlm, search_provider_choices, search_vlm_models = (
+                    ["エラー"],
+                    "エラー",
+                    ["すべて"],
+                    {},
+                )
             
             # サービスプロバイダー選択
             search_vlm_service_provider = gr.Dropdown(
@@ -143,7 +130,11 @@ class UIComponents:
             try:
                 from app.vlm_service import VLMService
                 _temp_vlm = VLMService()
-                search_initial_temperature = _temp_vlm.get_model_default_temperature(search_default_vlm) if search_default_vlm != "エラー" else 0.0
+                search_initial_temperature = (
+                    _temp_vlm.get_model_default_temperature(search_default_vlm)
+                    if search_default_vlm != "エラー"
+                    else 0.0
+                )
             except Exception:
                 search_initial_temperature = 0.0
             search_vlm_temperature = gr.Slider(
@@ -368,39 +359,22 @@ class UIComponents:
                 # VLM設定セクション（デフォルトでクローズ）
                 with gr.Accordion("VLM設定", open=False) as vlm_settings_accordion:
                     # モデル設定の初期化
-                    def initialize_vlm_models():
-                        try:
-                            # VLMServiceを使用して一貫したフィルタリングを適用
-                            from app.vlm_service import VLMService
-                            vlm_service = VLMService()
-                            
-                            # サービスプロバイダー一覧を取得（VLMServiceのメソッドを使用）
-                            provider_choices = vlm_service.get_available_service_providers()
-                            # Vision対応モデルを取得
-                            vlm_models = vlm_service.get_vlm_models()
-                            
-                            # VLMモデル設定の初期化
-                            all_models = vlm_service.model_settings
-                            non_vision_count = len(all_models) - len(vlm_models)
-                            vlm_choices = list(vlm_models.keys()) if vlm_models else ["Vision対応モデルがありません"]
-                            default_vlm = vlm_choices[0] if vlm_choices else "Vision対応モデルがありません"
-                            
-                            # デバッグ情報を出力
-                            print(f"🔍 UIコンポーネント初期化 - VLM設定セクション")
-                            print(f"✅ Vision対応モデル数: {len(vlm_models)}")
-                            print(f"❌ Vision非対応モデル数: {non_vision_count}")
-                            print(f"📊 総モデル数: {len(all_models)}")
-                            print(f"🎯 デフォルトVLMモデル: {default_vlm}")
-                            print(f"🌐 利用可能なプロバイダー: {provider_choices}")
-                            
-                            return vlm_choices, default_vlm, provider_choices, vlm_models
-                        except Exception as e:
-                            print(f"VLMモデル初期化エラー: {e}")
-                            import traceback
-                            traceback.print_exc()
-                            return ["エラー"], "エラー", ["すべて"], {}
-                    
-                    vlm_choices, default_vlm, provider_choices, vlm_models = initialize_vlm_models()
+                    try:
+                        from app.vlm_service import build_vlm_ui_initialization
+                        print("🔍 UIコンポーネント初期化 - VLM設定セクション")
+                        vlm_choices, default_vlm, provider_choices, vlm_models, _upload_vlm_service = (
+                            build_vlm_ui_initialization()
+                        )
+                    except Exception as e:
+                        print(f"VLMモデル初期化エラー: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        vlm_choices, default_vlm, provider_choices, vlm_models = (
+                            ["エラー"],
+                            "エラー",
+                            ["すべて"],
+                            {},
+                        )
                     
                     # サービスプロバイダー選択
                     vlm_service_provider = gr.Dropdown(

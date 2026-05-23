@@ -133,7 +133,8 @@ def main():
                     search_and_answer_button, query_input, uploaded_image, search_target, 
                     search_method, top_k_slider, vector_threshold, keyword_threshold, 
                     vector_gallery, keyword_gallery, filename_text, similarity_text, 
-                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown
+                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown,
+                    search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region
                 )
                 
                 ui_events.register_execute_query_button_events(
@@ -170,7 +171,8 @@ def main():
                     vector_gallery, keyword_gallery, state, reference_type_radio, answer_question_input, 
                     answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox,
                     answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, 
-                    answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button
+                    answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button,
+                    search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region
                 )
                 
                 # 検索タブVLM設定のイベントを登録

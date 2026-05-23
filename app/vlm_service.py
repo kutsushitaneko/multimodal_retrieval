@@ -1,6 +1,49 @@
 import json
 import os
 
+
+def resolve_default_vlm_display_name(vlm_models, mllm_model_id=None):
+    """環境変数 MLLM_MODEL_ID または Vision モデル一覧の先頭からデフォルト表示名を決定する"""
+    if not vlm_models:
+        return "Vision対応モデルがありません"
+
+    if mllm_model_id:
+        model_id = mllm_model_id.strip()
+        if model_id in vlm_models:
+            return model_id
+        for display_name, model_info in vlm_models.items():
+            if model_info.get("model_name") == model_id:
+                return display_name
+        for display_name in vlm_models:
+            if model_id in display_name:
+                return display_name
+        print(
+            f"警告: MLLM_MODEL_ID='{model_id}' に一致する Vision モデルが見つかりません。"
+            f" 先頭モデルを使用します: {next(iter(vlm_models))}"
+        )
+
+    return next(iter(vlm_models))
+
+
+def build_vlm_ui_initialization():
+    """両タブの VLM 設定 UI 用に共通の初期化データを構築する"""
+    vlm_service = VLMService()
+    provider_choices = vlm_service.get_available_service_providers()
+    vlm_models = vlm_service.get_vlm_models()
+    vlm_choices = list(vlm_models.keys()) if vlm_models else ["Vision対応モデルがありません"]
+    default_vlm = resolve_default_vlm_display_name(vlm_models, os.getenv("MLLM_MODEL_ID"))
+
+    all_models = vlm_service.model_settings
+    non_vision_count = len(all_models) - len(vlm_models)
+    print(f"✅ Vision対応モデル数: {len(vlm_models)}")
+    print(f"❌ Vision非対応モデル数: {non_vision_count}")
+    print(f"📊 総モデル数: {len(all_models)}")
+    print(f"🎯 デフォルトVLMモデル: {default_vlm}")
+    print(f"🌐 利用可能なプロバイダー: {provider_choices}")
+
+    return vlm_choices, default_vlm, provider_choices, vlm_models, vlm_service
+
+
 class VLMService:
     def __init__(self):
         self.model_settings_path = "model_settings.json"
@@ -33,13 +76,19 @@ class VLMService:
             print(f"モデル設定ファイル読み込みエラー: {e}")
             return {}
     
+    def resolve_oci_region_id(self, oci_region):
+        """Dropdown 表示名または region_id を API 用 region_id に正規化する"""
+        if oci_region in self.OCI_REGIONS.values():
+            return oci_region
+        return self.OCI_REGIONS.get(oci_region, oci_region)
+
     def get_current_vlm_settings(self):
         """現在のVLM設定を取得"""
-        # デフォルトモデルが設定されていない場合は、最初のVLMモデルを設定
+        # デフォルトモデルが設定されていない場合は、MLLM_MODEL_ID または先頭モデルを設定
         if self.current_vlm_settings["model"] is None:
             vlm_models = self.get_vlm_models()
             if vlm_models:
-                first_model = list(vlm_models.keys())[0]
+                first_model = resolve_default_vlm_display_name(vlm_models, os.getenv("MLLM_MODEL_ID"))
                 self.current_vlm_settings["model"] = first_model
                 self.current_vlm_settings["max_tokens"] = self.get_model_default_tokens(first_model)
                 # Temperature の初期値をモデル設定から反映
