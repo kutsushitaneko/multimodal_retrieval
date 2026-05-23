@@ -192,11 +192,10 @@ class NLPService:
             media_type = image_data_url.split(';')[0].split(':')[1]
             base64_data = image_data_url.split(',')[1]
             
-            response = client.messages.create(
-                model=model_name,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                messages=[
+            params = {
+                "model": model_name,
+                "max_tokens": max_tokens,
+                "messages": [
                     {
                         "role": "user",
                         "content": [
@@ -215,7 +214,11 @@ class NLPService:
                         ]
                     }
                 ]
-            )
+            }
+            if model_name != "claude-opus-4-7":
+                params["temperature"] = temperature
+            
+            response = client.messages.create(**params)
             
             return response.content[0].text
             
