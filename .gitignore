@@ -22,3 +22,4 @@ __pycache__
 tests/__pycache__/
 DevDay25マルチモーダルデモ環境構築.md
 v2_0仕様/
+.pytest_cache/
