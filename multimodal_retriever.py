@@ -1,7 +1,5 @@
+import atexit
 import gradio as gr
-import time
-import threading
-import uuid
 from app.config import Config
 from app.embedding_service import EmbeddingService
 from app.database_service import DatabaseService  
@@ -11,27 +9,6 @@ from app.ui.events import UIEvents
 from app.search_query_generator import SearchQueryGenerator
 from app.cleanup_service import CleanupService
 import os
-
-def check_db_connection(config, db_pool, interval=60):
-    """定期的にデータベース接続の健全性をチェックするバックグラウンドスレッド"""
-    while True:
-        try:
-            if not config.check_pool_health(db_pool):
-                print("データベース接続プールが不健全です。再接続を試みます...")
-                # 古いプールを閉じる
-                try:
-                    db_pool.close()
-                except Exception as e:
-                    print(f"プールのクローズ中にエラーが発生しました: {e}")
-                
-                # 新しいプールを作成
-                db_pool = config.get_db_pool()
-                print("データベース接続プールを再作成しました。")
-        except Exception as e:
-            print(f"接続チェック中にエラーが発生しました: {e}")
-        
-        # 指定された間隔で次のチェックを実行
-        time.sleep(interval)
 
 def main():
     # ベースの一時ディレクトリを作成（Gradio一時ディレクトリの親）
@@ -63,18 +40,11 @@ def main():
     
     # 設定と基本サービスを初期化
     config = Config()
-    db_pool = config.get_db_pool()  # コネクションプールを取得
+    db_pool = config.get_db_pool()
+    atexit.register(Config.close_db_pool)
     cohere_client = config.get_cohere_client()
     oci_client = config.get_oci_generative_ai_client()
     search_query_generator = SearchQueryGenerator()
-    
-    # データベース接続監視スレッドを開始
-    db_monitor_thread = threading.Thread(
-        target=check_db_connection,
-        args=(config, db_pool, 60),  # 60秒ごとにチェック
-        daemon=True  # メインスレッド終了時に自動的に終了
-    )
-    db_monitor_thread.start()
     
     # 各サービスを初期化
     embedding_service = EmbeddingService(

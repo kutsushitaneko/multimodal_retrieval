@@ -7,37 +7,54 @@ import array
 import re
 import oci
 
+CONNECTION_ERROR_CODES = (3113, 3114, 12541, 12545, 17002, 17008, 17410)
+
+
 class DatabaseService:
     def __init__(self, db_pool):
         self.db_pool = db_pool
         self.max_retries = 3
         self.retry_delay = 1  # 秒
-        
+
+    @staticmethod
+    def _is_connection_error(exc):
+        if not isinstance(exc, oracledb.DatabaseError):
+            return False
+        error, = exc.args
+        return error.code in CONNECTION_ERROR_CODES
+
     def _execute_with_retry(self, operation_func):
-        """データベース操作を実行し、接続エラー時には再試行する汎用関数"""
-        retries = 0
+        """データベース操作を実行し、接続エラー時には接続を破棄して再試行する"""
         last_error = None
-        
-        while retries < self.max_retries:
+
+        for attempt in range(self.max_retries):
+            conn = None
             try:
-                return operation_func()
+                conn = self.db_pool.acquire()
+                return operation_func(conn)
             except oracledb.DatabaseError as e:
-                error, = e.args
-                # 接続エラーコードを確認
-                if error.code in (3113, 3114, 12541, 12545, 17002, 17008, 17410):
-                    # 接続が切れた場合
+                if self._is_connection_error(e):
                     last_error = e
-                    retries += 1
-                    if retries < self.max_retries:
-                        print(f"データベース接続エラー（リトライ {retries}/{self.max_retries}）: {e}")
-                        time.sleep(self.retry_delay * retries)  # 指数バックオフ
+                    if conn is not None:
+                        try:
+                            self.db_pool.drop(conn)
+                        except Exception:
+                            pass
+                        conn = None
+                    if attempt < self.max_retries - 1:
+                        print(
+                            f"データベース接続エラー（リトライ {attempt + 1}/{self.max_retries}）: {e}"
+                        )
+                        time.sleep(self.retry_delay * (attempt + 1))
                         continue
-                    else:
-                        print(f"データベース接続の再試行回数上限に達しました: {e}")
-                raise  # その他のデータベースエラーはそのまま上位に伝播
-        
-        # 最大リトライ回数に達した場合
-        raise last_error
+                    print(f"データベース接続の再試行回数上限に達しました: {e}")
+                raise
+            finally:
+                if conn is not None:
+                    conn.close()
+
+        if last_error is not None:
+            raise last_error
         
     def get_image_caption(self, mllm_client, image_data, mllm_model_id, compartment_id, custom_prompt=None):
         """画像データからキャプションを生成する関数"""
@@ -191,16 +208,15 @@ class DatabaseService:
 
     def is_image_registered(self, file_name):
         """画像が既にデータベースに登録されているかチェック"""
-        def operation():
-            with self.db_pool.acquire() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("SELECT COUNT(*) FROM IMAGES WHERE file_name = :1", [file_name])
-                    count = cursor.fetchone()[0]
-                    return count > 0
-                finally:
-                    cursor.close()
-        
+        def operation(conn):
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT COUNT(*) FROM IMAGES WHERE file_name = :1", [file_name])
+                count = cursor.fetchone()[0]
+                return count > 0
+            finally:
+                cursor.close()
+
         return self._execute_with_retry(operation)
 
     def insert_image_to_db(self, embedding_service, mllm_client, mllm_model_id, compartment_id, image_data, file_name, custom_prompt=None):
@@ -216,31 +232,29 @@ class DatabaseService:
         image_embedding = array.array('f', embedding_service.get_image_embedding(pil_image))
         caption_embedding = array.array('f', embedding_service.get_text_embedding(caption, "search_document"))
         
-        def operation():
-            with self.db_pool.acquire() as conn:
-                cursor = conn.cursor()
-                try:
-                    # 画像データを挿入
-                    cursor.execute("""
-                        INSERT INTO IMAGES (file_name, caption, caption_embedding, image_data, image_embedding)
-                        VALUES (:1, :2, :3, :4, :5)
-                    """, (
-                        file_name,
-                        caption,
-                        caption_embedding,
-                        image_data,
-                        image_embedding
-                    ))
-                    
-                    conn.commit()
-                    print(f"画像 '{file_name}' が正常に挿入されました。")
-                    return True, caption
-                except Exception as e:
-                    print(f"画像 '{file_name}' の挿入中にエラーが発生しました: {str(e)}")
-                    raise
-                finally:
-                    cursor.close()
-        
+        def operation(conn):
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT INTO IMAGES (file_name, caption, caption_embedding, image_data, image_embedding)
+                    VALUES (:1, :2, :3, :4, :5)
+                """, (
+                    file_name,
+                    caption,
+                    caption_embedding,
+                    image_data,
+                    image_embedding
+                ))
+
+                conn.commit()
+                print(f"画像 '{file_name}' が正常に挿入されました。")
+                return True, caption
+            except Exception as e:
+                print(f"画像 '{file_name}' の挿入中にエラーが発生しました: {str(e)}")
+                raise
+            finally:
+                cursor.close()
+
         return self._execute_with_retry(operation)
 
     def update_image_caption(self, embedding_service, image_id, new_caption):
@@ -251,205 +265,198 @@ class DatabaseService:
         # 新しいキャプションの埋め込みベクトルを生成
         caption_embedding = array.array('f', embedding_service.get_text_embedding(new_caption, "search_document"))
         
-        def operation():
-            with self.db_pool.acquire() as conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("""
-                        UPDATE IMAGES 
-                        SET caption = :1, caption_embedding = :2
-                        WHERE image_id = :3
-                    """, (new_caption, caption_embedding, image_id))
-                    
-                    conn.commit()
-                    print(f"画像ID {image_id} のキャプションが正常に更新されました。")
-                    return True
-                except Exception as e:
-                    print(f"画像ID {image_id} のキャプション更新中にエラーが発生しました: {str(e)}")
-                    raise
-                finally:
-                    cursor.close()
-        
+        def operation(conn):
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE IMAGES 
+                    SET caption = :1, caption_embedding = :2
+                    WHERE image_id = :3
+                """, (new_caption, caption_embedding, image_id))
+
+                conn.commit()
+                print(f"画像ID {image_id} のキャプションが正常に更新されました。")
+                return True
+            except Exception as e:
+                print(f"画像ID {image_id} のキャプション更新中にエラーが発生しました: {str(e)}")
+                raise
+            finally:
+                cursor.close()
+
         return self._execute_with_retry(operation)
 
     def get_image_by_filename(self, file_name):
         """ファイル名で画像を検索"""
-        def operation():
-            with self.db_pool.acquire() as conn:
-                cursor = conn.cursor()
-                try:
-                    sql = """
-                        SELECT image_id, file_name, caption, image_data,
-                            NULL as distance
-                        FROM IMAGES
-                        WHERE file_name = :1
-                    """
-                    cursor.execute(sql, [file_name])
-                    
-                    results = self._process_query_results(cursor, "ファイル名検索")
-                    return results[0] if results else None
-                finally:
-                    cursor.close()
-        
+        def operation(conn):
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    SELECT image_id, file_name, caption, image_data,
+                        NULL as distance
+                    FROM IMAGES
+                    WHERE file_name = :1
+                """
+                cursor.execute(sql, [file_name])
+
+                results = self._process_query_results(cursor, "ファイル名検索")
+                return results[0] if results else None
+            finally:
+                cursor.close()
+
         return self._execute_with_retry(operation)
 
     def search_by_caption_vector(self, query_embedding, top_k=5, vector_threshold=0.5):
         """ベクトル埋め込みによるキャプション検索"""
-        def operation():
-            with self.db_pool.acquire() as conn:
-                cursor = conn.cursor()
-                try:
-                    sql = """
-                        SELECT a.image_id, a.file_name, a.caption, a.image_data,
-                            VECTOR_DISTANCE(a.caption_embedding, :1, DOT) as distance
-                        FROM IMAGES a
-                        WHERE VECTOR_DISTANCE(a.caption_embedding, :2, DOT) <= :3
-                        ORDER BY distance
-                        FETCH APPROX FIRST :4 ROWS ONLY
-                    """
-                    cursor.execute(sql, [
-                        query_embedding, 
-                        query_embedding, 
-                        -1 * vector_threshold, 
-                        top_k
-                    ])
-                    
-                    executed_sql = sql.replace(":1", ":embedding").replace(":2", ":embedding") \
-                                      .replace(":3", str(-1 * vector_threshold)).replace(":4", str(top_k))
-                    
-                    results = self._process_query_results(cursor, "ベクトル検索")
-                    return results, executed_sql
-                finally:
-                    cursor.close()
-        
+        def operation(conn):
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    SELECT a.image_id, a.file_name, a.caption, a.image_data,
+                        VECTOR_DISTANCE(a.caption_embedding, :1, DOT) as distance
+                    FROM IMAGES a
+                    WHERE VECTOR_DISTANCE(a.caption_embedding, :2, DOT) <= :3
+                    ORDER BY distance
+                    FETCH APPROX FIRST :4 ROWS ONLY
+                """
+                cursor.execute(sql, [
+                    query_embedding,
+                    query_embedding,
+                    -1 * vector_threshold,
+                    top_k
+                ])
+
+                executed_sql = sql.replace(":1", ":embedding").replace(":2", ":embedding") \
+                                  .replace(":3", str(-1 * vector_threshold)).replace(":4", str(top_k))
+
+                results = self._process_query_results(cursor, "ベクトル検索")
+                return results, executed_sql
+            finally:
+                cursor.close()
+
         return self._execute_with_retry(operation)
-            
+
     def search_by_fulltext(self, search_query, top_k=5, keyword_threshold=0):
         """全文検索によるキャプション検索"""
-        def operation():
-            with self.db_pool.acquire() as conn:
-                cursor = conn.cursor()
+        def operation(conn):
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    SELECT a.image_id, a.file_name, a.caption, a.image_data,
+                        score(1) as distance
+                    FROM IMAGES a
+                    WHERE CONTAINS(caption, :1, 1) > 0
+                    AND score(1) >= :2
+                    ORDER BY score(1) DESC
+                    FETCH FIRST :3 ROWS ONLY
+                """
+
                 try:
-                    sql = """
-                        SELECT a.image_id, a.file_name, a.caption, a.image_data,
-                            score(1) as distance
-                        FROM IMAGES a
-                        WHERE CONTAINS(caption, :1, 1) > 0
-                        AND score(1) >= :2
-                        ORDER BY score(1) DESC
-                        FETCH FIRST :3 ROWS ONLY
-                    """
-                    
-                    try:
-                        cursor.execute(sql, [search_query, keyword_threshold, top_k])
-                    except oracledb.DatabaseError as e:
-                        error, = e.args
-                        # Oracle Text関連のエラー（DRG-50921など）をチェック
-                        if error.code in (29902, 30600) or 'DRG-' in str(e):
-                            print(f"Oracle Text検索エラー: {e}")
-                            print(f"問題のクエリ: {search_query}")
-                            
-                            # フォールバック：通常のLIKE検索を試行
-                            fallback_sql = """
-                                SELECT a.image_id, a.file_name, a.caption, a.image_data,
-                                    0 as distance
-                                FROM IMAGES a
-                                WHERE UPPER(caption) LIKE UPPER(:1)
-                                ORDER BY a.upload_date DESC
-                                FETCH FIRST :2 ROWS ONLY
-                            """
-                            
-                            # 検索クエリをLIKE検索用に変換（AND演算子を削除し、最初のキーワードのみ使用）
-                            like_query = search_query.split(' AND ')[0].replace('"', '').strip()
-                            like_pattern = f"%{like_query}%"
-                            
-                            print(f"フォールバック検索を実行: {like_pattern}")
-                            cursor.execute(fallback_sql, [like_pattern, top_k])
-                            
-                            executed_sql = fallback_sql.replace(":1", f"'%{like_query}%'") \
-                                                      .replace(":2", str(top_k))
-                            executed_sql += f"\n-- 元のOracle Text検索でエラーが発生したため、LIKE検索にフォールバック\n-- 元のクエリ: {search_query}"
-                        else:
-                            raise  # その他のデータベースエラーは再発生
+                    cursor.execute(sql, [search_query, keyword_threshold, top_k])
+                except oracledb.DatabaseError as e:
+                    error, = e.args
+                    if error.code in (29902, 30600) or 'DRG-' in str(e):
+                        print(f"Oracle Text検索エラー: {e}")
+                        print(f"問題のクエリ: {search_query}")
+
+                        fallback_sql = """
+                            SELECT a.image_id, a.file_name, a.caption, a.image_data,
+                                0 as distance
+                            FROM IMAGES a
+                            WHERE UPPER(caption) LIKE UPPER(:1)
+                            ORDER BY a.upload_date DESC
+                            FETCH FIRST :2 ROWS ONLY
+                        """
+
+                        like_query = search_query.split(' AND ')[0].replace('"', '').strip()
+                        like_pattern = f"%{like_query}%"
+
+                        print(f"フォールバック検索を実行: {like_pattern}")
+                        cursor.execute(fallback_sql, [like_pattern, top_k])
+
+                        executed_sql = fallback_sql.replace(":1", f"'%{like_query}%'") \
+                                                  .replace(":2", str(top_k))
+                        executed_sql += (
+                            f"\n-- 元のOracle Text検索でエラーが発生したため、LIKE検索にフォールバック"
+                            f"\n-- 元のクエリ: {search_query}"
+                        )
                     else:
-                        executed_sql = sql.replace(":1", f"'{search_query}'") \
-                                          .replace(":2", str(keyword_threshold)) \
-                                          .replace(":3", str(top_k))
-                    
-                    results = self._process_query_results(cursor, "全文検索")
-                    return results, executed_sql
-                finally:
-                    cursor.close()
-        
+                        raise
+                else:
+                    executed_sql = sql.replace(":1", f"'{search_query}'") \
+                                      .replace(":2", str(keyword_threshold)) \
+                                      .replace(":3", str(top_k))
+
+                results = self._process_query_results(cursor, "全文検索")
+                return results, executed_sql
+            finally:
+                cursor.close()
+
         return self._execute_with_retry(operation)
-            
+
     def search_by_image_vector(self, query_embedding, top_k=5, vector_threshold=0.5):
         """画像ベクトルによる検索"""
-        def operation():
-            with self.db_pool.acquire() as conn:
-                cursor = conn.cursor()
-                try:
-                    sql = """
-                        SELECT a.image_id, a.file_name, a.caption, a.image_data,
-                            VECTOR_DISTANCE(a.image_embedding, :1, DOT) as distance
-                        FROM IMAGES a
-                        WHERE VECTOR_DISTANCE(a.image_embedding, :2, DOT) <= :3
-                        ORDER BY distance
-                        FETCH APPROX FIRST :4 ROWS ONLY
-                    """
-                    cursor.execute(sql, [
-                        query_embedding, 
-                        query_embedding, 
-                        -1 * vector_threshold, 
-                        top_k
-                    ])
-                    
-                    executed_sql = sql.replace(":1", ":embedding").replace(":2", ":embedding") \
-                                      .replace(":3", str(-1 * vector_threshold)).replace(":4", str(top_k))
-                    
-                    results = self._process_query_results(cursor, "画像")
-                    return results, executed_sql
-                finally:
-                    cursor.close()
-        
+        def operation(conn):
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    SELECT a.image_id, a.file_name, a.caption, a.image_data,
+                        VECTOR_DISTANCE(a.image_embedding, :1, DOT) as distance
+                    FROM IMAGES a
+                    WHERE VECTOR_DISTANCE(a.image_embedding, :2, DOT) <= :3
+                    ORDER BY distance
+                    FETCH APPROX FIRST :4 ROWS ONLY
+                """
+                cursor.execute(sql, [
+                    query_embedding,
+                    query_embedding,
+                    -1 * vector_threshold,
+                    top_k
+                ])
+
+                executed_sql = sql.replace(":1", ":embedding").replace(":2", ":embedding") \
+                                  .replace(":3", str(-1 * vector_threshold)).replace(":4", str(top_k))
+
+                results = self._process_query_results(cursor, "画像")
+                return results, executed_sql
+            finally:
+                cursor.close()
+
         return self._execute_with_retry(operation)
-            
+
     def get_recent_images(self, top_k=12, offset=0):
         """最近アップロードされた画像を取得"""
-        def operation():
-            with self.db_pool.acquire() as conn:
-                cursor = conn.cursor()
-                try:
-                    sql = """
-                        SELECT image_id, file_name, caption, image_data,
-                            NULL as distance
-                        FROM IMAGES
-                        ORDER BY upload_date DESC
-                        OFFSET :1 ROWS FETCH NEXT :2 ROWS ONLY
-                    """
-                    cursor.execute(sql, [offset, top_k])
-                    executed_sql = sql.replace(":1", str(offset)).replace(":2", str(top_k))
-                    
-                    results = self._process_query_results(cursor, "最近のアップロード")
-                    return results, executed_sql
-                finally:
-                    cursor.close()
-        
+        def operation(conn):
+            cursor = conn.cursor()
+            try:
+                sql = """
+                    SELECT image_id, file_name, caption, image_data,
+                        NULL as distance
+                    FROM IMAGES
+                    ORDER BY upload_date DESC
+                    OFFSET :1 ROWS FETCH NEXT :2 ROWS ONLY
+                """
+                cursor.execute(sql, [offset, top_k])
+                executed_sql = sql.replace(":1", str(offset)).replace(":2", str(top_k))
+
+                results = self._process_query_results(cursor, "最近のアップロード")
+                return results, executed_sql
+            finally:
+                cursor.close()
+
         return self._execute_with_retry(operation)
-            
+
     def get_total_image_count(self):
         """画像の総数を取得"""
-        def operation():
-            with self.db_pool.acquire() as conn:
-                cursor = conn.cursor()
-                try:
-                    sql = "SELECT COUNT(*) FROM IMAGES"
-                    cursor.execute(sql)
-                    count = cursor.fetchone()[0]
-                    return count
-                finally:
-                    cursor.close()
-        
+        def operation(conn):
+            cursor = conn.cursor()
+            try:
+                sql = "SELECT COUNT(*) FROM IMAGES"
+                cursor.execute(sql)
+                count = cursor.fetchone()[0]
+                return count
+            finally:
+                cursor.close()
+
         return self._execute_with_retry(operation)
             
     def _process_query_results(self, cursor, search_mode):
@@ -472,33 +479,27 @@ class DatabaseService:
 
     def delete_image(self, image_id):
         """指定されたIDの画像をデータベースから削除する"""
-        def operation():
+        def operation(conn):
+            cursor = conn.cursor()
             try:
-                with self.db_pool.acquire() as conn:
-                    cursor = conn.cursor()
-                    try:
-                        # 画像が存在するかチェック
-                        cursor.execute("SELECT file_name FROM IMAGES WHERE image_id = :1", (image_id,))
-                        result = cursor.fetchone()
-                        
-                        if not result:
-                            print(f"警告: 画像ID {image_id} が見つかりません")
-                            return False
-                            
-                        file_name = result[0]
-                        
-                        # 画像を削除
-                        cursor.execute("DELETE FROM IMAGES WHERE image_id = :1", (image_id,))
-                        conn.commit()
-                        
-                        print(f"画像ID {image_id} (ファイル名: {file_name}) を削除しました")
-                        return True
-                        
-                    finally:
-                        cursor.close()
-                        
-            except Exception as e:
-                print(f"画像削除エラー: {e}")
-                return False
-        
-        return self._execute_with_retry(operation) 
+                cursor.execute("SELECT file_name FROM IMAGES WHERE image_id = :1", (image_id,))
+                result = cursor.fetchone()
+
+                if not result:
+                    print(f"警告: 画像ID {image_id} が見つかりません")
+                    return False
+
+                file_name = result[0]
+                cursor.execute("DELETE FROM IMAGES WHERE image_id = :1", (image_id,))
+                conn.commit()
+
+                print(f"画像ID {image_id} (ファイル名: {file_name}) を削除しました")
+                return True
+            finally:
+                cursor.close()
+
+        try:
+            return self._execute_with_retry(operation)
+        except Exception as e:
+            print(f"画像削除エラー: {e}")
+            return False 

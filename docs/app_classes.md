@@ -54,12 +54,13 @@
 ### app/config.py
 - **Config**: 環境変数・OCI/DB/埋め込み・起動設定の単一点管理。
   - _validate_env_vars: 必須環境変数の検証。
-  - get_db_connection / get_db_pool / check_pool_health: Oracle DB 接続/プール管理。
+  - get_db_pool / close_db_pool: Oracle DB コネクションプール（`pool_alias` 付き単一プール、`ping_interval` による死活管理）。
   - get_cohere_client / get_oci_generative_ai_client: API クライアントの初期化。
   - get_launch_config: Gradio の起動パラメータ（remote/local）を返却。
 
 ### app/database_service.py
 - **DatabaseService**: 画像とキャプションの保存・検索・更新・削除を担う DB アクセス層。
+  - `_execute_with_retry`: 接続エラー時に `pool.drop(conn)` 後リトライ（プール全体の再作成は行わない）。
   - get_image_caption: OCI Generative AI で画像キャプションを生成（DataURL 化、プロンプト、レスポンス抽出、UTF-8 バイト長安全切詰め、整形を内包）。
   - insert_image_to_db / update_image_caption / delete_image: 画像の登録・更新・削除。
   - search_by_caption_vector / search_by_fulltext / search_by_image_vector / get_recent_images: ベクトル/Oracle Text/画像ベクトル/最近一覧の検索 API。
