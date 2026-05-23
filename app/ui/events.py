@@ -1405,22 +1405,95 @@ class UIEvents:
         
         return gr.update(interactive=prev_interactive), gr.update(interactive=next_interactive)
         
-    def register_search_and_answer_button_events(self, search_and_answer_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown):
+    def register_search_and_answer_button_events(
+        self,
+        search_and_answer_button,
+        query_input,
+        uploaded_image,
+        search_target,
+        search_method,
+        top_k_slider,
+        vector_threshold,
+        keyword_threshold,
+        vector_gallery,
+        keyword_gallery,
+        filename_text,
+        similarity_text,
+        caption_text,
+        state,
+        executed_query_text,
+        executed_sql_text,
+        execute_query_button,
+        pagination_row,
+        morphological_analysis_text,
+        reference_image_text,
+        answer_question_input,
+        answer_generate_button,
+        reference_type_radio,
+        answer_text,
+        answer_prompt_template_dropdown,
+        search_vlm_model,
+        search_vlm_temperature,
+        search_vlm_max_tokens,
+        search_vlm_oci_region,
+    ):
         """検索と回答生成ボタンのイベントを登録"""
-        # 検索ボタンと同様のイベントチェーン方式で実装
-        # 1. 検索クエリを質問文入力エリアにコピー
         search_and_answer_button.click(
             fn=lambda query: query if query and query.strip() else "",
             inputs=[query_input],
             outputs=[answer_question_input]
         ).then(
-            # 2. 検索処理と回答生成を連続実行
             fn=self.execute_search_and_answer,
-            inputs=[query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, answer_question_input, answer_prompt_template_dropdown, reference_type_radio],
-            outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, morphological_analysis_text, reference_image_text, answer_text, answer_generate_button, reference_type_radio]
+            inputs=[
+                query_input,
+                uploaded_image,
+                search_target,
+                search_method,
+                top_k_slider,
+                vector_threshold,
+                keyword_threshold,
+                answer_question_input,
+                answer_prompt_template_dropdown,
+                reference_type_radio,
+                search_vlm_model,
+                search_vlm_temperature,
+                search_vlm_max_tokens,
+                search_vlm_oci_region,
+            ],
+            outputs=[
+                vector_gallery,
+                keyword_gallery,
+                filename_text,
+                similarity_text,
+                caption_text,
+                state,
+                executed_query_text,
+                executed_sql_text,
+                morphological_analysis_text,
+                reference_image_text,
+                answer_text,
+                answer_generate_button,
+                reference_type_radio,
+            ],
         )
 
-    def execute_search_and_answer(self, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, answer_question_input, answer_prompt_template_dropdown, reference_type_radio):
+    def execute_search_and_answer(
+        self,
+        query_input,
+        uploaded_image,
+        search_target,
+        search_method,
+        top_k_slider,
+        vector_threshold,
+        keyword_threshold,
+        answer_question_input,
+        answer_prompt_template_dropdown,
+        reference_type_radio,
+        search_vlm_model,
+        search_vlm_temperature,
+        search_vlm_max_tokens,
+        search_vlm_oci_region,
+    ):
         """検索と回答生成を連続実行"""
         import os
         verbose = os.getenv('VERBOSE', '').lower() in ('true', '1', 'yes')
@@ -1526,8 +1599,14 @@ class UIEvents:
                 print(f"[DEBUG] ========== 回答生成処理開始 ==========")
             
             answer = self.generate_answer(
-                final_answer_question, answer_prompt_template_dropdown, 
-                state_result, reference_type_radio
+                final_answer_question,
+                answer_prompt_template_dropdown,
+                state_result,
+                reference_type_radio,
+                search_vlm_model,
+                search_vlm_temperature,
+                search_vlm_max_tokens,
+                search_vlm_oci_region,
             )
             
             if verbose:
@@ -1611,13 +1690,45 @@ class UIEvents:
             error_answer = f"❌ 処理中にエラーが発生しました: {str(e)}"
             return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", empty_reference, error_answer, disabled_button, disabled_radio
 
-    def register_answer_generation_events(self, answer_generate_button, answer_text, search_target, search_method, vector_gallery, keyword_gallery, state, reference_type_radio, answer_question_input, answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox, answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button):
+    def register_answer_generation_events(
+        self,
+        answer_generate_button,
+        answer_text,
+        search_target,
+        search_method,
+        vector_gallery,
+        keyword_gallery,
+        state,
+        reference_type_radio,
+        answer_question_input,
+        answer_prompt_template_dropdown,
+        current_answer_prompt_display,
+        answer_prompt_edit_textbox,
+        answer_prompt_name_input,
+        save_answer_prompt_button,
+        cancel_answer_prompt_edit_button,
+        answer_prompt_status_message,
+        confirm_answer_prompt_delete_checkbox,
+        delete_answer_prompt_button,
+        search_vlm_model,
+        search_vlm_temperature,
+        search_vlm_max_tokens,
+        search_vlm_oci_region,
+    ):
         """回答生成機能のイベントを登録"""
-        # 回答生成ボタンクリック時のイベント
         answer_generate_button.click(
             fn=self.generate_answer,
-            inputs=[answer_question_input, answer_prompt_template_dropdown, state, reference_type_radio],
-            outputs=[answer_text]
+            inputs=[
+                answer_question_input,
+                answer_prompt_template_dropdown,
+                state,
+                reference_type_radio,
+                search_vlm_model,
+                search_vlm_temperature,
+                search_vlm_max_tokens,
+                search_vlm_oci_region,
+            ],
+            outputs=[answer_text],
         )
         
         # 回答生成プロンプトテンプレート選択時のイベント
@@ -1655,8 +1766,18 @@ class UIEvents:
             outputs=[answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox, answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button]
         )
         
-    def generate_answer(self, answer_question_input, answer_prompt_template_dropdown, state, reference_type_radio):
-        """VLMを使用して選択された画像とクエリから回答を生成"""
+    def generate_answer(
+        self,
+        answer_question_input,
+        answer_prompt_template_dropdown,
+        state,
+        reference_type_radio,
+        vlm_model,
+        vlm_temperature,
+        vlm_max_tokens,
+        vlm_oci_region,
+    ):
+        """VLMを使用して選択された画像とクエリから回答を生成（UIのVLM設定値を直接使用）"""
         import os
         verbose = os.getenv('VERBOSE', '').lower() in ('true', '1', 'yes')
         
@@ -1786,20 +1907,13 @@ class UIEvents:
                 if verbose:
                     print(f"[DEBUG] 画像データ準備: 参照タイプにより画像は不要")
             
-            # 検索タブ専用VLMServiceから現在の設定を取得
-            current_settings = self.search_vlm_service.get_current_vlm_settings()
-            
-            # デバッグ情報を出力
             if verbose:
-                print(f"[DEBUG] 検索タブVLM設定取得:")
-                print(f"  - モデル: {current_settings.get('model')}")
-                print(f"  - Temperature: {current_settings.get('temperature')}")
-                print(f"  - Max Tokens: {current_settings.get('max_tokens')}")
-                print(f"  - OCIリージョン: {current_settings.get('oci_region')}")
-            
-            # グローバルNLPServiceを使用（VLMは検索タブ用VLMServiceを使用）
-            # VLMキャプション生成は検索タブ用VLMServiceから直接呼び出し
-            
+                print(f"[DEBUG] 検索タブVLM設定（UIから取得）:")
+                print(f"  - モデル: {vlm_model}")
+                print(f"  - Temperature: {vlm_temperature}")
+                print(f"  - Max Tokens: {vlm_max_tokens}")
+                print(f"  - OCIリージョン: {vlm_oci_region}")
+
             # 画像データがある場合は一時ファイルに保存
             import tempfile
             import os
@@ -1820,22 +1934,21 @@ class UIEvents:
                     if verbose:
                         print(f"[DEBUG] VLM呼び出しパラメータ:")
                         print(f"  - image_path: {temp_image_path}")
-                        print(f"  - vlm_model: {current_settings['model']}")
+                        print(f"  - vlm_model: {vlm_model}")
                         print(f"  - prompt_text長: {len(final_prompt)}")
-                        print(f"  - temperature: {current_settings['temperature']}")
-                        print(f"  - max_tokens: {current_settings['max_tokens']}")
-                        print(f"  - oci_region: {current_settings['oci_region']}")
-                    
-                    # 検索タブ用VLMServiceを使用してキャプション生成
+                        print(f"  - temperature: {vlm_temperature}")
+                        print(f"  - max_tokens: {vlm_max_tokens}")
+                        print(f"  - oci_region: {vlm_oci_region}")
+
                     from app.nlp_service import NLPService
                     search_nlp_service = NLPService(self.search_vlm_service)
                     answer = search_nlp_service.generate_caption_with_vlm(
                         image_path=temp_image_path,
-                        vlm_model=current_settings["model"],
+                        vlm_model=vlm_model,
                         prompt_text=final_prompt,
-                        temperature=current_settings["temperature"],
-                        max_tokens=current_settings["max_tokens"],
-                        oci_region=current_settings["oci_region"]
+                        temperature=vlm_temperature,
+                        max_tokens=vlm_max_tokens,
+                        oci_region=vlm_oci_region,
                     )
                 else:
                     if verbose:
@@ -1854,22 +1967,21 @@ class UIEvents:
                     if verbose:
                         print(f"[DEBUG] VLM呼び出しパラメータ（空画像）:")
                         print(f"  - image_path: {temp_image_path}")
-                        print(f"  - vlm_model: {current_settings['model']}")
+                        print(f"  - vlm_model: {vlm_model}")
                         print(f"  - prompt_text長: {len(final_prompt)}")
-                        print(f"  - temperature: {current_settings['temperature']}")
-                        print(f"  - max_tokens: {current_settings['max_tokens']}")
-                        print(f"  - oci_region: {current_settings['oci_region']}")
-                    
-                    # 検索タブ用VLMServiceを使用してキャプション生成
+                        print(f"  - temperature: {vlm_temperature}")
+                        print(f"  - max_tokens: {vlm_max_tokens}")
+                        print(f"  - oci_region: {vlm_oci_region}")
+
                     from app.nlp_service import NLPService
                     search_nlp_service = NLPService(self.search_vlm_service)
                     answer = search_nlp_service.generate_caption_with_vlm(
                         image_path=temp_image_path,
-                        vlm_model=current_settings["model"],
+                        vlm_model=vlm_model,
                         prompt_text=final_prompt,
-                        temperature=current_settings["temperature"],
-                        max_tokens=current_settings["max_tokens"],
-                        oci_region=current_settings["oci_region"]
+                        temperature=vlm_temperature,
+                        max_tokens=vlm_max_tokens,
+                        oci_region=vlm_oci_region,
                     )
                 
                 if verbose:

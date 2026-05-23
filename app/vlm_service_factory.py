@@ -5,7 +5,27 @@ VLMServiceファクトリーモジュール
 タブ間での設定共有を完全に排除し、独立したVLM設定を実現する。
 """
 
-from app.vlm_service import VLMService
+import os
+
+from app.vlm_service import VLMService, resolve_default_vlm_display_name
+
+
+def _apply_mllm_env_defaults(service: VLMService):
+    """環境変数 MLLM_MODEL_ID に基づきタブ専用インスタンスの初期モデルを設定する"""
+    vlm_models = service.get_vlm_models()
+    if not vlm_models:
+        return
+
+    display_name = resolve_default_vlm_display_name(vlm_models, os.getenv("MLLM_MODEL_ID"))
+    service.update_current_vlm_settings(
+        model=display_name,
+        temperature=service.get_model_default_temperature(display_name),
+        max_tokens=service.get_model_default_tokens(display_name),
+    )
+    if service.get_api_type(display_name).startswith("oci"):
+        default_region = service.get_model_default_region(display_name)
+        if default_region:
+            service.update_current_vlm_settings(oci_region=default_region)
 
 
 class VLMServiceFactory:
@@ -27,12 +47,12 @@ class VLMServiceFactory:
             VLMService: 検索タブ専用のVLMServiceインスタンス
         """
         service = VLMService()
-        # 検索タブ用のデフォルト設定（必要に応じて調整可能）
         service.current_vlm_settings.update({
             "temperature": 0.3,
             "max_tokens": 4096,
-            "oci_region": "ap-osaka-1"
+            "oci_region": "ap-osaka-1",
         })
+        _apply_mllm_env_defaults(service)
         return service
     
     @staticmethod
@@ -46,12 +66,12 @@ class VLMServiceFactory:
             VLMService: イメージ設定タブ専用のVLMServiceインスタンス
         """
         service = VLMService()
-        # アップロードタブ用のデフォルト設定（必要に応じて調整可能）
         service.current_vlm_settings.update({
             "temperature": 0.3,
             "max_tokens": 4096,
-            "oci_region": "ap-osaka-1"
+            "oci_region": "ap-osaka-1",
         })
+        _apply_mllm_env_defaults(service)
         return service
     
     @staticmethod

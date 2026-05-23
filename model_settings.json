@@ -46,20 +46,28 @@
         "default_tokens": 4000,
         "vision": true
     },
-    "xai.grok-4(OCI)": {
-        "model_name": "xai.grok-4",
+    "xai.grok-4.3(OCI)": {
+        "model_name": "xai.grok-4.3",
         "api_type": "oci.xai.chat",
-        "max_tokens": 128000,
-        "default_tokens": 4000,
+        "max_tokens": 131000,
+        "default_tokens": 131000,
         "vision": true,
         "default_region": "us-chicago-1"
     },
-    "xai.grok-3(OCI)": {
-        "model_name": "xai.grok-3",
-        "api_type": "oci.llama.chat",
-        "max_tokens": 131072,
-        "default_tokens": 4000,
-        "vision": false,
+    "xai.grok-4.20-reasoning(OCI)": {
+        "model_name": "xai.grok-4.20-reasoning",
+        "api_type": "oci.xai.chat",
+        "max_tokens": 131000,
+        "default_tokens": 131000,
+        "vision": true,
+        "default_region": "us-chicago-1"
+    },
+    "xai.grok-4.20-non-reasoning(OCI)": {
+        "model_name": "xai.grok-4.20-non-reasoning",
+        "api_type": "oci.xai.chat",
+        "max_tokens": 131000,
+        "default_tokens": 131000,
+        "vision": true,
         "default_region": "us-chicago-1"
     },
     "command-a-03-2025(CohereAI)": {
