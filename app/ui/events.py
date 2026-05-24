@@ -13,6 +13,9 @@ REFERENCE_TYPE_LABEL_TEXT = "参照する情報の種類"
 REFERENCE_TYPE_ALL = "すべて"
 REFERENCE_TYPE_CAPTION_ONLY = "キャプションのみ"
 REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
+ANSWER_GENERATION_MODE_LABEL_TEXT = "回答生成モード"
+ANSWER_MODE_SINGLE_IMAGE = "先頭画像あるいは選択した１つの画像"
+ANSWER_MODE_LISTWISE = "VLMによるフィルタリングと並べ替え"
 
 class UIEvents:
     """UIイベントを管理するクラス"""
@@ -250,7 +253,7 @@ class UIEvents:
         self.search_vlm_service.update_current_vlm_settings(model=model)
         return self.search_vlm_service.model_changed(model)
         
-    def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text, search_and_answer_button=None):
+    def register_search_target_events(self, search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text, search_and_answer_button=None, answer_generation_mode_radio=None):
         """検索対象変更時のイベントを登録"""
         if search_and_answer_button is not None:
             # search_and_answer_buttonを含む場合の処理
@@ -271,6 +274,12 @@ class UIEvents:
                 inputs=[search_target, search_method],
                 outputs=[search_and_answer_button]
             )
+            if answer_generation_mode_radio is not None:
+                search_target.change(
+                    fn=self.update_answer_generation_mode_choices,
+                    inputs=[search_target, search_method, answer_generation_mode_radio],
+                    outputs=[answer_generation_mode_radio]
+                )
         else:
             # 従来の処理
             search_target.change(
@@ -287,7 +296,7 @@ class UIEvents:
                 outputs=[executed_sql_text]
             )
         
-    def register_search_method_events(self, search_method, query_input, uploaded_image, uploaded_image_column, similarity_text, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text, search_and_answer_button=None):
+    def register_search_method_events(self, search_method, query_input, uploaded_image, uploaded_image_column, similarity_text, executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text, search_and_answer_button=None, answer_generation_mode_radio=None):
         """クエリーの種類変更時のイベントを登録"""
         if search_and_answer_button is not None:
             # search_and_answer_buttonを含む場合の処理
@@ -312,6 +321,12 @@ class UIEvents:
                 inputs=[search_target, search_method],
                 outputs=[search_and_answer_button]
             )
+            if answer_generation_mode_radio is not None:
+                search_method.change(
+                    fn=self.update_answer_generation_mode_choices,
+                    inputs=[search_target, search_method, answer_generation_mode_radio],
+                    outputs=[answer_generation_mode_radio]
+                )
         else:
             # 従来の処理
             search_method.change(
@@ -332,7 +347,7 @@ class UIEvents:
                 outputs=[morphological_analysis_text]
             )
         
-    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None, answer_text=None):
+    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None, answer_text=None, referenced_images_gallery=None, listwise_reason_text=None):
         """検索ボタンのイベントを登録"""
         # 質問文入力エリアが指定されている場合、検索クエリを質問文入力エリアに最初に設定
         if answer_question_input is not None:
@@ -403,6 +418,14 @@ class UIEvents:
                 inputs=[state, search_target, search_method, reference_image_text, answer_generate_button, reference_type_radio],
                 outputs=[reference_image_text, answer_generate_button, reference_type_radio] if (reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None) else ([reference_image_text, answer_generate_button] if (reference_image_text is not None and answer_generate_button is not None) else ([reference_image_text] if reference_image_text is not None else []))
             )
+
+        if referenced_images_gallery is not None and listwise_reason_text is not None:
+            search_button.click(
+                fn=self.reset_listwise_reference_display,
+                inputs=[],
+                outputs=[referenced_images_gallery, listwise_reason_text],
+                queue=False
+            )
         
     def register_execute_query_button_events(self, execute_query_button, executed_query_text, top_k_slider, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text, pagination_row, page_info, prev_button, next_button, answer_question_input=None):
         """カスタムクエリ実行ボタンのイベントを登録"""
@@ -441,7 +464,7 @@ class UIEvents:
                 outputs=[state, pagination_row, page_info, prev_button, next_button]
             )
         
-    def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text, answer_generate_button=None, answer_text=None, reference_image_text=None, reference_type_radio=None, answer_question_input=None):
+    def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text, answer_generate_button=None, answer_text=None, reference_image_text=None, reference_type_radio=None, answer_question_input=None, referenced_images_gallery=None, listwise_reason_text=None):
         """クリアボタンのイベントを登録"""
         if answer_generate_button is not None and answer_text is not None:
             # 回答生成関連のコンポーネントもクリアする場合
@@ -546,6 +569,14 @@ class UIEvents:
                     inputs=[],
                     outputs=[pagination_row]
                 )
+
+        if referenced_images_gallery is not None and listwise_reason_text is not None:
+            clear_button.click(
+                fn=self.reset_listwise_reference_display,
+                inputs=[],
+                outputs=[referenced_images_gallery, listwise_reason_text],
+                queue=False
+            )
     
     def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None, search_target=None, search_method=None, answer_generate_button=None, reference_type_radio=None):
         """全件表示ボタンのイベントを登録"""
@@ -1159,7 +1190,7 @@ class UIEvents:
             return gr.Gallery(label="画像ベクトルによる画像検索", visible=True), gr.Gallery(label="", visible=False)
         else:
             return gr.Gallery(label="検索結果", visible=True), gr.Gallery(label="", visible=False)
-            
+
     def clear_before_search(self, reference_image_text=None, answer_text=None):
         """検索実行前にクリアする関数"""
         if reference_image_text is not None and answer_text is not None:
@@ -1520,6 +1551,10 @@ class UIEvents:
     def hide_pagination(self):
         """ページング用UIを非表示にする関数"""
         return gr.update(visible=False)
+
+    def reset_listwise_reference_display(self):
+        """Listwise参照画像とreason表示を非表示に戻す"""
+        return self._hidden_referenced_images_gallery(), self._hidden_listwise_reason_text()
         
     def update_pagination_buttons(self, state_data):
         """ページングボタンの状態を更新する関数"""
@@ -1564,12 +1599,19 @@ class UIEvents:
         search_vlm_temperature,
         search_vlm_max_tokens,
         search_vlm_oci_region,
+        answer_generation_mode_radio,
+        referenced_images_gallery,
+        listwise_reason_text,
     ):
         """検索と回答生成ボタンのイベントを登録"""
         search_and_answer_button.click(
             fn=lambda query: query if query and query.strip() else "",
             inputs=[query_input],
             outputs=[answer_question_input]
+        ).then(
+            fn=self.update_gallery_labels,
+            inputs=[query_input, search_method, search_target],
+            outputs=[vector_gallery, keyword_gallery]
         ).then(
             fn=self.execute_search_and_answer,
             inputs=[
@@ -1587,6 +1629,7 @@ class UIEvents:
                 search_vlm_temperature,
                 search_vlm_max_tokens,
                 search_vlm_oci_region,
+                answer_generation_mode_radio,
             ],
             outputs=[
                 vector_gallery,
@@ -1606,6 +1649,8 @@ class UIEvents:
                 answer_text,
                 answer_generate_button,
                 reference_type_radio,
+                referenced_images_gallery,
+                listwise_reason_text,
             ],
         )
 
@@ -1625,6 +1670,7 @@ class UIEvents:
         search_vlm_temperature,
         search_vlm_max_tokens,
         search_vlm_oci_region,
+        answer_generation_mode,
     ):
         """検索と回答生成を連続実行"""
         import os
@@ -1661,7 +1707,7 @@ class UIEvents:
                     interactive=False
                 )
                 error_answer = "❌ 検索クエリまたは質問文が必要です。"
-                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), "", empty_reference, error_answer, disabled_button, disabled_radio
+                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), "", empty_reference, error_answer, disabled_button, disabled_radio, self._hidden_referenced_images_gallery(), self._hidden_listwise_reason_text()
             
             if verbose:
                 print(f"[DEBUG] 使用する質問文: '{final_answer_question}'")
@@ -1696,7 +1742,7 @@ class UIEvents:
                     interactive=False
                 )
                 error_answer = "❌ 検索結果が取得できませんでした。"
-                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), "", empty_reference, error_answer, disabled_button, disabled_radio
+                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), "", empty_reference, error_answer, disabled_button, disabled_radio, self._hidden_referenced_images_gallery(), self._hidden_listwise_reason_text()
             
             # 4. 検索結果から必要なデータを抽出
             vector_gallery_result = search_results[0]
@@ -1738,7 +1784,7 @@ class UIEvents:
             if verbose:
                 print(f"[DEBUG] ========== 回答生成処理開始 ==========")
             
-            answer = self.generate_answer(
+            answer, referenced_images_update, listwise_reason_update = self.generate_answer(
                 final_answer_question,
                 answer_prompt_template_dropdown,
                 state_result,
@@ -1747,6 +1793,7 @@ class UIEvents:
                 search_vlm_temperature,
                 search_vlm_max_tokens,
                 search_vlm_oci_region,
+                answer_generation_mode,
             )
             
             if verbose:
@@ -1806,7 +1853,9 @@ class UIEvents:
                 reference_image_filename,       # reference_image_text
                 answer,                         # answer_text
                 answer_button_update,           # answer_generate_button
-                radio_button_update             # reference_type_radio
+                radio_button_update,            # reference_type_radio
+                referenced_images_update,       # referenced_images_gallery
+                listwise_reason_update          # listwise_reason_text
             )
             
         except Exception as e:
@@ -1832,7 +1881,7 @@ class UIEvents:
                 interactive=False
             )
             error_answer = f"❌ 処理中にエラーが発生しました: {str(e)}"
-            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), "", empty_reference, error_answer, disabled_button, disabled_radio
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), "", empty_reference, error_answer, disabled_button, disabled_radio, self._hidden_referenced_images_gallery(), self._hidden_listwise_reason_text()
 
     def register_answer_generation_events(
         self,
@@ -1858,6 +1907,9 @@ class UIEvents:
         search_vlm_temperature,
         search_vlm_max_tokens,
         search_vlm_oci_region,
+        answer_generation_mode_radio,
+        referenced_images_gallery,
+        listwise_reason_text,
     ):
         """回答生成機能のイベントを登録"""
         answer_generate_button.click(
@@ -1871,8 +1923,9 @@ class UIEvents:
                 search_vlm_temperature,
                 search_vlm_max_tokens,
                 search_vlm_oci_region,
+                answer_generation_mode_radio,
             ],
-            outputs=[answer_text],
+            outputs=[answer_text, referenced_images_gallery, listwise_reason_text],
         )
         
         # 回答生成プロンプトテンプレート選択時のイベント
@@ -1911,6 +1964,43 @@ class UIEvents:
         )
         
     def generate_answer(
+        self,
+        answer_question_input,
+        answer_prompt_template_dropdown,
+        state,
+        reference_type_radio,
+        vlm_model,
+        vlm_temperature,
+        vlm_max_tokens,
+        vlm_oci_region,
+        answer_generation_mode=ANSWER_MODE_LISTWISE,
+    ):
+        """回答生成モードに応じてVLM回答生成を実行する"""
+        if answer_generation_mode == ANSWER_MODE_LISTWISE:
+            return self._generate_answer_with_listwise_filtering(
+                answer_question_input,
+                answer_prompt_template_dropdown,
+                state,
+                reference_type_radio,
+                vlm_model,
+                vlm_temperature,
+                vlm_max_tokens,
+                vlm_oci_region,
+            )
+
+        answer = self._generate_answer_from_single_selected_image(
+            answer_question_input,
+            answer_prompt_template_dropdown,
+            state,
+            reference_type_radio,
+            vlm_model,
+            vlm_temperature,
+            vlm_max_tokens,
+            vlm_oci_region,
+        )
+        return answer, self._hidden_referenced_images_gallery(), self._hidden_listwise_reason_text()
+
+    def _generate_answer_from_single_selected_image(
         self,
         answer_question_input,
         answer_prompt_template_dropdown,
@@ -2174,6 +2264,272 @@ class UIEvents:
                 traceback.print_exc()
                 print(f"[DEBUG] ========================================\n")
             return f"❌ エラーが発生しました: {str(e)}"
+
+    def _generate_answer_with_listwise_filtering(
+        self,
+        answer_question_input,
+        answer_prompt_template_dropdown,
+        state,
+        reference_type_radio,
+        vlm_model,
+        vlm_temperature,
+        vlm_max_tokens,
+        vlm_oci_region,
+    ):
+        """検索結果全体をVLMで選別・並び替えしてから回答を生成する"""
+        query_text = answer_question_input if answer_question_input and answer_question_input.strip() else ""
+        if not query_text:
+            return self._listwise_answer_outputs("❌ 質問文が入力されていません。", [], "", show_reference=True)
+
+        candidates = self._build_listwise_candidates(state)
+        if not candidates:
+            return self._listwise_answer_outputs("❌ 検索結果が見つかりません。画像を検索してから回答生成を実行してください。", [], "", show_reference=True)
+
+        answer_prompt = self.get_current_answer_prompt(answer_prompt_template_dropdown)
+        if not answer_prompt:
+            return self._listwise_answer_outputs("❌ 回答生成プロンプトテンプレートが見つかりません。", [], "", show_reference=True)
+
+        selection_prompt = self._build_listwise_selection_prompt(query_text, candidates)
+        selection_response = self._call_text_vlm(
+            selection_prompt,
+            vlm_model,
+            vlm_temperature,
+            vlm_max_tokens,
+            vlm_oci_region,
+        )
+        selected_candidates, selection_reason, parse_error = self._parse_listwise_selection(selection_response, candidates)
+        if parse_error:
+            return self._listwise_answer_outputs(parse_error, [], selection_reason, show_reference=True)
+        if not selected_candidates:
+            return self._listwise_answer_outputs("❌ VLMが回答に有用な画像を選択しませんでした。", [], selection_reason, show_reference=True)
+
+        reference_type = reference_type_radio
+        documents = self._format_listwise_documents(selected_candidates, include_captions=reference_type != REFERENCE_TYPE_IMAGE_ONLY)
+        if reference_type == REFERENCE_TYPE_IMAGE_ONLY:
+            documents = "以下の画像群を、VLMが回答生成に自然な順序へ並べ替えたものです。"
+
+        final_prompt = answer_prompt.replace("{query_text}", query_text).replace("{documents}", documents)
+        image_paths = []
+
+        try:
+            if reference_type != REFERENCE_TYPE_CAPTION_ONLY:
+                image_paths = self._save_candidate_images_to_temp_files(selected_candidates)
+
+            from app.nlp_service import NLPService
+            search_nlp_service = NLPService(self.search_vlm_service)
+            if image_paths:
+                answer = search_nlp_service.generate_answer_with_vlm_images(
+                    image_paths=image_paths,
+                    vlm_model=vlm_model,
+                    prompt_text=final_prompt,
+                    temperature=vlm_temperature,
+                    max_tokens=vlm_max_tokens,
+                    oci_region=vlm_oci_region,
+                )
+            else:
+                answer = self._call_text_vlm(
+                    final_prompt,
+                    vlm_model,
+                    vlm_temperature,
+                    vlm_max_tokens,
+                    vlm_oci_region,
+                )
+
+            if not answer:
+                return self._listwise_answer_outputs("❌ 回答の生成に失敗しました。", [], selection_reason, show_reference=True)
+
+            reference_filenames = "」「".join(candidate["file_name"] for candidate in selected_candidates)
+            referenced_images = self._candidate_images_for_reference_gallery(selected_candidates) if image_paths else []
+            final_answer = f"（「{reference_filenames}」を参照して回答を生成しました）\n\n{answer}"
+            return self._listwise_answer_outputs(final_answer, referenced_images, selection_reason, show_reference=True)
+        finally:
+            import os
+            for image_path in image_paths:
+                if image_path and os.path.exists(image_path):
+                    os.unlink(image_path)
+
+    def _build_listwise_candidates(self, state):
+        """state内の全検索結果からListwise候補を重複排除して作成する"""
+        if not state or not isinstance(state, dict):
+            return []
+
+        source_results = state.get("all_combined_results") or []
+        if not source_results:
+            source_results = (state.get("all_vector_results") or []) + (state.get("all_keyword_results") or [])
+        if not source_results:
+            source_results = state.get("combined_results") or []
+        if not source_results:
+            source_results = (state.get("vector_results") or []) + (state.get("keyword_results") or [])
+
+        candidates = []
+        seen_keys = set()
+        for index, result in enumerate(source_results, start=1):
+            if not isinstance(result, dict):
+                continue
+            stable_id = str(result.get("image_id") or result.get("file_name") or f"candidate-{index}")
+            if stable_id in seen_keys:
+                continue
+            seen_keys.add(stable_id)
+            candidates.append({
+                "id": stable_id,
+                "image_id": result.get("image_id"),
+                "file_name": result.get("file_name", stable_id),
+                "caption": self.search_service.normalize_newlines(result.get("caption", "")) if hasattr(self.search_service, "normalize_newlines") else result.get("caption", ""),
+                "search_mode": result.get("search_mode", ""),
+                "distance": result.get("distance"),
+                "image": result.get("image"),
+            })
+        return candidates
+
+    def _build_listwise_selection_prompt(self, query_text, candidates):
+        """Listwise選別用プロンプトを作成する"""
+        candidate_lines = []
+        for position, candidate in enumerate(candidates, start=1):
+            candidate_lines.append(
+                "\n".join([
+                    f"{position}. id: {candidate['id']}",
+                    f"   file_name: {candidate['file_name']}",
+                    f"   search_mode: {candidate.get('search_mode') or '不明'}",
+                    f"   score_or_distance: {candidate.get('distance')}",
+                    f"   caption: {candidate.get('caption') or '（キャプションなし）'}",
+                ])
+            )
+
+        return (
+            "あなたはマルチモーダルRAGの検索結果を評価するアシスタントです。\n"
+            "ユーザーの質問に回答するために役立つ画像だけを選び、回答で参照すると自然な順番に並べてください。\n"
+            "必ずJSONのみを返してください。説明文やMarkdownは不要です。\n"
+            "JSON形式: {\"selected_image_ids\": [\"id1\", \"id2\"], \"reason\": \"短い理由\"}\n\n"
+            f"ユーザーの質問:\n{query_text}\n\n"
+            "検索結果候補:\n"
+            f"{chr(10).join(candidate_lines)}"
+        )
+
+    def _parse_listwise_selection(self, selection_response, candidates):
+        """VLMのListwise選別JSONを検証し、候補を選択順に返す"""
+        import json
+        import re
+
+        if not selection_response or not str(selection_response).strip():
+            return [], "", "❌ VLMによる画像選別結果が空でした。"
+
+        response_text = str(selection_response).strip()
+        fenced_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response_text, re.DOTALL)
+        if fenced_match:
+            response_text = fenced_match.group(1)
+        else:
+            json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+            if json_match:
+                response_text = json_match.group(0)
+
+        try:
+            parsed = json.loads(response_text)
+        except json.JSONDecodeError:
+            return [], "", "❌ VLMによる画像選別結果のJSON解析に失敗しました。"
+
+        selected_ids = parsed.get("selected_image_ids")
+        reason = str(parsed.get("reason") or "")
+        if not isinstance(selected_ids, list):
+            return [], reason, "❌ VLMによる画像選別結果に selected_image_ids がありません。"
+
+        candidate_by_id = {candidate["id"]: candidate for candidate in candidates}
+        selected_candidates = []
+        seen_ids = set()
+        for selected_id in selected_ids:
+            selected_id = str(selected_id)
+            if selected_id in seen_ids:
+                continue
+            candidate = candidate_by_id.get(selected_id)
+            if candidate is None:
+                continue
+            seen_ids.add(selected_id)
+            selected_candidates.append(candidate)
+
+        if not selected_candidates:
+            return [], reason, "❌ VLMが選択した画像IDが検索結果候補に存在しませんでした。"
+        return selected_candidates, reason, None
+
+    def _format_listwise_documents(self, selected_candidates, include_captions=True):
+        """回答生成プロンプトへ渡すListwise参照情報を整形する"""
+        document_lines = []
+        for position, candidate in enumerate(selected_candidates, start=1):
+            if include_captions:
+                document_lines.append(
+                    f"{position}. {candidate['file_name']}\n{candidate.get('caption') or '（キャプションなし）'}"
+                )
+            else:
+                document_lines.append(f"{position}. {candidate['file_name']}")
+        return "\n\n".join(document_lines)
+
+    def _candidate_images_for_reference_gallery(self, selected_candidates):
+        """二次VLMへ渡した順番で参照画像ギャラリー用の画像を作成する"""
+        return [
+            candidate["image"]
+            for candidate in selected_candidates
+            if isinstance(candidate.get("image"), Image.Image)
+        ]
+
+    def _hidden_referenced_images_gallery(self):
+        return gr.Gallery(label="参照した画像", value=[], visible=False)
+
+    def _visible_referenced_images_gallery(self, images):
+        return gr.Gallery(label="参照した画像", value=images or [], visible=True)
+
+    def _hidden_listwise_reason_text(self):
+        return gr.Textbox(label="reason", value="", visible=False)
+
+    def _visible_listwise_reason_text(self, reason):
+        return gr.Textbox(label="reason", value=reason or "", visible=True)
+
+    def _listwise_answer_outputs(self, answer, referenced_images, reason, show_reference):
+        if show_reference:
+            return (
+                answer,
+                self._visible_referenced_images_gallery(referenced_images),
+                self._visible_listwise_reason_text(reason),
+            )
+        return answer, self._hidden_referenced_images_gallery(), self._hidden_listwise_reason_text()
+
+    def _save_candidate_images_to_temp_files(self, selected_candidates):
+        """選択候補のPIL画像を一時ファイルへ保存する"""
+        import tempfile
+
+        image_paths = []
+        for candidate in selected_candidates:
+            image = candidate.get("image")
+            if not isinstance(image, Image.Image):
+                continue
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.png', delete=False) as temp_file:
+                image.save(temp_file, format='PNG')
+                image_paths.append(temp_file.name)
+        return image_paths
+
+    def _call_text_vlm(self, prompt_text, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region):
+        """既存の画像必須VLM経路を使い、白画像付きでテキストプロンプトを送る"""
+        import os
+        import tempfile
+        from PIL import Image
+        from app.nlp_service import NLPService
+
+        temp_image_path = None
+        try:
+            empty_image = Image.new('RGB', (100, 100), color='white')
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.png', delete=False) as temp_file:
+                empty_image.save(temp_file, format='PNG')
+                temp_image_path = temp_file.name
+
+            search_nlp_service = NLPService(self.search_vlm_service)
+            return search_nlp_service.generate_caption_with_vlm(
+                image_path=temp_image_path,
+                vlm_model=vlm_model,
+                prompt_text=prompt_text,
+                temperature=vlm_temperature,
+                max_tokens=vlm_max_tokens,
+                oci_region=vlm_oci_region,
+            )
+        finally:
+            if temp_image_path and os.path.exists(temp_image_path):
+                os.unlink(temp_image_path)
         
     def check_answer_generation_conditions(self, search_target, search_method, has_selected_image):
         """回答生成ボタンのenable/disable条件をチェック"""
@@ -2199,6 +2555,28 @@ class UIEvents:
             return gr.Button("検索と回答生成", variant="secondary", interactive=False)
         else:
             return gr.Button("検索と回答生成", variant="primary", interactive=True)
+
+    def update_answer_generation_mode_choices(self, search_target, search_method, current_mode=None):
+        """クエリーの種類に応じて回答生成モードを更新する"""
+        import gradio as gr
+
+        if search_target == "画像ベクトル" and search_method == "画像":
+            return gr.Radio(
+                choices=[ANSWER_MODE_SINGLE_IMAGE],
+                value=ANSWER_MODE_SINGLE_IMAGE,
+                label=ANSWER_GENERATION_MODE_LABEL_TEXT,
+                container=True,
+                interactive=True
+            )
+
+        value = current_mode if current_mode in [ANSWER_MODE_SINGLE_IMAGE, ANSWER_MODE_LISTWISE] else ANSWER_MODE_LISTWISE
+        return gr.Radio(
+            choices=[ANSWER_MODE_SINGLE_IMAGE, ANSWER_MODE_LISTWISE],
+            value=value,
+            label=ANSWER_GENERATION_MODE_LABEL_TEXT,
+            container=True,
+            interactive=True
+        )
         
     def show_selected_image_info(self, evt: gr.SelectData, results):
         """選択された画像の情報を表示する関数"""

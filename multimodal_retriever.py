@@ -83,7 +83,7 @@ def main():
             # タブ1: 検索機能
             with gr.Tab("検索と回答生成"):
                 # 検索セクションのUIコンポーネントを作成
-                search_target, search_method, search_count_input, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples = ui_components.create_search_section()
+                search_target, search_method, search_count_input, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples, answer_generation_mode_radio = ui_components.create_search_section()
                 
                 # 検索結果セクションのUIコンポーネントを作成
                 vector_gallery, keyword_gallery = ui_components.create_results_section()
@@ -98,7 +98,7 @@ def main():
                 executed_query_text, execute_query_button, executed_sql_text, morphological_analysis_text = ui_components.create_query_detail_section()
                 
                 # 自然言語による回答セクションのUIコンポーネントを作成
-                (reference_image_text, answer_generate_button, answer_text, reference_type_radio, answer_question_input) = ui_components.create_answer_generation_section()
+                (reference_image_text, answer_generate_button, answer_text, reference_type_radio, answer_question_input, referenced_images_gallery, listwise_reason_text) = ui_components.create_answer_generation_section()
                 
                 # 回答生成プロンプト設定セクションのUIコンポーネントを作成
                 (answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox,
@@ -114,19 +114,19 @@ def main():
                 
                 # 各種イベントを登録
                 ui_events.register_search_target_events(
-                    search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text, search_and_answer_button
+                    search_target, search_method, query_input, uploaded_image, uploaded_image_column, query_examples, executed_sql_text, search_and_answer_button, answer_generation_mode_radio
                 )
                 
                 ui_events.register_search_method_events(
                     search_method, query_input, uploaded_image, uploaded_image_column, similarity_text, 
-                    executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text, search_and_answer_button
+                    executed_query_text, execute_query_button, search_target, query_examples, morphological_analysis_text, search_and_answer_button, answer_generation_mode_radio
                 )
                 
                 ui_events.register_search_button_events(
                     search_button, query_input, uploaded_image, search_target, 
                     search_method, search_count_input, vector_threshold, keyword_threshold, 
                     vector_gallery, keyword_gallery, filename_text, similarity_text, 
-                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text
+                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, referenced_images_gallery, listwise_reason_text
                 )
                 
                 ui_events.register_search_and_answer_button_events(
@@ -134,7 +134,7 @@ def main():
                     search_method, search_count_input, vector_threshold, keyword_threshold, 
                     vector_gallery, keyword_gallery, filename_text, similarity_text, 
                     caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown,
-                    search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region
+                    search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region, answer_generation_mode_radio, referenced_images_gallery, listwise_reason_text
                 )
                 
                 ui_events.register_execute_query_button_events(
@@ -147,7 +147,7 @@ def main():
                     clear_button, query_input, uploaded_image, vector_gallery, 
                     keyword_gallery, filename_text, similarity_text, caption_text, 
                     state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text,
-                    answer_generate_button, answer_text, reference_image_text, reference_type_radio, answer_question_input
+                    answer_generate_button, answer_text, reference_image_text, reference_type_radio, answer_question_input, referenced_images_gallery, listwise_reason_text
                 )
                 
                 ui_events.register_show_all_button_events(
@@ -172,7 +172,7 @@ def main():
                     answer_prompt_template_dropdown, current_answer_prompt_display, answer_prompt_edit_textbox,
                     answer_prompt_name_input, save_answer_prompt_button, cancel_answer_prompt_edit_button, 
                     answer_prompt_status_message, confirm_answer_prompt_delete_checkbox, delete_answer_prompt_button,
-                    search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region
+                    search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region, answer_generation_mode_radio, referenced_images_gallery, listwise_reason_text
                 )
                 
                 # 検索タブVLM設定のイベントを登録
