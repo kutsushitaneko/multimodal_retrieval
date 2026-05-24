@@ -8,6 +8,14 @@ class SearchService:
         self.database_service = database_service
         self.search_query_generator = search_query_generator
         
+    def normalize_top_k(self, top_k, default=8):
+        """検索件数を1〜24の整数に正規化する"""
+        try:
+            normalized = int(top_k)
+        except (TypeError, ValueError):
+            normalized = default
+        return max(1, min(24, normalized))
+        
     def normalize_newlines(self, text):
         """3つ以上連続する改行を2つの改行に変換する"""
         if text is None:
@@ -16,6 +24,8 @@ class SearchService:
         
     def search_by_caption(self, query, search_mode="ベクトル検索", top_k=5, vector_threshold=0.5, keyword_threshold=10):
         """テキストクエリに基づいて画像のキャプションを検索"""
+        query = query or ""
+        top_k = self.normalize_top_k(top_k)
         executed_query = query  # デフォルトはオリジナルのクエリ
         morphological_analysis = ""  # 形態素解析結果を追加
         
@@ -51,6 +61,8 @@ class SearchService:
             
     def search_by_image_text(self, query, top_k=5, vector_threshold=0.5):
         """テキストクエリに基づいて画像の画像ベクトルを検索"""
+        query = query or ""
+        top_k = self.normalize_top_k(top_k)
         executed_query = query  # デフォルトはオリジナルのクエリ
         morphological_analysis = ""  # 形態素解析結果を追加
         
@@ -72,6 +84,7 @@ class SearchService:
             
     def search_by_image_embedding(self, uploaded_image, top_k=5, vector_threshold=0.5):
         """アップロードされた画像から画像ベクトル検索を実行"""
+        top_k = self.normalize_top_k(top_k)
         morphological_analysis = ""  # 形態素解析結果を追加（画像検索では空文字列）
         
         if uploaded_image is None:
@@ -88,6 +101,7 @@ class SearchService:
         
     def hybrid_search(self, query, top_k=5, vector_threshold=0.5, keyword_threshold=10):
         """ベクトル検索と全文検索の結果を統合する"""
+        top_k = self.normalize_top_k(top_k)
         # ベクトル検索の実行
         vector_results, vector_query, vector_sql, _ = self.search_by_caption(
             query, "ベクトル検索", top_k, vector_threshold, 0
@@ -124,6 +138,8 @@ class SearchService:
         
     def search_images(self, query, uploaded_image, search_target, search_method, top_k=5, vector_threshold=0.5, keyword_threshold=0):
         """Gradioインターフェース用の統合検索関数"""
+        query = query or ""
+        top_k = self.normalize_top_k(top_k)
         results = []
         executed_query = ""
         executed_sql = ""
@@ -152,8 +168,8 @@ class SearchService:
                     score_text = f"{score_value:.4f}"
                 
                 # 空のクエリーの場合は、選択された検索方法の結果エリアにのみ表示
-                vector_gallery_images = output_images if search_method in ["ベクトル検索", "ハイブリッド検索", "テキスト", "画像"] else []
-                keyword_gallery_images = output_images if search_method == "全文検索" else []
+                vector_gallery_images = output_images[:8] if search_method in ["ベクトル検索", "ハイブリッド検索", "テキスト", "画像"] else []
+                keyword_gallery_images = output_images[:8] if search_method == "全文検索" else []
                 
                 return (
                     vector_gallery_images,  # vector_gallery
@@ -161,12 +177,12 @@ class SearchService:
                     first_result['file_name'],  # filename_text
                     score_text,  # similarity_text
                     self.normalize_newlines(first_result['caption']),  # caption_text
-                    {"combined_results": results, "vector_results": results, "keyword_results": []},  # state - 全文検索結果も含める
+                    {"combined_results": results, "vector_results": results, "keyword_results": [], "all_combined_results": results, "all_vector_results": results, "all_keyword_results": [], "pagination_mode": "search", "current_page": 1, "page_size": 8},  # state - 全文検索結果も含める
                     executed_query,  # executed_query_text
                     executed_sql,  # executed_sql_text
                     ""  # morphological_analysis_text
                 )
-            return [], [], "", "", "", [], executed_query, executed_sql, ""
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": [], "all_combined_results": [], "all_vector_results": [], "all_keyword_results": [], "pagination_mode": "search", "current_page": 1, "page_size": 8}, executed_query, executed_sql, ""
         
         if search_target == "キャプション（テキストベクトルと全文）":
             # キャプション検索の場合は常にハイブリッド検索を使用
@@ -206,17 +222,17 @@ class SearchService:
                     score_text = f"{score_value:.4f}"
                 
                 return (
-                    vector_images,  # vector_gallery
-                    keyword_images,  # keyword_gallery
+                    vector_images[:8],  # vector_gallery
+                    keyword_images[:8],  # keyword_gallery
                     first_result['file_name'],  # filename_text
                     score_text,  # similarity_text
                     self.normalize_newlines(first_result['caption']),  # caption_text
-                    {"combined_results": combined_results, "vector_results": vector_results, "keyword_results": keyword_results},  # state - 全文検索結果も含める
+                    {"combined_results": combined_results, "vector_results": vector_results, "keyword_results": keyword_results, "all_combined_results": combined_results, "all_vector_results": vector_results, "all_keyword_results": keyword_results, "pagination_mode": "search", "current_page": 1, "page_size": 8},  # state - 全文検索結果も含める
                     executed_query,  # executed_query_text
                     executed_sql,  # executed_sql_text
                     morphological_analysis  # morphological_analysis_text
                 )
-            return [], [], "", "", "", [], executed_query, executed_sql, ""
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": [], "all_combined_results": [], "all_vector_results": [], "all_keyword_results": [], "pagination_mode": "search", "current_page": 1, "page_size": 8}, executed_query, executed_sql, ""
             
         elif search_target == "画像ベクトル":
             if search_method == "テキスト":
@@ -250,20 +266,21 @@ class SearchService:
                     score_text = f"{score_value:.4f}"
                 
                 return (
-                    output_images,  # vector_gallery - 画像検索結果は常にベクトルギャラリーに表示
+                    output_images[:8],  # vector_gallery - 画像検索結果は常にベクトルギャラリーに表示
                     [],  # keyword_gallery
                     first_result['file_name'],  # filename_text
                     score_text,  # similarity_text
                     self.normalize_newlines(first_result['caption']),  # caption_text
-                    {"combined_results": results, "vector_results": results, "keyword_results": []},  # state
+                    {"combined_results": results, "vector_results": results, "keyword_results": [], "all_combined_results": results, "all_vector_results": results, "all_keyword_results": [], "pagination_mode": "search", "current_page": 1, "page_size": 8},  # state
                     executed_query,  # executed_query_text
                     executed_sql,  # executed_sql_text
                     morphological_analysis  # morphological_analysis_text
                 )
-            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, executed_query, executed_sql, ""
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": [], "all_combined_results": [], "all_vector_results": [], "all_keyword_results": [], "pagination_mode": "search", "current_page": 1, "page_size": 8}, executed_query, executed_sql, ""
             
     def load_recent_images(self, top_k=12):
         """アプリケーション起動時に最近アップロードされた画像を表示する関数"""
+        top_k = self.normalize_top_k(top_k)
         results, executed_sql = self.database_service.get_recent_images(top_k, 0)  # オフセット0で取得
         
         # 結果を整形
@@ -280,9 +297,9 @@ class SearchService:
                 first_result['file_name'],  # filename_text
                 "",  # similarity_text
                 self.normalize_newlines(first_result['caption']),  # caption_text
-                {"combined_results": results, "vector_results": results, "keyword_results": []},  # state
+                {"combined_results": results, "vector_results": results, "keyword_results": [], "all_combined_results": results, "all_vector_results": results, "all_keyword_results": [], "pagination_mode": "all", "current_page": 1, "page_size": top_k},  # state
                 "（最近のアップロード）",  # executed_query_text
                 executed_sql,  # executed_sql_text
                 ""  # morphological_analysis_text
             )
-        return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "（画像が見つかりません）", executed_sql, "" 
+        return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": [], "all_combined_results": [], "all_vector_results": [], "all_keyword_results": [], "pagination_mode": "all", "current_page": 1, "page_size": top_k}, "（画像が見つかりません）", executed_sql, ""

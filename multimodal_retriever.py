@@ -83,7 +83,7 @@ def main():
             # タブ1: 検索機能
             with gr.Tab("検索と回答生成"):
                 # 検索セクションのUIコンポーネントを作成
-                search_target, search_method, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples = ui_components.create_search_section()
+                search_target, search_method, search_count_input, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples = ui_components.create_search_section()
                 
                 # 検索結果セクションのUIコンポーネントを作成
                 vector_gallery, keyword_gallery = ui_components.create_results_section()
@@ -110,7 +110,7 @@ def main():
                  search_vlm_max_tokens, search_vlm_oci_region, search_vlm_status_message) = ui_components.create_search_vlm_settings()
                 
                 # 高度な設定セクションのUIコンポーネントを作成
-                vector_threshold, keyword_threshold, top_k_slider = ui_components.create_advanced_settings_section()
+                vector_threshold, keyword_threshold = ui_components.create_advanced_settings_section()
                 
                 # 各種イベントを登録
                 ui_events.register_search_target_events(
@@ -124,23 +124,23 @@ def main():
                 
                 ui_events.register_search_button_events(
                     search_button, query_input, uploaded_image, search_target, 
-                    search_method, top_k_slider, vector_threshold, keyword_threshold, 
+                    search_method, search_count_input, vector_threshold, keyword_threshold, 
                     vector_gallery, keyword_gallery, filename_text, similarity_text, 
-                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text
+                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text
                 )
                 
                 ui_events.register_search_and_answer_button_events(
                     search_and_answer_button, query_input, uploaded_image, search_target, 
-                    search_method, top_k_slider, vector_threshold, keyword_threshold, 
+                    search_method, search_count_input, vector_threshold, keyword_threshold, 
                     vector_gallery, keyword_gallery, filename_text, similarity_text, 
-                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown,
+                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown,
                     search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region
                 )
                 
                 ui_events.register_execute_query_button_events(
-                    execute_query_button, executed_query_text, top_k_slider, keyword_threshold,
-                    vector_gallery, filename_text, similarity_text, caption_text, 
-                    state, executed_query_text, executed_sql_text, pagination_row, answer_question_input
+                    execute_query_button, executed_query_text, search_count_input, keyword_threshold,
+                    vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, 
+                    state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, answer_question_input
                 )
                 
                 ui_events.register_clear_button_events(
@@ -151,13 +151,13 @@ def main():
                 )
                 
                 ui_events.register_show_all_button_events(
-                    show_all_button, top_k_slider, vector_gallery, 
+                    show_all_button, search_count_input, vector_gallery, 
                     keyword_gallery, filename_text, similarity_text, caption_text, 
                     state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, search_target, search_method, answer_generate_button, reference_type_radio
                 )
                 
                 ui_events.register_pagination_events(
-                    prev_button, next_button, top_k_slider, vector_gallery, page_info, state, keyword_gallery, prev_button, next_button
+                    prev_button, next_button, search_count_input, vector_gallery, page_info, state, keyword_gallery, prev_button, next_button
                 )
                 
                 ui_events.register_gallery_selection_events(
@@ -187,7 +187,7 @@ def main():
                     outputs=None
                 ).then(
                     fn=ui_events.show_all_images,
-                    inputs=[top_k_slider, state],
+                    inputs=[search_count_input, state],
                     outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, 
                              caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text]
                 )
