@@ -34,6 +34,16 @@ class UIComponents:
                                 container=True,
                                 visible=True
                             )
+                        with gr.Column():
+                            search_count_input = gr.Number(
+                                minimum=1,
+                                maximum=24,
+                                value=8,
+                                step=1,
+                                label="検索件数",
+                                precision=0,
+                                interactive=True
+                            )
                 with gr.Row():
                     with gr.Column(scale=2):
                         
@@ -83,7 +93,7 @@ class UIComponents:
                     clear_button = gr.Button("クリア")
                     show_all_button = gr.Button("全件表示")
                     
-        return search_target, search_method, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples
+        return search_target, search_method, search_count_input, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples
 
     def create_search_vlm_settings(self):
         """検索タブ専用VLM設定セクションのUIコンポーネントを作成"""
@@ -604,16 +614,8 @@ class UIComponents:
                     label="全文検索の閾値",
                     info="値が小さいほど多くの結果が表示されます（0～100）"
                 )
-            with gr.Row():
-                top_k_slider = gr.Slider(
-                    minimum=1, 
-                    maximum=48, 
-                    value=8, 
-                    step=1, 
-                    label="表示する結果の最大数"
-                )
                 
-        return vector_threshold, keyword_threshold, top_k_slider
+        return vector_threshold, keyword_threshold
         
     def create_answer_generation_section(self):
         """自然言語による回答セクションのUIコンポーネントを作成"""

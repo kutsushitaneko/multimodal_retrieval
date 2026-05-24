@@ -16,6 +16,7 @@ REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
 
 class UIEvents:
     """UIイベントを管理するクラス"""
+    SEARCH_RESULTS_PAGE_SIZE = 8
     
     def __init__(self, search_service):
         """イベントハンドラクラスの初期化"""
@@ -32,6 +33,112 @@ class UIEvents:
         
         # 後方互換性のため既存のvlm_serviceプロパティをアップロードタブ用として保持
         self.vlm_service = self.upload_vlm_service
+        
+    def _normalize_top_k(self, top_k):
+        if hasattr(self.search_service, "normalize_top_k"):
+            return self.search_service.normalize_top_k(top_k)
+        try:
+            normalized = int(top_k)
+        except (TypeError, ValueError):
+            normalized = 8
+        return max(1, min(24, normalized))
+        
+    def _gallery_images_from_results(self, results):
+        output_images = []
+        for result in results or []:
+            if isinstance(result.get('image'), Image.Image):
+                output_images.append(result['image'])
+        return output_images
+        
+    def _get_search_all_results(self, state_data):
+        all_vector_results = state_data.get("all_vector_results", state_data.get("vector_results", []))
+        all_keyword_results = state_data.get("all_keyword_results", state_data.get("keyword_results", []))
+        all_combined_results = state_data.get("all_combined_results", state_data.get("combined_results", []))
+        return all_vector_results or [], all_keyword_results or [], all_combined_results or []
+        
+    def _get_search_page_count(self, all_vector_results, all_keyword_results, all_combined_results, page_size):
+        visible_result_count = max(len(all_vector_results), len(all_keyword_results))
+        if visible_result_count == 0:
+            visible_result_count = len(all_combined_results)
+        return max(1, math.ceil(visible_result_count / page_size)) if page_size > 0 else 1
+        
+    def _sync_search_page(self, state_data, requested_page=None):
+        if state_data is None or not isinstance(state_data, dict):
+            state_data = {"combined_results": [], "vector_results": [], "keyword_results": []}
+            
+        page_size = self.SEARCH_RESULTS_PAGE_SIZE
+        all_vector_results, all_keyword_results, all_combined_results = self._get_search_all_results(state_data)
+        total_pages = self._get_search_page_count(all_vector_results, all_keyword_results, all_combined_results, page_size)
+        current_page = requested_page if requested_page is not None else state_data.get("current_page", 1)
+        current_page = max(1, min(total_pages, int(current_page or 1)))
+        start = (current_page - 1) * page_size
+        end = start + page_size
+        
+        page_vector_results = all_vector_results[start:end]
+        page_keyword_results = all_keyword_results[start:end]
+        page_combined_results = all_combined_results[start:end] if all_combined_results else page_vector_results + page_keyword_results
+        
+        visible_result_count = max(len(all_vector_results), len(all_keyword_results))
+        if visible_result_count == 0:
+            visible_result_count = len(all_combined_results)
+        
+        state_data.update({
+            "pagination_mode": "search",
+            "current_page": current_page,
+            "total_pages": total_pages,
+            "page_size": page_size,
+            "total_image_count": visible_result_count,
+            "all_vector_results": all_vector_results,
+            "all_keyword_results": all_keyword_results,
+            "all_combined_results": all_combined_results,
+            "vector_results": page_vector_results,
+            "keyword_results": page_keyword_results,
+            "combined_results": page_combined_results,
+        })
+        return state_data
+        
+    def _search_page_info_text(self, state_data):
+        current_page = state_data.get("current_page", 1)
+        total_pages = state_data.get("total_pages", 1)
+        vector_count = len(state_data.get("all_vector_results", []))
+        keyword_count = len(state_data.get("all_keyword_results", []))
+        combined_count = len(state_data.get("all_combined_results", []))
+        
+        if keyword_count:
+            return f"{current_page}/{total_pages} ページ（ベクトル {vector_count} 件、全文 {keyword_count} 件）"
+        return f"{current_page}/{total_pages} ページ（検索結果 {max(vector_count, combined_count)} 件）"
+        
+    def _search_pagination_outputs(self, state_data):
+        vector_images = self._gallery_images_from_results(state_data.get("vector_results", []))
+        keyword_images = self._gallery_images_from_results(state_data.get("keyword_results", []))
+        has_keyword_results = bool(state_data.get("all_keyword_results", []))
+        pagination_visible = state_data.get("total_pages", 1) > 1
+        prev_button, next_button = self.update_pagination_buttons(state_data)
+        return (
+            gr.Gallery(value=vector_images, selected_index=None),
+            gr.Gallery(value=keyword_images, visible=has_keyword_results, selected_index=None),
+            state_data,
+            gr.update(visible=pagination_visible),
+            self._search_page_info_text(state_data),
+            prev_button,
+            next_button,
+        )
+        
+    def _search_pagination_control_outputs(self, state_data):
+        pagination_visible = state_data.get("total_pages", 1) > 1
+        prev_button, next_button = self.update_pagination_buttons(state_data)
+        return (
+            state_data,
+            gr.update(visible=pagination_visible),
+            self._search_page_info_text(state_data),
+            prev_button,
+            next_button,
+        )
+        
+    def update_search_pagination(self, state_data):
+        """通常検索結果を8件単位のページ表示に整える"""
+        state_data = self._sync_search_page(state_data, 1)
+        return self._search_pagination_control_outputs(state_data)
         
     def register_vlm_settings_events(self, vlm_service_provider, vlm_model, vlm_temperature, vlm_max_tokens, vlm_oci_region, vlm_status_message):
         """VLM設定のイベントを登録"""
@@ -225,7 +332,7 @@ class UIEvents:
                 outputs=[morphological_analysis_text]
             )
         
-    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None, answer_text=None):
+    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None, answer_text=None):
         """検索ボタンのイベントを登録"""
         # 質問文入力エリアが指定されている場合、検索クエリを質問文入力エリアに最初に設定
         if answer_question_input is not None:
@@ -255,9 +362,9 @@ class UIEvents:
                 inputs=[search_target, morphological_analysis_text],
                 outputs=[morphological_analysis_text]
             ).then(
-                fn=self.hide_pagination,
-                inputs=[],
-                outputs=[pagination_row]
+                fn=self.update_search_pagination,
+                inputs=[state],
+                outputs=[state, pagination_row, page_info, prev_button, next_button]
             ).then(
                 # 検索完了後に先頭画像の情報を「参照するドキュメント（画像）」にセットし、回答生成ボタンを有効化
                 fn=self.update_reference_image_and_enable_answer_generation,
@@ -287,9 +394,9 @@ class UIEvents:
                 inputs=[search_target, morphological_analysis_text],
                 outputs=[morphological_analysis_text]
             ).then(
-                fn=self.hide_pagination,
-                inputs=[],
-                outputs=[pagination_row]
+                fn=self.update_search_pagination,
+                inputs=[state],
+                outputs=[state, pagination_row, page_info, prev_button, next_button]
             ).then(
                 # 検索完了後に先頭画像の情報を「参照するドキュメント（画像）」にセットし、回答生成ボタンを有効化
                 fn=self.update_reference_image_and_enable_answer_generation,
@@ -297,7 +404,7 @@ class UIEvents:
                 outputs=[reference_image_text, answer_generate_button, reference_type_radio] if (reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None) else ([reference_image_text, answer_generate_button] if (reference_image_text is not None and answer_generate_button is not None) else ([reference_image_text] if reference_image_text is not None else []))
             )
         
-    def register_execute_query_button_events(self, execute_query_button, executed_query_text, top_k_slider, keyword_threshold, vector_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text, pagination_row, answer_question_input=None):
+    def register_execute_query_button_events(self, execute_query_button, executed_query_text, top_k_slider, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text, pagination_row, page_info, prev_button, next_button, answer_question_input=None):
         """カスタムクエリ実行ボタンのイベントを登録"""
         # 質問文入力エリアが指定されている場合、実行されたクエリを質問文入力エリアに最初に設定
         if answer_question_input is not None:
@@ -308,30 +415,30 @@ class UIEvents:
             ).then(
                 fn=self.clear_before_custom_search,
                 inputs=[],
-                outputs=[vector_gallery, filename_text, similarity_text, caption_text, state, executed_sql_text, executed_query_text_out]
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_sql_text, executed_query_text_out]
             ).then(
                 fn=self.execute_custom_query,
                 inputs=[executed_query_text, top_k_slider, keyword_threshold],
-                outputs=[vector_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text]
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text]
             ).then(
-                fn=self.hide_pagination,
-                inputs=[],
-                outputs=[pagination_row]
+                fn=self.update_search_pagination,
+                inputs=[state],
+                outputs=[state, pagination_row, page_info, prev_button, next_button]
             )
         else:
             # 質問文入力エリアがない場合は従来の処理
             execute_query_button.click(
                 fn=self.clear_before_custom_search,
                 inputs=[],
-                outputs=[vector_gallery, filename_text, similarity_text, caption_text, state, executed_sql_text, executed_query_text_out]
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_sql_text, executed_query_text_out]
             ).then(
                 fn=self.execute_custom_query,
                 inputs=[executed_query_text, top_k_slider, keyword_threshold],
-                outputs=[vector_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text]
+                outputs=[vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text]
             ).then(
-                fn=self.hide_pagination,
-                inputs=[],
-                outputs=[pagination_row]
+                fn=self.update_search_pagination,
+                inputs=[state],
+                outputs=[state, pagination_row, page_info, prev_button, next_button]
             )
         
     def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text, answer_generate_button=None, answer_text=None, reference_image_text=None, reference_type_radio=None, answer_question_input=None):
@@ -1149,10 +1256,11 @@ class UIEvents:
         
     def clear_before_custom_search(self):
         """カスタム検索実行前にクリアする関数"""
-        return [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", ""
+        return [], gr.Gallery(visible=False), "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": [], "all_combined_results": [], "all_vector_results": [], "all_keyword_results": [], "pagination_mode": "search", "current_page": 1, "page_size": self.SEARCH_RESULTS_PAGE_SIZE}, "", ""
         
     def show_all_images(self, top_k, state_data=None):
         """全件表示ボタンの処理を行う関数"""
+        page_size = self.SEARCH_RESULTS_PAGE_SIZE
         # state_dataがNoneの場合は初期化
         if state_data is None:
             state_data = {
@@ -1169,18 +1277,17 @@ class UIEvents:
         # 総画像数を取得
         total_image_count = self.search_service.database_service.get_total_image_count()
         
-        # スライダーで設定された数分だけ最新の画像を取得
+        # 全件表示も条件付き検索と同じく1ページ8枚固定で表示する
         current_page = 1
-        page_size = top_k
         
         # 1ページ目のデータを取得
-        results, executed_sql = self.search_service.database_service.get_recent_images(top_k, (current_page - 1) * top_k)
+        results, executed_sql = self.search_service.database_service.get_recent_images(page_size, (current_page - 1) * page_size)
         
         # 結果を保存
         all_images = results
         
         # 総ページ数を計算
-        total_pages = math.ceil(total_image_count / top_k) if top_k > 0 else 1
+        total_pages = math.ceil(total_image_count / page_size) if page_size > 0 else 1
         
         # 状態を更新
         state_data.update({
@@ -1191,7 +1298,11 @@ class UIEvents:
             "all_images": all_images,
             "combined_results": results,
             "vector_results": results,
-            "keyword_results": []
+            "keyword_results": [],
+            "pagination_mode": "all",
+            "all_combined_results": results,
+            "all_vector_results": results,
+            "all_keyword_results": []
         })
         
         # 結果を整形
@@ -1237,7 +1348,7 @@ class UIEvents:
         return [], gr.Gallery(visible=False), "", "", "", {
             "current_page": 1,
             "total_pages": 0,
-            "page_size": top_k,
+            "page_size": page_size,
             "total_image_count": 0,
             "all_images": [],
             "combined_results": [],
@@ -1255,6 +1366,7 @@ class UIEvents:
     
     def prev_page(self, top_k, state_data=None):
         """前のページに移動する関数"""
+        all_results_page_size = self.SEARCH_RESULTS_PAGE_SIZE
         # state_dataがNoneの場合は初期化
         if state_data is None:
             state_data = {
@@ -1268,6 +1380,12 @@ class UIEvents:
                 "keyword_results": []
             }
             return gr.Gallery(label="全件表示", value=[]), "0/0 ページ", state_data, gr.Gallery(visible=False), gr.update(interactive=False), gr.update(interactive=False)
+            
+        if state_data.get("pagination_mode") == "search":
+            current_page = state_data.get("current_page", 1)
+            state_data = self._sync_search_page(state_data, current_page - 1)
+            vector_gallery, keyword_gallery, state_data, _, page_info_text, prev_button, next_button = self._search_pagination_outputs(state_data)
+            return vector_gallery, page_info_text, state_data, keyword_gallery, prev_button, next_button
         
         # 現在の状態を取得
         current_page = state_data.get("current_page", 1)
@@ -1280,7 +1398,7 @@ class UIEvents:
             current_page -= 1
             
             # 前のページのデータを取得
-            results, _ = self.search_service.database_service.get_recent_images(top_k, (current_page - 1) * top_k)
+            results, _ = self.search_service.database_service.get_recent_images(all_results_page_size, (current_page - 1) * all_results_page_size)
             all_images = results
             
             # 状態を更新
@@ -1313,6 +1431,7 @@ class UIEvents:
     
     def next_page(self, top_k, state_data=None):
         """次のページに移動する関数"""
+        all_results_page_size = self.SEARCH_RESULTS_PAGE_SIZE
         # state_dataがNoneの場合は初期化
         if state_data is None:
             state_data = {
@@ -1326,6 +1445,12 @@ class UIEvents:
                 "keyword_results": []
             }
             return gr.Gallery(label="全件表示", value=[]), "0/0 ページ", state_data, gr.Gallery(visible=False), gr.update(interactive=False), gr.update(interactive=False)
+            
+        if state_data.get("pagination_mode") == "search":
+            current_page = state_data.get("current_page", 1)
+            state_data = self._sync_search_page(state_data, current_page + 1)
+            vector_gallery, keyword_gallery, state_data, _, page_info_text, prev_button, next_button = self._search_pagination_outputs(state_data)
+            return vector_gallery, page_info_text, state_data, keyword_gallery, prev_button, next_button
         
         # 現在の状態を取得
         current_page = state_data.get("current_page", 1)
@@ -1338,7 +1463,7 @@ class UIEvents:
             current_page += 1
             
             # 次のページのデータを取得
-            results, _ = self.search_service.database_service.get_recent_images(top_k, (current_page - 1) * top_k)
+            results, _ = self.search_service.database_service.get_recent_images(all_results_page_size, (current_page - 1) * all_results_page_size)
             
             # 結果がない場合は前のページに戻る
             if not results:
@@ -1425,6 +1550,9 @@ class UIEvents:
         executed_sql_text,
         execute_query_button,
         pagination_row,
+        page_info,
+        prev_button,
+        next_button,
         morphological_analysis_text,
         reference_image_text,
         answer_question_input,
@@ -1469,6 +1597,10 @@ class UIEvents:
                 state,
                 executed_query_text,
                 executed_sql_text,
+                pagination_row,
+                page_info,
+                prev_button,
+                next_button,
                 morphological_analysis_text,
                 reference_image_text,
                 answer_text,
@@ -1529,7 +1661,7 @@ class UIEvents:
                     interactive=False
                 )
                 error_answer = "❌ 検索クエリまたは質問文が必要です。"
-                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", empty_reference, error_answer, disabled_button, disabled_radio
+                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), "", empty_reference, error_answer, disabled_button, disabled_radio
             
             if verbose:
                 print(f"[DEBUG] 使用する質問文: '{final_answer_question}'")
@@ -1564,7 +1696,7 @@ class UIEvents:
                     interactive=False
                 )
                 error_answer = "❌ 検索結果が取得できませんでした。"
-                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", empty_reference, error_answer, disabled_button, disabled_radio
+                return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), "", empty_reference, error_answer, disabled_button, disabled_radio
             
             # 4. 検索結果から必要なデータを抽出
             vector_gallery_result = search_results[0]
@@ -1576,6 +1708,14 @@ class UIEvents:
             executed_query_text_result = search_results[6]
             executed_sql_text_result = search_results[7]
             morphological_analysis_text_result = search_results[8]
+            
+            (
+                state_result,
+                pagination_row_result,
+                page_info_result,
+                prev_button_result,
+                next_button_result,
+            ) = self.update_search_pagination(state_result)
             
             if verbose:
                 print(f"[DEBUG] 検索結果展開完了")
@@ -1658,6 +1798,10 @@ class UIEvents:
                 state_result,                   # state
                 executed_query_text_result,     # executed_query_text
                 executed_sql_text_result,       # executed_sql_text
+                pagination_row_result,           # pagination_row
+                page_info_result,                # page_info
+                prev_button_result,              # prev_button
+                next_button_result,              # next_button
                 morphological_analysis_text_result,  # morphological_analysis_text
                 reference_image_filename,       # reference_image_text
                 answer,                         # answer_text
@@ -1688,7 +1832,7 @@ class UIEvents:
                 interactive=False
             )
             error_answer = f"❌ 処理中にエラーが発生しました: {str(e)}"
-            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", "", empty_reference, error_answer, disabled_button, disabled_radio
+            return [], [], "", "", "", {"combined_results": [], "vector_results": [], "keyword_results": []}, "", "", gr.update(visible=False), "0/0 ページ", gr.update(interactive=False), gr.update(interactive=False), "", empty_reference, error_answer, disabled_button, disabled_radio
 
     def register_answer_generation_events(
         self,
@@ -2079,6 +2223,7 @@ class UIEvents:
         
     def execute_custom_query(self, custom_query, top_k=5, keyword_threshold=0):
         """カスタム検索クエリを実行する関数"""
+        top_k = self._normalize_top_k(top_k)
         results, executed_sql = self.search_service.database_service.search_by_fulltext(
             custom_query, top_k, keyword_threshold
         )
@@ -2098,7 +2243,31 @@ class UIEvents:
             if first_result['distance'] is not None:
                 score_text = f"{first_result['distance']:.4f}"
             
-            return output_images, first_result['file_name'], score_text, self.search_service.normalize_newlines(first_result['caption']), results, custom_query, executed_sql 
+            state_data = {
+                "combined_results": results,
+                "vector_results": results,
+                "keyword_results": [],
+                "all_combined_results": results,
+                "all_vector_results": results,
+                "all_keyword_results": [],
+                "pagination_mode": "search",
+                "current_page": 1,
+                "page_size": self.SEARCH_RESULTS_PAGE_SIZE,
+            }
+            return output_images[:self.SEARCH_RESULTS_PAGE_SIZE], gr.Gallery(visible=False), first_result['file_name'], score_text, self.search_service.normalize_newlines(first_result['caption']), state_data, custom_query, executed_sql
+            
+        state_data = {
+            "combined_results": [],
+            "vector_results": [],
+            "keyword_results": [],
+            "all_combined_results": [],
+            "all_vector_results": [],
+            "all_keyword_results": [],
+            "pagination_mode": "search",
+            "current_page": 1,
+            "page_size": self.SEARCH_RESULTS_PAGE_SIZE,
+        }
+        return [], gr.Gallery(visible=False), "", "", "", state_data, custom_query, executed_sql
 
     def update_sql_text_lines(self, search_target):
         """検索対象に応じてSQLテキストボックスの行数を更新する関数"""
