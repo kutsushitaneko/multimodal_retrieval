@@ -3,7 +3,6 @@ import cohere
 import oracledb
 from PIL import Image
 from io import BytesIO
-import base64
 import os
 import array
 import time
@@ -11,152 +10,51 @@ import glob
 import sys
 from dotenv import load_dotenv, find_dotenv
 
-def image_to_base64_data_url(image_data):
-    """画像データをBase64エンコードしてData URLに変換"""
-    img = Image.open(BytesIO(image_data))
-    buffered = BytesIO()
-    img.save(buffered, format="JPEG")
-    img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-    data_url = f"data:image/jpeg;base64,{img_base64}"
-    return data_url
+from app.embedding_service import EmbeddingService
+from app.nlp_service import NLPService
+from app.vlm_service_factory import VLMServiceFactory
 
-def get_image_caption(generative_ai_inference_client, image_data):
-    """画像データからキャプションを生成する関数"""
-    PROMPT = """
-    この画像を詳しく分析してください。
-    
-    以下の観点で画像を分析してください。
-    1. 画像に何が写っているか
-    2. 全体的な印象や特徴
-    3. 注目すべきポイント
-    4. 画像に描かれているもののカテゴリと固有の名称
-    5. 画像に描かれているテキスト
-    6. 画像に描かれている URL、IDなどの情報
-    7. 画像が説明、紹介しようとしている内容
-    
-    テキストはすべて抽出してください。
-    日本語で詳しく説明してください。
-    """
-    content1 = oci.generative_ai_inference.models.TextContent()
-    content1.text = PROMPT
-    content2 = oci.generative_ai_inference.models.ImageContent()
-    image_url = oci.generative_ai_inference.models.ImageUrl()
-    image_url.url = image_to_base64_data_url(image_data)
-    content2.image_url = image_url
-    message = oci.generative_ai_inference.models.UserMessage()
-    message.content = [content1,content2]
 
-    chat_request = oci.generative_ai_inference.models.GenericChatRequest()
-    chat_request.messages = [message]
-    chat_request.api_format = oci.generative_ai_inference.models.BaseChatRequest.API_FORMAT_GENERIC
-    chat_request.num_generations = 1
-    chat_request.max_tokens = 1000
-    chat_request.is_stream = False
-    chat_request.temperature = 0.70
-    chat_request.top_p = 0.7
-    chat_request.top_k = -1
-    chat_request.frequency_penalty = 0.5
-    chat_request.presence_penalty = 0.5
+DEFAULT_CAPTION_PROMPT = """
+この画像を詳しく分析してください。
 
-    chat_detail = oci.generative_ai_inference.models.ChatDetails()
-    chat_detail.serving_mode = oci.generative_ai_inference.models.OnDemandServingMode(model_id=MLLM_MODEL_ID)
-    chat_detail.compartment_id = COMPARTMENT_ID
-    chat_detail.chat_request = chat_request
+以下の観点で画像を分析してください。
+1. 画像に何が写っているか
+2. 全体的な印象や特徴
+3. 注目すべきポイント
+4. 画像に描かれているもののカテゴリと固有の名称
+5. 画像に描かれているテキスト
+6. 画像に描かれている URL、IDなどの情報
+7. 画像が説明、紹介しようとしている内容
 
-    chat_response = generative_ai_inference_client.chat(chat_detail)
+テキストはすべて抽出してください。
+日本語で詳しく説明してください。
+"""
 
-    # Print result
-    print("************************** Chat Result *******************************")
-    print(vars(chat_response))
+
+def get_image_caption(nlp_service, image_path, vlm_settings, custom_prompt=None):
+    """UIアプリと同じVLMサービス経由で画像キャプションを生成する"""
+    caption = nlp_service.generate_caption_with_vlm(
+        image_path=image_path,
+        vlm_model=vlm_settings["model"],
+        prompt_text=custom_prompt or DEFAULT_CAPTION_PROMPT,
+        temperature=vlm_settings["temperature"],
+        max_tokens=vlm_settings["max_tokens"],
+        oci_region=vlm_settings["oci_region"],
+    )
+
+    error_markers = (
+        "エラー:",
+        "API エラー:",
+        "キャプション生成中にエラーが発生しました",
+    )
+    if isinstance(caption, str) and any(marker in caption for marker in error_markers):
+        raise RuntimeError(caption)
+
     print("************************** Generated Caption**************************")
-    
-    # 正しいレスポンス構造からテキストを取得
-    if hasattr(chat_response, 'data') and hasattr(chat_response.data, 'chat_response'):
-        if hasattr(chat_response.data.chat_response, 'choices') and len(chat_response.data.chat_response.choices) > 0:
-            choice = chat_response.data.chat_response.choices[0]
-            if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
-                for content in choice.message.content:
-                    if hasattr(content, 'text'):
-                        print(content.text)
-                        # VARCHAR2(4000)の制限を考慮して、キャプションを4000文字以内に切り詰める
-                        return content.text[:4000] if len(content.text) > 4000 else content.text
-    
-    # 上記の方法でテキストを取得できない場合は、代替方法を試す
-    print("標準的な方法でテキストを取得できませんでした。代替方法を試みます。")
-    try:
-        # レスポンスの構造を確認
-        response_data = chat_response.data
-        if hasattr(response_data, 'chat_response'):
-            chat_response_data = response_data.chat_response
-            if hasattr(chat_response_data, 'choices') and len(chat_response_data.choices) > 0:
-                first_choice = chat_response_data.choices[0]
-                if hasattr(first_choice, 'message'):
-                    message = first_choice.message
-                    if hasattr(message, 'content') and len(message.content) > 0:
-                        for content_item in message.content:
-                            if hasattr(content_item, 'text'):
-                                # VARCHAR2(4000)の制限を考慮して、キャプションを4000文字以内に切り詰める
-                                return content_item.text[:4000] if len(content_item.text) > 4000 else content_item.text
-    except Exception as e:
-        print(f"代替方法でもエラーが発生しました: {str(e)}")
-    
-    # すべての方法が失敗した場合
-    return "画像の説明を生成できませんでした。"
+    print(caption)
+    return caption
 
-def get_image_embedding_oci(generative_ai_inference_client, image_data):
-    """OCI GenAI Serviceを使用して画像の埋め込みベクトルを生成"""
-    # 画像データをBase64エンコードしてData URLに変換
-    data_url = image_to_base64_data_url(image_data)
-    
-    # OCI GenAI Serviceを使用して画像の埋め込みベクトルを取得
-    # 画像埋め込みもEmbedTextDetailsを使用し、画像データをinputsに渡す
-    embed_text_detail = oci.generative_ai_inference.models.EmbedTextDetails()
-    embed_text_detail.serving_mode = oci.generative_ai_inference.models.OnDemandServingMode(model_id=EMBED_MODEL_ID)
-    embed_text_detail.compartment_id = COMPARTMENT_ID
-    embed_text_detail.inputs = [data_url]  # 画像のData URLを文字列として渡す
-    embed_text_detail.input_type = "IMAGE"
-    
-    embedding_response = generative_ai_inference_client.embed_text(embed_text_detail)
-    
-    return embedding_response.data.embeddings[0]
-
-def get_image_embedding_cohere(cohere_client, image_data):
-    """CohereAIを使用して画像の埋め込みベクトルを生成"""
-    # 画像データをBase64エンコードしてData URLに変換
-    data_url = image_to_base64_data_url(image_data)
-    
-    # Cohere APIを使用して画像の埋め込みベクトルを取得
-    response = cohere_client.embed(
-        images=[data_url],
-        model="embed-v4.0",
-        input_type="image",
-        embedding_types=["float"],
-    )
-    
-    return response.embeddings.float[0]
-
-def get_text_embedding_oci(generative_ai_inference_client, text):
-    """OCI GenAI Serviceを使用してテキストの埋め込みベクトルを生成"""
-    embed_text_detail = oci.generative_ai_inference.models.EmbedTextDetails()
-    embed_text_detail.serving_mode = oci.generative_ai_inference.models.OnDemandServingMode(model_id=EMBED_MODEL_ID)
-    embed_text_detail.compartment_id = COMPARTMENT_ID
-    embed_text_detail.inputs = [text]
-    embed_text_detail.input_type = "SEARCH_DOCUMENT"
-    embed_text_detail.truncate = "END"
-    
-    embedding_response = generative_ai_inference_client.embed_text(embed_text_detail)
-    
-    return embedding_response.data.embeddings[0]
-
-def get_text_embedding_cohere(cohere_client, text):
-    """CohereAIを使用してテキストの埋め込みベクトルを生成"""
-    response = cohere_client.embed(
-        texts=[text],
-        model="embed-v4.0",
-        input_type="search_document"
-    )
-    
-    return response.embeddings[0]
 
 def is_image_registered(db_connection, file_name):
     """画像が既にデータベースに登録されているかチェック"""
@@ -167,6 +65,7 @@ def is_image_registered(db_connection, file_name):
         return count > 0
     finally:
         cursor.close()
+
 
 def clean_caption(caption):
     """キャプションから不要な文字列を削除する関数"""
@@ -207,9 +106,10 @@ def clean_caption(caption):
     
     return cleaned_caption
 
-def insert_image_to_db(generative_ai_inference_client, mllm_client, cohere_client, db_connection, image_data, file_name):
+
+def insert_image_to_db(embedding_service, nlp_service, vlm_settings, db_connection, image_data, image_path, file_name):
     """画像とその説明文をOracle Databaseに挿入"""
-    raw_caption = get_image_caption(mllm_client, image_data)
+    raw_caption = get_image_caption(nlp_service, image_path, vlm_settings)
     
     # キャプションをクリーニング
     caption = clean_caption(raw_caption)
@@ -228,15 +128,10 @@ def insert_image_to_db(generative_ai_inference_client, mllm_client, cohere_clien
                 truncated_bytes = truncated_bytes[:-1]
         print(f"警告: キャプションが4000バイトを超えたため切り詰めました。元のバイト数: {len(caption_bytes)}, 文字数: {len(clean_caption(raw_caption))}")
     
-    # 画像とテキストの埋め込みベクトルを取得（プロバイダーに応じて切り替え）
-    if EMBED_MODEL_PROVIDER == "OCI":
-        image_embedding = array.array('f', get_image_embedding_oci(generative_ai_inference_client, image_data))
-        caption_embedding = array.array('f', get_text_embedding_oci(generative_ai_inference_client, caption))
-    elif EMBED_MODEL_PROVIDER == "CohereAI":
-        image_embedding = array.array('f', get_image_embedding_cohere(cohere_client, image_data))
-        caption_embedding = array.array('f', get_text_embedding_cohere(cohere_client, caption))
-    else:
-        raise ValueError(f"サポートされていない埋め込みモデルプロバイダーです: {EMBED_MODEL_PROVIDER}")
+    # UIアプリと同じ埋め込みサービスでベクトルを生成
+    pil_image = Image.open(BytesIO(image_data))
+    image_embedding = array.array('f', embedding_service.get_image_embedding(pil_image))
+    caption_embedding = array.array('f', embedding_service.get_text_embedding(caption, "search_document"))
     
     cursor = db_connection.cursor()
     try:
@@ -260,6 +155,7 @@ def insert_image_to_db(generative_ai_inference_client, mllm_client, cohere_clien
         raise
     finally:
         cursor.close()
+
 
 if __name__ == "__main__":
     # 処理開始時間を記録
@@ -328,32 +224,32 @@ if __name__ == "__main__":
         # OCI GenAIクライアントを初期化（埋め込みベクトル生成用）
         generative_ai_inference_client = oci.generative_ai_inference.GenerativeAiInferenceClient(config=config, retry_strategy=oci.retry.NoneRetryStrategy(), timeout=(10,240))
         
-        # MLLM用のクライアントを初期化（リージョンオーバーライドがある場合は別のクライアントを作成）
-        mllm_client = generative_ai_inference_client  # デフォルトは同じクライアントを使用
-        
-        if MLLM_MODEL_PROVIDER == "OCI":
-            mllm_region_override = os.getenv("OCI_REGION_OVERRIDE_FOR_MLLM")
-            if mllm_region_override:
-                # MLLM専用のリージョンが指定されている場合は、別のクライアントを作成
-                mllm_config = oci.config.from_file(file_location='~/.oci/config', profile_name=CONFIG_PROFILE)
-                mllm_config["region"] = mllm_region_override
-                mllm_client = oci.generative_ai_inference.GenerativeAiInferenceClient(config=mllm_config, retry_strategy=oci.retry.NoneRetryStrategy(), timeout=(10,240))
-                print(f"MLLM専用リージョン: {mllm_region_override}")
-            else:
-                print(f"MLLM用リージョン: {os.getenv('OCI_REGION')} (デフォルト)")
-        else:
-            print(f"MLLM用リージョン: {os.getenv('OCI_REGION')} (非OCIプロバイダー)") 
-
         # Cohereクライアントを初期化（必要な場合のみ）
         cohere_client = None
         if EMBED_MODEL_PROVIDER == "CohereAI":
             COHERE_API_KEY = os.getenv("COHERE_API_KEY")
             cohere_client = cohere.Client(api_key=COHERE_API_KEY)
 
+        # UIアプリのアップロードタブと同じサービス設定でVLM/埋め込みを初期化
+        embedding_service = EmbeddingService(
+            embed_model_provider=EMBED_MODEL_PROVIDER,
+            embed_model_id=EMBED_MODEL_ID,
+            compartment_id=COMPARTMENT_ID,
+            cohere_client=cohere_client,
+            oci_client=generative_ai_inference_client,
+        )
+        upload_vlm_service = VLMServiceFactory.create_upload_vlm_service()
+        vlm_settings = upload_vlm_service.get_current_vlm_settings()
+        nlp_service = NLPService(upload_vlm_service)
+
         print(f"埋め込みモデルプロバイダー: {EMBED_MODEL_PROVIDER}")
         print(f"埋め込みモデルID: {EMBED_MODEL_ID}")
         print(f"VLM モデルプロバイダー: {MLLM_MODEL_PROVIDER}")
         print(f"VLM モデルID: {MLLM_MODEL_ID}")
+        print(f"VLM UIモデル: {vlm_settings['model']}")
+        print(f"VLM temperature: {vlm_settings['temperature']}")
+        print(f"VLM max_tokens: {vlm_settings['max_tokens']}")
+        print(f"VLM OCIリージョン: {vlm_settings['oci_region']}")
 
         # Oracle接続を確立
         db_connection = oracledb.connect(user=USERNAME, password=PASSWORD, dsn=DSN)
@@ -386,7 +282,7 @@ if __name__ == "__main__":
                     image_data = image_file.read()
                 
                 # 画像データを挿入
-                if insert_image_to_db(generative_ai_inference_client, mllm_client, cohere_client, db_connection, image_data, file_name):
+                if insert_image_to_db(embedding_service, nlp_service, vlm_settings, db_connection, image_data, image_path, file_name):
                     newly_registered += 1
                 else:
                     failed_registrations += 1

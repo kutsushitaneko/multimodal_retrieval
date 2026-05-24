@@ -8,6 +8,9 @@ REFERENCE_TYPE_LABEL_TEXT = "参照する情報の種類"
 REFERENCE_TYPE_ALL = "すべて"
 REFERENCE_TYPE_CAPTION_ONLY = "キャプションのみ"
 REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
+ANSWER_GENERATION_MODE_LABEL_TEXT = "回答生成モード"
+ANSWER_MODE_SINGLE_IMAGE = "先頭画像あるいは選択した１つの画像"
+ANSWER_MODE_LISTWISE = "VLMによるフィルタリングと並べ替え"
 
 class UIComponents:
     """UIコンポーネントを管理するクラス"""
@@ -44,6 +47,14 @@ class UIComponents:
                                 precision=0,
                                 interactive=True
                             )
+                with gr.Accordion("検索結果の選別・並べ替え設定", open=False):
+                    answer_generation_mode_radio = gr.Radio(
+                        choices=[ANSWER_MODE_SINGLE_IMAGE, ANSWER_MODE_LISTWISE],
+                        value=ANSWER_MODE_LISTWISE,
+                        label=ANSWER_GENERATION_MODE_LABEL_TEXT,
+                        container=True,
+                        interactive=True
+                    )
                 with gr.Row():
                     with gr.Column(scale=2):
                         
@@ -70,6 +81,8 @@ class UIComponents:
                                             "MCPは、アプリ開発者にとってどんなメリットがありますか？",
                                             "ORA-00923 とは何ですか？",
                                             "Oracle Autonomous Database は、Generative AI Agents のナレッジベースとして利用できますか？",
+                                            "ベクトル検索のチャンクサイズと件数と精度の関係は？",
+                                            "企業がコーディング・エージェントではなく独自のエージェントを開発する意義はどこにありますか？",
                                             "川口市栄町の7月の金属ゴミの回収日はいつ？",
                                             "2312.10997のタイトルは？", 
                                             "https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16"
@@ -93,7 +106,7 @@ class UIComponents:
                     clear_button = gr.Button("クリア")
                     show_all_button = gr.Button("全件表示")
                     
-        return search_target, search_method, search_count_input, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples
+        return search_target, search_method, search_count_input, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples, answer_generation_mode_radio
 
     def create_search_vlm_settings(self):
         """検索タブ専用VLM設定セクションのUIコンポーネントを作成"""
@@ -668,8 +681,28 @@ class UIComponents:
                     show_copy_button=True,
                     placeholder="回答がここに表示されます"
                 )
+            with gr.Row():
+                referenced_images_gallery = gr.Gallery(
+                    label="参照した画像",
+                    show_label=True,
+                    columns=4,
+                    height=240,
+                    object_fit="contain",
+                    visible=False
+                )
+            with gr.Row():
+                listwise_reason_text = gr.Textbox(
+                    label="reason",
+                    show_label=True,
+                    interactive=False,
+                    lines=3,
+                    container=True,
+                    show_copy_button=True,
+                    visible=False,
+                    placeholder="VLMによるフィルタリングと並べ替えの選別理由がここに表示されます"
+                )
                 
-        return (reference_image_text, answer_generate_button, answer_text, reference_type_radio, answer_question_input)
+        return (reference_image_text, answer_generate_button, answer_text, reference_type_radio, answer_question_input, referenced_images_gallery, listwise_reason_text)
     
     def create_answer_prompt_settings_section(self):
         """回答生成プロンプトの設定と編集セクションのUIコンポーネントを作成"""

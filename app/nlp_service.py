@@ -75,6 +75,238 @@ class NLPService:
         except Exception as e:
             print(f"VLMキャプション生成エラー: {e}")
             return f"キャプション生成中にエラーが発生しました: {str(e)}"
+
+    def generate_answer_with_vlm_images(self, image_paths, vlm_model, prompt_text, temperature=0.3, max_tokens=4096, oci_region="Japan Central (Osaka)"):
+        """複数画像をVLMに渡して回答を生成する"""
+        try:
+            image_paths = [path for path in (image_paths or []) if path]
+            if not image_paths:
+                return "エラー: VLMに渡す画像がありません"
+            if len(image_paths) == 1:
+                return self.generate_caption_with_vlm(
+                    image_paths[0],
+                    vlm_model,
+                    prompt_text,
+                    temperature,
+                    max_tokens,
+                    oci_region,
+                )
+
+            api_type = self.vlm_service.get_api_type(vlm_model)
+            model_name = self.vlm_service.get_model_name(vlm_model)
+            image_data_urls = [self._image_to_base64_data_url(image_path) for image_path in image_paths]
+
+            if api_type.startswith("anthropic"):
+                return self._generate_multi_image_answer_anthropic(model_name, image_data_urls, prompt_text, temperature, max_tokens)
+            elif api_type.startswith("oci"):
+                return self._generate_multi_image_answer_oci(vlm_model, model_name, image_data_urls, prompt_text, temperature, max_tokens, oci_region)
+            elif api_type.startswith("openai"):
+                return self._generate_multi_image_answer_openai(model_name, api_type, image_data_urls, prompt_text, temperature, max_tokens)
+            elif "bedrock" in api_type.lower():
+                return self._generate_multi_image_answer_bedrock(model_name, image_data_urls, prompt_text, temperature, max_tokens)
+            elif "vertex" in api_type.lower() or "google" in api_type.lower():
+                return self._generate_multi_image_answer_vertex(model_name, image_data_urls, prompt_text, temperature, max_tokens)
+            else:
+                return f"エラー: サポートされていないAPIタイプ: {api_type}"
+        except Exception as e:
+            print(f"複数画像VLM回答生成エラー: {e}")
+            return f"複数画像回答生成中にエラーが発生しました: {str(e)}"
+
+    def _split_data_url(self, image_data_url):
+        media_type = image_data_url.split(';')[0].split(':')[1]
+        base64_data = image_data_url.split(',')[1]
+        return media_type, base64_data
+
+    def _generate_multi_image_answer_anthropic(self, model_name, image_data_urls, prompt_text, temperature, max_tokens):
+        try:
+            from anthropic import Anthropic
+
+            client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            content = []
+            for image_data_url in image_data_urls:
+                media_type, base64_data = self._split_data_url(image_data_url)
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": base64_data,
+                    },
+                })
+            content.append({"type": "text", "text": prompt_text})
+
+            params = {
+                "model": model_name,
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": content}],
+            }
+            if model_name != "claude-opus-4-7":
+                params["temperature"] = temperature
+
+            response = client.messages.create(**params)
+            return response.content[0].text
+        except Exception as e:
+            return f"Anthropic API エラー: {str(e)}"
+
+    def _generate_multi_image_answer_openai(self, model_name, api_type, image_data_urls, prompt_text, temperature, max_tokens):
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            if "reasoning" in api_type:
+                content = [{"type": "input_text", "text": prompt_text}]
+                content.extend({"type": "input_image", "image_url": image_data_url} for image_data_url in image_data_urls)
+                response = client.responses.create(
+                    model=model_name,
+                    input=[{"role": "user", "content": content}],
+                    reasoning={"effort": "medium"},
+                )
+                return response.output_text
+
+            content = [{"type": "text", "text": prompt_text}]
+            content.extend({"type": "image_url", "image_url": {"url": image_data_url}} for image_data_url in image_data_urls)
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": content}],
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"OpenAI API エラー: {str(e)}"
+
+    def _generate_multi_image_answer_oci(self, model_display_name, model_name, image_data_urls, prompt_text, temperature, max_tokens, oci_region):
+        try:
+            import oci
+            from oci.generative_ai_inference import GenerativeAiInferenceClient
+            from oci.generative_ai_inference.models import ChatDetails, OnDemandServingMode
+
+            region_id = self.vlm_service.resolve_oci_region_id(oci_region)
+            config = oci.config.from_file()
+            config["region"] = region_id
+            client = GenerativeAiInferenceClient(config)
+
+            compartment_id = os.getenv("OCI_COMPARTMENT_ID")
+            if not compartment_id:
+                return "エラー: OCI_COMPARTMENT_IDが設定されていません"
+
+            text_content = TextContent()
+            text_content.text = prompt_text
+            content = [text_content]
+            for image_data_url in image_data_urls:
+                media_type, base64_data = self._split_data_url(image_data_url)
+                image_content = ImageContent()
+                image_url_obj = ImageUrl()
+                image_url_obj.url = f"data:{media_type};base64,{base64_data}"
+                image_content.image_url = image_url_obj
+                content.append(image_content)
+
+            message = UserMessage()
+            message.content = content
+
+            chat_request = GenericChatRequest()
+            chat_request.messages = [message]
+            chat_request.api_format = BaseChatRequest.API_FORMAT_GENERIC
+            chat_request.num_generations = 1
+            chat_request.max_tokens = max_tokens
+            chat_request.is_stream = False
+            chat_request.temperature = temperature
+            chat_request.top_p = 1.0 if self.vlm_service.get_api_type(model_display_name) in ["oci.xai.chat", "oci.gemini.chat"] else 0.9
+            if self.vlm_service.get_api_type(model_display_name) == "oci.llama.chat":
+                chat_request.top_k = -1
+                chat_request.frequency_penalty = 0.5
+                chat_request.presence_penalty = 0.5
+
+            chat_details = ChatDetails()
+            chat_details.serving_mode = OnDemandServingMode(model_id=model_name)
+            chat_details.compartment_id = compartment_id
+            chat_details.chat_request = chat_request
+
+            response = client.chat(chat_details)
+            if hasattr(response, 'data') and hasattr(response.data, 'chat_response'):
+                if hasattr(response.data.chat_response, 'choices') and len(response.data.chat_response.choices) > 0:
+                    choice = response.data.chat_response.choices[0]
+                    if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
+                        for content_item in choice.message.content:
+                            if hasattr(content_item, 'text'):
+                                return content_item.text
+            return f"OCI APIからのレスポンス構造が予期しない形式です: {type(response.data)}"
+        except Exception as e:
+            return f"OCI API エラー: {str(e)}"
+
+    def _generate_multi_image_answer_bedrock(self, model_name, image_data_urls, prompt_text, temperature, max_tokens):
+        try:
+            import boto3
+            import json
+
+            bedrock_runtime = boto3.client(service_name='bedrock-runtime', region_name='us-west-2')
+            if "claude" not in model_name.lower():
+                return self._generate_caption_bedrock(model_name, image_data_urls[0], prompt_text, temperature, max_tokens)
+
+            content = [{"type": "text", "text": prompt_text}]
+            for image_data_url in image_data_urls:
+                media_type, base64_data = self._split_data_url(image_data_url)
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": base64_data,
+                    },
+                })
+
+            body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "messages": [{"role": "user", "content": content}],
+            }
+            response = bedrock_runtime.invoke_model(
+                modelId=model_name,
+                contentType="application/json",
+                accept="application/json",
+                body=json.dumps(body),
+            )
+            response_body = json.loads(response['body'].read())
+            for content_item in response_body.get('content', []):
+                if content_item.get('type') == 'text':
+                    return content_item.get('text', '')
+            return response_body.get('completion', '')
+        except Exception as e:
+            return f"Bedrock API エラー: {str(e)}"
+
+    def _generate_multi_image_answer_vertex(self, model_name, image_data_urls, prompt_text, temperature, max_tokens):
+        try:
+            if "gemini" not in model_name.lower():
+                return self._generate_caption_vertex(model_name, image_data_urls[0], prompt_text, temperature, max_tokens)
+
+            import base64
+            import google.cloud.aiplatform as aiplatform
+            from vertexai.preview.generative_models import GenerativeModel, Part
+
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+            location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+            if not project_id:
+                return "エラー: GOOGLE_CLOUD_PROJECTが設定されていません"
+
+            aiplatform.init(project=project_id, location=location)
+            parts = [Part.from_text(prompt_text)]
+            for image_data_url in image_data_urls:
+                media_type, base64_data = self._split_data_url(image_data_url)
+                parts.append(Part.from_data(data=base64.b64decode(base64_data), mime_type=media_type))
+
+            model = GenerativeModel(model_name)
+            response = model.generate_content(
+                parts,
+                generation_config={
+                    "temperature": temperature,
+                    "max_output_tokens": max_tokens,
+                    "top_p": 0.9,
+                },
+            )
+            return response.text
+        except Exception as e:
+            return f"Vertex AI エラー: {str(e)}"
     
     def _image_to_base64_data_url(self, image_path):
         """画像をBase64データURLに変換（WebP対応強化）"""
