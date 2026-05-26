@@ -112,6 +112,251 @@ class NLPService:
             print(f"複数画像VLM回答生成エラー: {e}")
             return f"複数画像回答生成中にエラーが発生しました: {str(e)}"
 
+    def generate_text(self, model, prompt_text, temperature=0.0, max_tokens=4096, oci_region="Japan Central (Osaka)"):
+        """画像を渡さず、定義済みモデルでテキスト生成を行う。"""
+        try:
+            api_type = self.vlm_service.get_api_type(model)
+            model_name = self.vlm_service.get_model_name(model)
+            if api_type.startswith("anthropic"):
+                return self._generate_text_anthropic(model_name, prompt_text, temperature, max_tokens)
+            elif api_type.startswith("openai"):
+                return self._generate_text_openai(model_name, api_type, prompt_text, temperature, max_tokens)
+            elif api_type.startswith("cohere"):
+                return self._generate_text_cohere(model_name, prompt_text, temperature, max_tokens)
+            elif api_type.startswith("oci"):
+                return self._generate_text_oci(model, model_name, api_type, prompt_text, temperature, max_tokens, oci_region)
+            elif "bedrock" in api_type.lower():
+                return self._generate_text_bedrock(model_name, prompt_text, temperature, max_tokens)
+            elif "vertex" in api_type.lower() or "google" in api_type.lower():
+                return self._generate_text_vertex(model_name, prompt_text, temperature, max_tokens)
+            else:
+                return f"エラー: サポートされていないAPIタイプ: {api_type}"
+        except Exception as e:
+            print(f"テキスト生成エラー: {e}")
+            return f"テキスト生成中にエラーが発生しました: {str(e)}"
+
+    def _generate_text_anthropic(self, model_name, prompt_text, temperature, max_tokens):
+        try:
+            from anthropic import Anthropic
+
+            client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            params = {
+                "model": model_name,
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_text}]}],
+            }
+            if model_name != "claude-opus-4-7":
+                params["temperature"] = temperature
+            response = client.messages.create(**params)
+            return response.content[0].text
+        except Exception as e:
+            return f"Anthropic API エラー: {str(e)}"
+
+    def _generate_text_openai(self, model_name, api_type, prompt_text, temperature, max_tokens):
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            if "reasoning" in api_type:
+                response = client.responses.create(
+                    model=model_name,
+                    input=[{"role": "user", "content": [{"type": "input_text", "text": prompt_text}]}],
+                    reasoning={"effort": "medium"},
+                )
+                return response.output_text
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt_text}],
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"OpenAI API エラー: {str(e)}"
+
+    def _generate_text_cohere(self, model_name, prompt_text, temperature, max_tokens):
+        try:
+            import cohere
+
+            client = cohere.Client(os.getenv("COHERE_API_KEY"))
+            response = client.chat(
+                model=model_name,
+                message=prompt_text,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return getattr(response, "text", "") or str(response)
+        except Exception as e:
+            return f"Cohere API エラー: {str(e)}"
+
+    def _generate_text_oci(self, model_display_name, model_name, api_type, prompt_text, temperature, max_tokens, oci_region):
+        if api_type == "oci.cohere.chat":
+            return self._generate_text_oci_cohere(model_name, prompt_text, temperature, max_tokens, oci_region)
+        if api_type in ["oci.llama.chat", "oci.xai.chat", "oci.gemini.chat"]:
+            return self._generate_text_oci_generic(model_display_name, model_name, prompt_text, temperature, max_tokens, oci_region)
+        return f"エラー: テキスト生成に未対応のOCI APIタイプ: {api_type}"
+
+    def _generate_text_oci_generic(self, model_display_name, model_name, prompt_text, temperature, max_tokens, oci_region):
+        try:
+            import oci
+            from oci.generative_ai_inference import GenerativeAiInferenceClient
+            from oci.generative_ai_inference.models import ChatDetails, OnDemandServingMode
+
+            region_id = self._resolve_generation_region(model_display_name, oci_region)
+            config = oci.config.from_file()
+            config["region"] = region_id
+            client = GenerativeAiInferenceClient(config)
+
+            compartment_id = os.getenv("OCI_COMPARTMENT_ID")
+            if not compartment_id:
+                return "エラー: OCI_COMPARTMENT_IDが設定されていません"
+
+            content = TextContent()
+            content.text = prompt_text
+            message = UserMessage()
+            message.content = [content]
+
+            chat_request = GenericChatRequest()
+            chat_request.messages = [message]
+            chat_request.api_format = BaseChatRequest.API_FORMAT_GENERIC
+            chat_request.num_generations = 1
+            chat_request.max_tokens = max_tokens
+            chat_request.is_stream = False
+            chat_request.temperature = temperature
+            chat_request.top_p = 1.0
+
+            chat_details = ChatDetails()
+            chat_details.serving_mode = OnDemandServingMode(model_id=model_name)
+            chat_details.compartment_id = compartment_id
+            chat_details.chat_request = chat_request
+
+            response = client.chat(chat_details)
+            return self._extract_oci_text_response(response)
+        except Exception as e:
+            return f"OCI API エラー: {str(e)}"
+
+    def _generate_text_oci_cohere(self, model_name, prompt_text, temperature, max_tokens, oci_region):
+        try:
+            import oci
+            from oci.generative_ai_inference import GenerativeAiInferenceClient
+            from oci.generative_ai_inference.models import ChatDetails, CohereChatRequest, OnDemandServingMode
+
+            region_id = self.vlm_service.resolve_oci_region_id(oci_region)
+            config = oci.config.from_file()
+            config["region"] = region_id
+            client = GenerativeAiInferenceClient(config)
+
+            compartment_id = os.getenv("OCI_COMPARTMENT_ID")
+            if not compartment_id:
+                return "エラー: OCI_COMPARTMENT_IDが設定されていません"
+
+            chat_request = CohereChatRequest()
+            chat_request.message = prompt_text
+            chat_request.max_tokens = max_tokens
+            chat_request.temperature = temperature
+            chat_request.is_stream = False
+
+            chat_details = ChatDetails()
+            chat_details.serving_mode = OnDemandServingMode(model_id=model_name)
+            chat_details.compartment_id = compartment_id
+            chat_details.chat_request = chat_request
+
+            response = client.chat(chat_details)
+            return self._extract_oci_text_response(response)
+        except Exception as e:
+            return f"OCI Cohere API エラー: {str(e)}"
+
+    def _generate_text_bedrock(self, model_name, prompt_text, temperature, max_tokens):
+        try:
+            import boto3
+            import json
+
+            bedrock_runtime = boto3.client(service_name='bedrock-runtime', region_name=os.getenv("AWS_DEFAULT_REGION", "us-west-2"))
+            if "claude" in model_name.lower():
+                body = {
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_text}]}],
+                }
+            elif "llama" in model_name.lower():
+                body = {
+                    "prompt": prompt_text,
+                    "max_gen_len": max_tokens,
+                    "temperature": temperature,
+                    "top_p": 0.9,
+                }
+            else:
+                body = {
+                    "inputText": prompt_text,
+                    "textGenerationConfig": {
+                        "maxTokenCount": max_tokens,
+                        "temperature": temperature,
+                        "topP": 0.9,
+                    },
+                }
+
+            response = bedrock_runtime.invoke_model(
+                modelId=model_name,
+                contentType="application/json",
+                accept="application/json",
+                body=json.dumps(body),
+            )
+            response_body = json.loads(response['body'].read())
+            if "claude" in model_name.lower():
+                for content_item in response_body.get('content', []):
+                    if content_item.get('type') == 'text':
+                        return content_item.get('text', '')
+                return response_body.get('completion', '')
+            if "llama" in model_name.lower():
+                return response_body.get('generation', '')
+            return response_body.get('results', [{}])[0].get('outputText', '')
+        except Exception as e:
+            return f"Bedrock API エラー: {str(e)}"
+
+    def _generate_text_vertex(self, model_name, prompt_text, temperature, max_tokens):
+        try:
+            import google.cloud.aiplatform as aiplatform
+            from vertexai.preview.generative_models import GenerativeModel
+
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+            location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+            if not project_id:
+                return "エラー: GOOGLE_CLOUD_PROJECTが設定されていません"
+
+            aiplatform.init(project=project_id, location=location)
+            model = GenerativeModel(model_name)
+            response = model.generate_content(
+                prompt_text,
+                generation_config={
+                    "temperature": temperature,
+                    "max_output_tokens": max_tokens,
+                    "top_p": 0.9,
+                },
+            )
+            return response.text
+        except Exception as e:
+            return f"Vertex AI エラー: {str(e)}"
+
+    def _extract_oci_text_response(self, response):
+        if hasattr(response, 'data') and hasattr(response.data, 'chat_response'):
+            chat_response = response.data.chat_response
+            if hasattr(chat_response, 'text') and chat_response.text:
+                return chat_response.text
+            if hasattr(chat_response, 'choices') and len(chat_response.choices) > 0:
+                choice = chat_response.choices[0]
+                if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
+                    for content_item in choice.message.content:
+                        if hasattr(content_item, 'text'):
+                            return content_item.text
+        return f"OCI APIからのレスポンス構造が予期しない形式です: {type(response.data)}"
+
+    def _resolve_generation_region(self, model_display_name, selected_region):
+        default_region = self.vlm_service.get_model_default_region(model_display_name)
+        if default_region:
+            return default_region
+        return self.vlm_service.resolve_oci_region_id(selected_region)
+
     def _split_data_url(self, image_data_url):
         media_type = image_data_url.split(';')[0].split(':')[1]
         base64_data = image_data_url.split(',')[1]

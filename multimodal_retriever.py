@@ -6,6 +6,7 @@ from app.database_service import DatabaseService
 from app.search_service import SearchService
 from app.ui.components import UIComponents
 from app.ui.events import UIEvents
+from app.ui.agentic_events import AgenticRAGEvents
 from app.search_query_generator import SearchQueryGenerator
 from app.cleanup_service import CleanupService
 import os
@@ -61,6 +62,7 @@ def main():
     # UIコンポーネントとイベントを初期化
     ui_components = UIComponents()
     ui_events = UIEvents(search_service)
+    agentic_events = AgenticRAGEvents(search_service)
     
     # Gradioインターフェースの作成
     with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕", delete_cache=(86400, 86400)) as demo:
@@ -251,6 +253,64 @@ def main():
                     fn=ui_events.update_copy_button_state,
                     inputs=[state],
                     outputs=[copy_filename_button]
+                )
+
+            # タブ3: Agentic RAG
+            with gr.Tab("Agentic RAG"):
+                (
+                    agentic_question_input,
+                    agentic_uploaded_image,
+                    agentic_reference_type_radio,
+                    agentic_top_k_input,
+                    agentic_max_iterations_input,
+                    agentic_run_button,
+                    agentic_clear_button,
+                    agentic_answer_text,
+                    agentic_referenced_images_gallery,
+                    agentic_trace_text,
+                    agentic_selection_reason_text,
+                    agentic_answer_prompt_template_dropdown,
+                ) = ui_components.create_agentic_rag_section()
+
+                (
+                    agentic_vlm_service_provider,
+                    agentic_vlm_model,
+                    agentic_vlm_temperature,
+                    agentic_vlm_max_tokens,
+                    agentic_vlm_oci_region,
+                    agentic_decompose_model,
+                    agentic_sufficiency_model,
+                    agentic_followup_query_model,
+                ) = ui_components.create_agentic_vlm_settings()
+
+                agentic_events.register_vlm_settings_events(
+                    agentic_vlm_service_provider,
+                    agentic_vlm_model,
+                    agentic_vlm_temperature,
+                    agentic_vlm_max_tokens,
+                    agentic_vlm_oci_region,
+                )
+
+                agentic_events.register_agentic_rag_events(
+                    agentic_run_button,
+                    agentic_clear_button,
+                    agentic_question_input,
+                    agentic_uploaded_image,
+                    agentic_reference_type_radio,
+                    agentic_top_k_input,
+                    agentic_max_iterations_input,
+                    agentic_answer_prompt_template_dropdown,
+                    agentic_vlm_model,
+                    agentic_vlm_temperature,
+                    agentic_vlm_max_tokens,
+                    agentic_vlm_oci_region,
+                    agentic_decompose_model,
+                    agentic_sufficiency_model,
+                    agentic_followup_query_model,
+                    agentic_answer_text,
+                    agentic_referenced_images_gallery,
+                    agentic_trace_text,
+                    agentic_selection_reason_text,
                 )
     
     # アプリケーションの起動
