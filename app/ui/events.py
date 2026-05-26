@@ -3,6 +3,7 @@ from PIL import Image
 import math
 import time
 from io import BytesIO
+from app.agentic_rag_common import REFERENCED_GALLERY_ELEM_CLASS, referenced_gallery_rows
 from app.vlm_service import VLMService
 
 # 定数定義
@@ -2470,10 +2471,30 @@ class UIEvents:
         ]
 
     def _hidden_referenced_images_gallery(self):
-        return gr.Gallery(label="参照した画像", value=[], visible=False)
+        return gr.Gallery(
+            label="参照した画像",
+            value=[],
+            columns=4,
+            rows=2,
+            height=480,
+            object_fit="contain",
+            elem_classes=[REFERENCED_GALLERY_ELEM_CLASS],
+            visible=False,
+        )
 
     def _visible_referenced_images_gallery(self, images):
-        return gr.Gallery(label="参照した画像", value=images or [], visible=True)
+        image_count = len(images or [])
+        rows = max(2, referenced_gallery_rows(image_count))
+        return gr.Gallery(
+            label="参照した画像",
+            value=images or [],
+            columns=4,
+            rows=rows,
+            height=240 * rows,
+            object_fit="contain",
+            elem_classes=[REFERENCED_GALLERY_ELEM_CLASS],
+            visible=True,
+        )
 
     def _hidden_listwise_reason_text(self):
         return gr.Textbox(label="reason", value="", visible=False)

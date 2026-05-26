@@ -6,7 +6,8 @@ from app.database_service import DatabaseService
 from app.search_service import SearchService
 from app.ui.components import UIComponents
 from app.ui.events import UIEvents
-from app.ui.agentic_events import AgenticRAGEvents
+from app.ui.react_agentic_events import ReactAgenticRAGEvents
+from app.ui.workflow_agentic_events import WorkflowAgenticRAGEvents
 from app.search_query_generator import SearchQueryGenerator
 from app.cleanup_service import CleanupService
 import os
@@ -62,10 +63,17 @@ def main():
     # UIコンポーネントとイベントを初期化
     ui_components = UIComponents()
     ui_events = UIEvents(search_service)
-    agentic_events = AgenticRAGEvents(search_service)
+    workflow_agentic_events = WorkflowAgenticRAGEvents(search_service)
+    react_agentic_events = ReactAgenticRAGEvents(search_service)
     
     # Gradioインターフェースの作成
-    with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕", delete_cache=(86400, 86400)) as demo:
+    gallery_scroll_css = """
+    .referenced-images-scroll-gallery {
+        max-height: 520px;
+        overflow-y: auto;
+    }
+    """
+    with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕", delete_cache=(86400, 86400), css=gallery_scroll_css) as demo:
         gr.Markdown("# 🐕マルチモーダル・レトリバー🐕")
         gr.Markdown("画像を自然言語で検索したり、検索画像を元に質問に答えることができます。アップロード画像で類似した画像を検索できます。")
         
@@ -82,7 +90,119 @@ def main():
         
         # タブ機能を追加
         with gr.Tabs():
-            # タブ1: 検索機能
+            # タブ1: Workflow Agentic RAG
+            with gr.Tab("Workflow Agentic RAG"):
+                (
+                    workflow_agentic_question_input,
+                    workflow_agentic_uploaded_image,
+                    workflow_agentic_reference_type_radio,
+                    workflow_agentic_top_k_input,
+                    workflow_agentic_max_iterations_input,
+                    workflow_agentic_run_button,
+                    workflow_agentic_clear_button,
+                    workflow_agentic_answer_text,
+                    workflow_agentic_referenced_images_gallery,
+                    workflow_agentic_trace_text,
+                    workflow_agentic_selection_reason_text,
+                    workflow_agentic_answer_prompt_template_dropdown,
+                ) = ui_components.create_workflow_agentic_rag_section()
+
+                (
+                    workflow_agentic_vlm_service_provider,
+                    workflow_agentic_vlm_model,
+                    workflow_agentic_vlm_temperature,
+                    workflow_agentic_vlm_max_tokens,
+                    workflow_agentic_vlm_oci_region,
+                    workflow_agentic_decompose_model,
+                    workflow_agentic_sufficiency_model,
+                    workflow_agentic_followup_query_model,
+                ) = ui_components.create_workflow_agentic_vlm_settings()
+
+                workflow_agentic_events.register_vlm_settings_events(
+                    workflow_agentic_vlm_service_provider,
+                    workflow_agentic_vlm_model,
+                    workflow_agentic_vlm_temperature,
+                    workflow_agentic_vlm_max_tokens,
+                    workflow_agentic_vlm_oci_region,
+                )
+
+                workflow_agentic_events.register_workflow_agentic_rag_events(
+                    workflow_agentic_run_button,
+                    workflow_agentic_clear_button,
+                    workflow_agentic_question_input,
+                    workflow_agentic_uploaded_image,
+                    workflow_agentic_reference_type_radio,
+                    workflow_agentic_top_k_input,
+                    workflow_agentic_max_iterations_input,
+                    workflow_agentic_answer_prompt_template_dropdown,
+                    workflow_agentic_vlm_model,
+                    workflow_agentic_vlm_temperature,
+                    workflow_agentic_vlm_max_tokens,
+                    workflow_agentic_vlm_oci_region,
+                    workflow_agentic_decompose_model,
+                    workflow_agentic_sufficiency_model,
+                    workflow_agentic_followup_query_model,
+                    workflow_agentic_answer_text,
+                    workflow_agentic_referenced_images_gallery,
+                    workflow_agentic_trace_text,
+                    workflow_agentic_selection_reason_text,
+                )
+
+            # タブ2: ReAct Agentic RAG
+            with gr.Tab("ReAct Agentic RAG"):
+                (
+                    react_agentic_question_input,
+                    react_agentic_uploaded_image,
+                    react_agentic_reference_type_radio,
+                    react_agentic_top_k_input,
+                    react_agentic_max_steps_input,
+                    react_agentic_run_button,
+                    react_agentic_clear_button,
+                    react_agentic_answer_text,
+                    react_agentic_referenced_images_gallery,
+                    react_agentic_trace_text,
+                    react_agentic_selection_reason_text,
+                    react_agentic_answer_prompt_template_dropdown,
+                ) = ui_components.create_react_agentic_rag_section()
+
+                (
+                    react_agentic_vlm_service_provider,
+                    react_agentic_vlm_model,
+                    react_agentic_vlm_temperature,
+                    react_agentic_vlm_max_tokens,
+                    react_agentic_vlm_oci_region,
+                    react_agentic_controller_model,
+                ) = ui_components.create_react_agentic_vlm_settings()
+
+                react_agentic_events.register_vlm_settings_events(
+                    react_agentic_vlm_service_provider,
+                    react_agentic_vlm_model,
+                    react_agentic_vlm_temperature,
+                    react_agentic_vlm_max_tokens,
+                    react_agentic_vlm_oci_region,
+                )
+
+                react_agentic_events.register_react_agentic_rag_events(
+                    react_agentic_run_button,
+                    react_agentic_clear_button,
+                    react_agentic_question_input,
+                    react_agentic_uploaded_image,
+                    react_agentic_reference_type_radio,
+                    react_agentic_top_k_input,
+                    react_agentic_max_steps_input,
+                    react_agentic_answer_prompt_template_dropdown,
+                    react_agentic_vlm_model,
+                    react_agentic_vlm_temperature,
+                    react_agentic_vlm_max_tokens,
+                    react_agentic_vlm_oci_region,
+                    react_agentic_controller_model,
+                    react_agentic_answer_text,
+                    react_agentic_referenced_images_gallery,
+                    react_agentic_trace_text,
+                    react_agentic_selection_reason_text,
+                )
+
+            # タブ3: 検索機能
             with gr.Tab("検索と回答生成"):
                 # 検索セクションのUIコンポーネントを作成
                 search_target, search_method, search_count_input, query_input, uploaded_image, uploaded_image_column, search_button, search_and_answer_button, clear_button, show_all_button, query_examples, answer_generation_mode_radio = ui_components.create_search_section()
@@ -194,7 +314,7 @@ def main():
                              caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text]
                 )
             
-            # タブ2: アップロード・編集機能
+            # タブ4: アップロード・編集機能
             with gr.Tab("イメージ管理"):
                 gr.Markdown("## 画像のアップロード・キャプション生成・編集・画像の削除")
                 gr.Markdown("画像をアップロードしてキャプションを生成したり、既存の画像のキャプションを編集、画像の削除ができます。")
@@ -255,64 +375,6 @@ def main():
                     outputs=[copy_filename_button]
                 )
 
-            # タブ3: Agentic RAG
-            with gr.Tab("Agentic RAG"):
-                (
-                    agentic_question_input,
-                    agentic_uploaded_image,
-                    agentic_reference_type_radio,
-                    agentic_top_k_input,
-                    agentic_max_iterations_input,
-                    agentic_run_button,
-                    agentic_clear_button,
-                    agentic_answer_text,
-                    agentic_referenced_images_gallery,
-                    agentic_trace_text,
-                    agentic_selection_reason_text,
-                    agentic_answer_prompt_template_dropdown,
-                ) = ui_components.create_agentic_rag_section()
-
-                (
-                    agentic_vlm_service_provider,
-                    agentic_vlm_model,
-                    agentic_vlm_temperature,
-                    agentic_vlm_max_tokens,
-                    agentic_vlm_oci_region,
-                    agentic_decompose_model,
-                    agentic_sufficiency_model,
-                    agentic_followup_query_model,
-                ) = ui_components.create_agentic_vlm_settings()
-
-                agentic_events.register_vlm_settings_events(
-                    agentic_vlm_service_provider,
-                    agentic_vlm_model,
-                    agentic_vlm_temperature,
-                    agentic_vlm_max_tokens,
-                    agentic_vlm_oci_region,
-                )
-
-                agentic_events.register_agentic_rag_events(
-                    agentic_run_button,
-                    agentic_clear_button,
-                    agentic_question_input,
-                    agentic_uploaded_image,
-                    agentic_reference_type_radio,
-                    agentic_top_k_input,
-                    agentic_max_iterations_input,
-                    agentic_answer_prompt_template_dropdown,
-                    agentic_vlm_model,
-                    agentic_vlm_temperature,
-                    agentic_vlm_max_tokens,
-                    agentic_vlm_oci_region,
-                    agentic_decompose_model,
-                    agentic_sufficiency_model,
-                    agentic_followup_query_model,
-                    agentic_answer_text,
-                    agentic_referenced_images_gallery,
-                    agentic_trace_text,
-                    agentic_selection_reason_text,
-                )
-    
     # アプリケーションの起動
     launch_config = config.get_launch_config()
     demo.launch(**launch_config)

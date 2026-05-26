@@ -69,3 +69,34 @@
 - [x] トレースに selected evidence 件数とギャラリー表示画像件数を出力する。
 - [x] 6件の参照画像がギャラリーへ渡る unit テストを追加する。
 - [x] `uv run pytest tests/test_agentic_rag.py` で回帰確認する。
+
+## 追加修正: Agentic RAG の逐次トレース出力
+
+- [x] `app/agentic_rag.py` に `run_stream()` を追加し、処理ステップごとに中間結果を `yield` する。
+- [x] 既存の `run()` は `run_stream()` の最終結果を返す互換ラッパーにする。
+- [x] `app/ui/agentic_events.py` の Agentic RAG 実行イベントを generator 化し、Gradio で trace を逐次更新する。
+- [x] `tests/test_agentic_rag.py` に `run_stream()` と UI generator の unit テストを追加・更新する。
+- [x] `uv run pytest tests/test_agentic_rag.py` で回帰確認する。
+
+## 追加修正: 逐次トレースの表示タイミング
+
+- [x] 回答生成開始時に `回答生成中...` を trace に出力する。
+- [x] `参照画像ギャラリー` 行を selected evidence が確定した後だけ出力し、中間状態の 0 件表示を避ける。
+- [x] 逐次トレースの表示タイミングに関する unit テストを追加・更新する。
+- [x] `uv run pytest tests/test_agentic_rag.py` で回帰確認する。
+
+## 追加修正: 参照画像ギャラリー件数の trace 削除
+
+- [x] `参照画像ギャラリー` の件数行を実行トレースから削除する。
+- [x] ギャラリー表示自体と表示枚数は維持する。
+- [x] unit テストを更新し、trace に件数行が出ないことを確認する。
+- [x] `uv run pytest tests/test_agentic_rag.py` で回帰確認する。
+
+## 追加修正: 画像のみ入力とデフォルトタブ
+
+- [x] 質問テキストなし・画像ありの場合は画像ベクトル検索のみ実行する。
+- [x] 画像のみ入力時は検索結果画像を参照画像ギャラリーへ表示する。
+- [x] 質問テキストありの場合は既存の Agentic RAG 動作を維持する。
+- [x] `Agentic RAG` タブを先頭に移動してデフォルトタブにする。
+- [x] 画像のみ入力とタブ順変更の unit テストを追加・更新する。
+- [x] `uv run pytest tests/test_agentic_rag.py` と `uv run pytest` で回帰確認する。

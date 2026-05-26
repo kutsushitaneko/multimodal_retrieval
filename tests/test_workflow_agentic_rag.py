@@ -1,10 +1,12 @@
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
-from app.agentic_rag import MAX_EVIDENCE_FOR_LLM_PROMPT, AgenticRAGPipeline, EvidencePool
+from app.agentic_rag_common import MAX_EVIDENCE_FOR_LLM_PROMPT, EvidencePool
+from app.workflow_agentic_rag import WorkflowAgenticRAGPipeline
 from app.ui.components import UIComponents
-from app.ui.agentic_events import AgenticRAGEvents, REFERENCE_TYPE_ALL
+from app.ui.workflow_agentic_events import WorkflowAgenticRAGEvents, REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY
 
 
 def make_result(image_id, file_name, caption, search_mode="ベクトル検索"):
@@ -62,7 +64,7 @@ class SixImageSearchService(FakeSearchService):
 
 
 def test_decompose_question_extracts_compound_and_special_terms():
-    pipeline = AgenticRAGPipeline(FakeSearchService())
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService())
 
     queries = pipeline.decompose_question("ORA-00923 とは何ですか。そして https://example.com の図を説明してください")
 
@@ -72,7 +74,7 @@ def test_decompose_question_extracts_compound_and_special_terms():
 
 
 def test_decompose_question_deduplicates_single_question_with_trailing_punctuation():
-    pipeline = AgenticRAGPipeline(FakeSearchService())
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService())
 
     queries = pipeline.decompose_question("企業がコーディング・エージェントではなく独自のエージェントを開発する意義はどこにありますか？")
 
@@ -81,7 +83,7 @@ def test_decompose_question_deduplicates_single_question_with_trailing_punctuati
 
 def test_llm_decompose_question_is_used_when_available():
     llm = MagicMock(return_value='{"subqueries": ["業務特化エージェントの意義", "コーディングエージェントとの違い"]}')
-    pipeline = AgenticRAGPipeline(FakeSearchService(), llm_text_generator=llm)
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), llm_text_generator=llm)
 
     queries = pipeline.decompose_question("企業が独自のエージェントを開発する意義は？")
 
@@ -97,7 +99,7 @@ def test_llm_judgement_and_selection_are_used_when_available():
     ]
     llm = MagicMock(side_effect=responses)
     fake_search = FakeSearchService()
-    pipeline = AgenticRAGPipeline(fake_search, top_k=8, max_iterations=1, llm_text_generator=llm)
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=1, llm_text_generator=llm)
 
     result = pipeline.run("猫", answer_generator=lambda q, selected, docs: docs)
 
@@ -112,7 +114,7 @@ def test_step_specific_llm_generators_are_used():
     sufficiency_llm = MagicMock(return_value='{"status": "sufficient", "reason": "十分", "missing_aspects": []}')
     followup_llm = MagicMock(return_value='{"queries": ["追加クエリー"]}')
     selection_llm = MagicMock(return_value='{"selected_evidence_ids": ["1"], "reason": "選別"}')
-    pipeline = AgenticRAGPipeline(
+    pipeline = WorkflowAgenticRAGPipeline(
         FakeSearchService(),
         top_k=8,
         max_iterations=1,
@@ -168,6 +170,17 @@ def test_agentic_model_choices_include_non_vision_models():
     ]
 
 
+def test_workflow_and_react_agentic_rag_tabs_are_first_in_main_app():
+    source = Path("multimodal_retriever.py").read_text(encoding="utf-8")
+    tabs_start = source.index("with gr.Tabs():")
+    workflow_tab = source.index('with gr.Tab("Workflow Agentic RAG")', tabs_start)
+    react_tab = source.index('with gr.Tab("ReAct Agentic RAG")', tabs_start)
+    search_tab = source.index('with gr.Tab("検索と回答生成")', tabs_start)
+    upload_tab = source.index('with gr.Tab("イメージ管理")', tabs_start)
+
+    assert workflow_tab < react_tab < search_tab < upload_tab
+
+
 def test_evidence_pool_deduplicates_by_image_id():
     pool = EvidencePool()
 
@@ -179,7 +192,7 @@ def test_evidence_pool_deduplicates_by_image_id():
 
 
 def test_evidence_prompt_includes_up_to_configured_limit():
-    pipeline = AgenticRAGPipeline(FakeSearchService())
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService())
     evidence = [
         EvidencePool._from_result(make_result(index, f"{index}.png", f"caption {index}"), "q", "caption_vector")
         for index in range(1, MAX_EVIDENCE_FOR_LLM_PROMPT + 2)
@@ -193,7 +206,7 @@ def test_evidence_prompt_includes_up_to_configured_limit():
 
 def test_pipeline_runs_multiple_search_modes_and_orders_evidence():
     fake_search = FakeSearchService()
-    pipeline = AgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
 
     result = pipeline.run("富士山と寺院", answer_generator=lambda q, selected, docs: docs)
 
@@ -207,7 +220,7 @@ def test_pipeline_runs_multiple_search_modes_and_orders_evidence():
 
 def test_pipeline_trace_includes_elapsed_times():
     fake_search = FakeSearchService()
-    pipeline = AgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
 
     result = pipeline.run("ORA-00923 とは何ですか？", answer_generator=lambda q, selected, docs: "answer")
 
@@ -218,8 +231,23 @@ def test_pipeline_trace_includes_elapsed_times():
     assert "十分性判定 [" in result.trace
     assert "evidence選別・並べ替え [" in result.trace
     assert "回答生成 [" in result.trace
-    assert "Agentic RAG 全体 [" in result.trace
+    assert "Workflow Agentic RAG 全体 [" in result.trace
     assert " ms]" in result.trace
+
+
+def test_pipeline_run_stream_yields_incremental_results():
+    fake_search = FakeSearchService()
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
+
+    results = list(pipeline.run_stream("猫", answer_generator=lambda q, selected, docs: "answer"))
+
+    assert len(results) > 3
+    assert results[0].answer == ""
+    assert "質問分解 [" in results[0].trace
+    assert any("caption_vector [" in result.trace for result in results)
+    assert any("回答生成中..." in result.trace for result in results)
+    assert results[-1].answer == "answer"
+    assert "Workflow Agentic RAG 全体 [" in results[-1].trace
 
 
 def test_pipeline_trace_formats_queries_and_llm_input_stats():
@@ -230,7 +258,7 @@ def test_pipeline_trace_formats_queries_and_llm_input_stats():
         '{"status": "sufficient", "reason": "十分", "missing_aspects": []}',
         '{"selected_evidence_ids": ["1"], "reason": "選別"}',
     ])
-    pipeline = AgenticRAGPipeline(FakeSearchService(), top_k=8, max_iterations=1, llm_text_generator=llm)
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), top_k=8, max_iterations=1, llm_text_generator=llm)
 
     result = pipeline.run("猫", answer_generator=lambda q, selected, docs: "answer")
 
@@ -249,7 +277,7 @@ def test_pipeline_trace_formats_queries_and_llm_input_stats():
 
 def test_pipeline_default_thresholds_match_existing_search_tab_defaults():
     fake_search = FakeSearchService()
-    pipeline = AgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
 
     pipeline.run("ORA-00923エラーの原因と意味", answer_generator=lambda q, selected, docs: docs)
 
@@ -260,7 +288,7 @@ def test_pipeline_default_thresholds_match_existing_search_tab_defaults():
 
 def test_pipeline_respects_followup_iteration_limit():
     fake_search = FakeSearchService()
-    pipeline = AgenticRAGPipeline(fake_search, top_k=8, max_iterations=1)
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=1)
 
     result = pipeline.run("missing", answer_generator=lambda q, selected, docs: "answer")
 
@@ -270,16 +298,34 @@ def test_pipeline_respects_followup_iteration_limit():
 
 def test_pipeline_adds_uploaded_image_search():
     fake_search = FakeSearchService()
-    pipeline = AgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
 
     pipeline.run("猫", uploaded_image=Image.new("RGB", (4, 4)), answer_generator=lambda q, selected, docs: "answer")
 
     assert len(fake_search.image_embedding_calls) == 1
 
 
-def test_agentic_rag_event_returns_expected_outputs_without_external_vlm():
-    with patch("app.ui.agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
-        events = AgenticRAGEvents(FakeSearchService())
+def test_pipeline_image_only_runs_image_vector_search_only():
+    fake_search = FakeSearchService()
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=2)
+
+    result = pipeline.run("", uploaded_image=Image.new("RGB", (4, 4)), answer_generator=MagicMock())
+
+    assert len(fake_search.image_embedding_calls) == 1
+    assert fake_search.caption_calls == []
+    assert fake_search.image_text_calls == []
+    assert result.selected_evidence
+    assert result.answer.startswith("画像のみ入力として扱い")
+    assert result.selection_reason == "画像のみ入力のため、画像ベクトル検索結果をそのまま表示しました。"
+    assert "画像のみ入力: 画像ベクトル検索のみ実行します。" in result.trace
+    assert "質問分解 [" not in result.trace
+    assert "十分性判定 [" not in result.trace
+    assert "回答生成 [" not in result.trace
+
+
+def test_workflow_agentic_rag_event_returns_expected_outputs_without_external_vlm():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = WorkflowAgenticRAGEvents(FakeSearchService())
     events._generate_answer_with_vlm = MagicMock(return_value="生成回答")
     events._call_text_model = MagicMock(side_effect=[
         '{"subqueries": ["猫"]}',
@@ -289,7 +335,7 @@ def test_agentic_rag_event_returns_expected_outputs_without_external_vlm():
         '{"selected_evidence_ids": ["1"], "reason": "猫に関係するため"}',
     ])
 
-    answer, gallery, trace, reason = events.run_agentic_rag(
+    outputs = list(events.run_workflow_agentic_rag(
         "猫",
         None,
         REFERENCE_TYPE_ALL,
@@ -303,20 +349,58 @@ def test_agentic_rag_event_returns_expected_outputs_without_external_vlm():
         "decompose-model",
         "sufficiency-model",
         "followup-model",
-    )
+    ))
+    answer, gallery, trace, reason = outputs[-1]
 
     assert answer == "生成回答"
     assert gallery.visible is True
     assert len(gallery.value) > 0
     assert "質問分解 [" in trace
     assert reason == "猫に関係するため"
+    assert len(outputs) > 1
+    assert "参照画像ギャラリー" not in trace
+    assert any("回答生成中..." in output[2] for output in outputs)
     assert events._call_text_model.call_count == 2
     assert events._call_text_vlm.call_count == 1
 
 
-def test_agentic_rag_event_gallery_keeps_six_referenced_images_visible():
-    with patch("app.ui.agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
-        events = AgenticRAGEvents(SixImageSearchService())
+def test_workflow_agentic_rag_event_image_only_shows_gallery_without_llm_calls():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = WorkflowAgenticRAGEvents(FakeSearchService())
+    events._generate_answer_with_vlm = MagicMock(return_value="生成回答")
+    events._call_text_model = MagicMock()
+    events._call_text_vlm = MagicMock()
+
+    outputs = list(events.run_workflow_agentic_rag(
+        "",
+        Image.new("RGB", (4, 4)),
+        REFERENCE_TYPE_CAPTION_ONLY,
+        8,
+        2,
+        "デフォルト（回答生成）",
+        "model",
+        0.0,
+        1024,
+        "Japan Central (Osaka)",
+        "decompose-model",
+        "sufficiency-model",
+        "followup-model",
+    ))
+    answer, gallery, trace, reason = outputs[-1]
+
+    assert answer.startswith("画像のみ入力として扱い")
+    assert gallery.visible is True
+    assert len(gallery.value) == 1
+    assert "画像のみ入力: 画像ベクトル検索のみ実行します。" in trace
+    assert reason == "画像のみ入力のため、画像ベクトル検索結果をそのまま表示しました。"
+    events._generate_answer_with_vlm.assert_not_called()
+    events._call_text_model.assert_not_called()
+    events._call_text_vlm.assert_not_called()
+
+
+def test_workflow_agentic_rag_event_gallery_keeps_six_referenced_images_visible():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = WorkflowAgenticRAGEvents(SixImageSearchService())
     events._generate_answer_with_vlm = MagicMock(return_value="生成回答")
     events._call_text_model = MagicMock(side_effect=[
         '{"subqueries": ["猫"]}',
@@ -324,7 +408,7 @@ def test_agentic_rag_event_gallery_keeps_six_referenced_images_visible():
     ])
     events._call_text_vlm = MagicMock(return_value='{"selected_evidence_ids": ["1", "2", "3", "4", "5", "6"], "reason": "6件を選別"}')
 
-    answer, gallery, trace, reason = events.run_agentic_rag(
+    outputs = list(events.run_workflow_agentic_rag(
         "猫",
         None,
         REFERENCE_TYPE_ALL,
@@ -338,7 +422,8 @@ def test_agentic_rag_event_gallery_keeps_six_referenced_images_visible():
         "decompose-model",
         "sufficiency-model",
         "followup-model",
-    )
+    ))
+    answer, gallery, trace, reason = outputs[-1]
 
     assert answer == "生成回答"
     assert reason == "6件を選別"
@@ -346,12 +431,13 @@ def test_agentic_rag_event_gallery_keeps_six_referenced_images_visible():
     assert gallery.columns == 4
     assert gallery.rows == 2
     assert gallery.height == 480
-    assert "参照画像ギャラリー: selected evidence 6 件, 画像表示 6 件" in trace
+    assert "参照画像ギャラリー" not in trace
+    assert any("回答生成中..." in output[2] for output in outputs)
 
 
-def test_agentic_rag_event_uses_step_specific_models():
-    with patch("app.ui.agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
-        events = AgenticRAGEvents(FakeSearchService())
+def test_workflow_agentic_rag_event_uses_step_specific_models():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = WorkflowAgenticRAGEvents(FakeSearchService())
     events._generate_answer_with_vlm = MagicMock(return_value="生成回答")
     events._call_text_model = MagicMock(side_effect=[
         '{"subqueries": ["missing"]}',
@@ -363,7 +449,7 @@ def test_agentic_rag_event_uses_step_specific_models():
         '{"selected_evidence_ids": ["1"], "reason": "選別"}',
     ])
 
-    events.run_agentic_rag(
+    list(events.run_workflow_agentic_rag(
         "猫",
         None,
         REFERENCE_TYPE_ALL,
@@ -377,7 +463,7 @@ def test_agentic_rag_event_uses_step_specific_models():
         "decompose-model",
         "sufficiency-model",
         "followup-model",
-    )
+    ))
 
     called_text_models = [call.args[1] for call in events._call_text_model.call_args_list]
     assert called_text_models == [

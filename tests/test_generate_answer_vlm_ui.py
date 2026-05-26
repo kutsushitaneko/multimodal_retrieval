@@ -1,5 +1,6 @@
 """案C: generate_answer が UI の VLM 設定を直接参照するユニットテスト"""
 import inspect
+import json
 from unittest.mock import MagicMock, patch
 
 
@@ -63,6 +64,52 @@ class TestGenerateAnswerUsesUiVlmSettings:
         assert "answer_generation_mode_radio" in source
         assert "ANSWER_MODE_SINGLE_IMAGE" in source
         assert "ANSWER_MODE_LISTWISE" in source
+
+
+class TestSharedQuestionExamples:
+    def test_load_question_examples_reads_external_json(self, tmp_path):
+        from app.ui.components import UIComponents
+
+        examples_path = tmp_path / "question_examples.json"
+        examples_path.write_text(
+            json.dumps({"examples": ["質問1", "質問2"]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        assert UIComponents._load_question_examples(str(examples_path)) == ["質問1", "質問2"]
+
+    def test_load_question_examples_falls_back_for_missing_or_invalid_json(self, tmp_path):
+        from app.ui.components import FALLBACK_QUESTION_EXAMPLES, UIComponents
+
+        missing_path = tmp_path / "missing.json"
+        invalid_path = tmp_path / "invalid.json"
+        empty_path = tmp_path / "empty.json"
+        invalid_path.write_text("{ invalid", encoding="utf-8")
+        empty_path.write_text(json.dumps({"examples": []}), encoding="utf-8")
+
+        assert UIComponents._load_question_examples(str(missing_path)) == FALLBACK_QUESTION_EXAMPLES
+        assert UIComponents._load_question_examples(str(invalid_path)) == FALLBACK_QUESTION_EXAMPLES
+        assert UIComponents._load_question_examples(str(empty_path)) == FALLBACK_QUESTION_EXAMPLES
+
+    def test_search_section_uses_shared_question_examples(self):
+        from app.ui.components import UIComponents
+
+        source = inspect.getsource(UIComponents.create_search_section)
+
+        assert "_create_question_examples(query_input)" in source
+        assert "質問の例" not in source
+        assert "富士山と寺院" not in source
+
+    def test_workflow_and_react_sections_define_collapsed_question_examples(self):
+        from app.ui.components import UIComponents
+
+        source = inspect.getsource(UIComponents._create_agentic_rag_section_variant)
+        examples_source = inspect.getsource(UIComponents._create_question_examples)
+
+        assert "_create_question_examples(question_input)" in source
+        assert 'gr.Accordion("質問の例", open=False)' in examples_source
+        assert "gr.Examples" in examples_source
+        assert "inputs=input_component" in examples_source
 
 
 class TestSearchAndAnswerGalleryDisplay:

@@ -3,39 +3,24 @@ from __future__ import annotations
 import re
 import json
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
+from dataclasses import dataclass
+from typing import Any, Iterable
 
 from PIL import Image
 
-
-AnswerGenerator = Callable[[str, list["Evidence"], str], str]
-LLMTextGenerator = Callable[[str], str]
-MAX_EVIDENCE_FOR_LLM_PROMPT = 50
-
-
-@dataclass
-class Evidence:
-    id: str
-    image_id: Any = None
-    file_name: str = ""
-    caption: str = ""
-    search_mode: str = ""
-    source_query: str = ""
-    source_tool: str = ""
-    distance: Any = None
-    image: Image.Image | None = None
+from app.agentic_rag_common import (
+    AnswerGenerator,
+    Evidence,
+    EvidencePool,
+    LLMTextGenerator,
+    MAX_EVIDENCE_FOR_LLM_PROMPT,
+    SufficiencyDecision,
+    format_documents,
+)
 
 
 @dataclass
-class SufficiencyDecision:
-    status: str
-    reason: str
-    missing_aspects: list[str] = field(default_factory=list)
-
-
-@dataclass
-class AgenticRAGResult:
+class WorkflowAgenticRAGResult:
     answer: str
     selected_evidence: list[Evidence]
     trace: str
@@ -44,43 +29,8 @@ class AgenticRAGResult:
     all_evidence: list[Evidence]
 
 
-class EvidencePool:
-    """検索方式ごとの候補を、IDを保ちながら重複排除して集約する。"""
-
-    def __init__(self):
-        self._evidence: list[Evidence] = []
-        self._seen: set[str] = set()
-
-    def add_many(self, results: Iterable[dict], source_query: str, source_tool: str):
-        for result in results or []:
-            evidence = self._from_result(result, source_query, source_tool)
-            if evidence.id in self._seen:
-                continue
-            self._seen.add(evidence.id)
-            self._evidence.append(evidence)
-
-    def all(self) -> list[Evidence]:
-        return list(self._evidence)
-
-    @staticmethod
-    def _from_result(result: dict, source_query: str, source_tool: str) -> Evidence:
-        stable_id = str(result.get("image_id") or result.get("file_name") or f"{source_tool}:{len(str(result))}")
-        image = result.get("image")
-        return Evidence(
-            id=stable_id,
-            image_id=result.get("image_id"),
-            file_name=result.get("file_name", stable_id),
-            caption=result.get("caption", "") or "",
-            search_mode=result.get("search_mode", ""),
-            source_query=source_query,
-            source_tool=source_tool,
-            distance=result.get("distance"),
-            image=image if isinstance(image, Image.Image) else None,
-        )
-
-
-class AgenticRAGPipeline:
-    """既存SearchServiceをToolとして使う、アプリ内Agentic RAGパイプライン。"""
+class WorkflowAgenticRAGPipeline:
+    """既存SearchServiceをToolとして使う、固定ワークフロー型Agentic RAGパイプライン。"""
 
     def __init__(
         self,
@@ -113,34 +63,107 @@ class AgenticRAGPipeline:
         *,
         uploaded_image=None,
         answer_generator: AnswerGenerator | None = None,
-    ) -> AgenticRAGResult:
+    ) -> WorkflowAgenticRAGResult:
+        final_result = None
+        for result in self.run_stream(
+            question,
+            uploaded_image=uploaded_image,
+            answer_generator=answer_generator,
+        ):
+            final_result = result
+        if final_result is not None:
+            return final_result
+
+        decision = SufficiencyDecision("insufficient", "質問文または画像が必要です。", ["質問文"])
+        return WorkflowAgenticRAGResult("❌ 質問文を入力してください。", [], "", "", decision, [])
+
+    def run_stream(
+        self,
+        question: str,
+        *,
+        uploaded_image=None,
+        answer_generator: AnswerGenerator | None = None,
+    ):
         total_started_at = time.perf_counter()
         question = (question or "").strip()
         trace: list[str] = []
+        processing_decision = SufficiencyDecision("processing", "処理中です。")
+
+        def build_result(
+            *,
+            answer: str = "",
+            selected_evidence: list[Evidence] | None = None,
+            selection_reason: str = "",
+            sufficiency: SufficiencyDecision | None = None,
+            all_evidence: list[Evidence] | None = None,
+        ) -> WorkflowAgenticRAGResult:
+            return self._build_result(
+                answer=answer,
+                selected_evidence=selected_evidence or [],
+                trace=trace,
+                selection_reason=selection_reason,
+                sufficiency=sufficiency or processing_decision,
+                all_evidence=all_evidence or [],
+            )
+
         if not question and uploaded_image is None:
             decision = SufficiencyDecision("insufficient", "質問文または画像が必要です。", ["質問文"])
-            return AgenticRAGResult("❌ 質問文を入力してください。", [], "", "", decision, [])
+            yield WorkflowAgenticRAGResult("❌ 質問文を入力してください。", [], "", "", decision, [])
+            return
 
         pool = EvidencePool()
+        if not question and uploaded_image is not None:
+            trace.append("画像のみ入力: 画像ベクトル検索のみ実行します。")
+            yield build_result(all_evidence=pool.all())
+            started_at = time.perf_counter()
+            self._run_image_search(uploaded_image, pool, trace)
+            trace.append(f"画像ベクトル検索合計 [{self._elapsed_ms(started_at)}]: evidence {len(pool.all())} 件")
+            selected = pool.all()
+            decision = SufficiencyDecision("sufficient", f"画像類似検索で{len(selected)}件の候補が見つかりました。")
+            answer = (
+                f"画像のみ入力として扱い、画像ベクトル検索で類似画像を{len(selected)}件見つけました。"
+                "参照画像ギャラリーに検索結果を表示します。"
+            )
+            trace.append(f"Workflow Agentic RAG 全体 [{self._elapsed_ms(total_started_at)}]")
+            yield self._build_result(
+                answer=answer,
+                selected_evidence=selected,
+                trace=trace,
+                selection_reason="画像のみ入力のため、画像ベクトル検索結果をそのまま表示しました。",
+                sufficiency=decision,
+                all_evidence=pool.all(),
+            )
+            return
+
         started_at = time.perf_counter()
         subqueries = self.decompose_question(question)
         trace.append(
             f"質問分解 [{self._elapsed_ms(started_at)}]: {len(subqueries)} 件のサブクエリー"
             f"{self._format_numbered_items(subqueries)}"
         )
+        yield build_result(all_evidence=pool.all())
 
         started_at = time.perf_counter()
-        self._run_searches(subqueries, pool, trace)
+        for query in subqueries:
+            self._search_caption_vector(query, pool, trace, followup=False)
+            yield build_result(all_evidence=pool.all())
+            self._search_caption_fulltext(query, pool, trace, followup=False)
+            yield build_result(all_evidence=pool.all())
+            self._search_image_by_text(query, pool, trace, followup=False)
+            yield build_result(all_evidence=pool.all())
         trace.append(f"初回検索合計 [{self._elapsed_ms(started_at)}]: evidence {len(pool.all())} 件")
+        yield build_result(all_evidence=pool.all())
         if uploaded_image is not None:
             started_at = time.perf_counter()
             self._run_image_search(uploaded_image, pool, trace)
             trace.append(f"画像類似検索合計 [{self._elapsed_ms(started_at)}]: evidence {len(pool.all())} 件")
+            yield build_result(all_evidence=pool.all())
 
         started_at = time.perf_counter()
         decision = self.judge_evidence_sufficiency(question, pool.all())
         trace.append(f"十分性判定 [{self._elapsed_ms(started_at)}]: {decision.status} - {decision.reason}")
         trace.append(f"十分性判定入力: {self._format_llm_input_stats(question, pool.all(), 'sufficiency')}")
+        yield build_result(sufficiency=decision, all_evidence=pool.all())
 
         iterations = 0
         while decision.status != "sufficient" and iterations < self.max_iterations:
@@ -151,39 +174,69 @@ class AgenticRAGPipeline:
                 f"追加検索クエリー生成 [{self._elapsed_ms(started_at)}]: {len(followup_queries)} 件"
                 f"{followup_query_lines}"
             )
+            yield build_result(sufficiency=decision, all_evidence=pool.all())
             if not followup_queries:
                 trace.append("追加検索クエリーが生成されなかったため再検索を停止。")
+                yield build_result(sufficiency=decision, all_evidence=pool.all())
                 break
             iterations += 1
             trace.append(
                 f"追加検索 {iterations}/{self.max_iterations}: {len(followup_queries)} 件"
                 f"{self._format_numbered_items(followup_queries)}"
             )
+            yield build_result(sufficiency=decision, all_evidence=pool.all())
             started_at = time.perf_counter()
-            self._run_searches(followup_queries, pool, trace, followup=True)
+            for query in followup_queries:
+                self._search_caption_vector(query, pool, trace, followup=True)
+                yield build_result(sufficiency=decision, all_evidence=pool.all())
+                self._search_caption_fulltext(query, pool, trace, followup=True)
+                yield build_result(sufficiency=decision, all_evidence=pool.all())
+                self._search_image_by_text(query, pool, trace, followup=True)
+                yield build_result(sufficiency=decision, all_evidence=pool.all())
             trace.append(f"追加検索 {iterations} 合計 [{self._elapsed_ms(started_at)}]: evidence {len(pool.all())} 件")
             subqueries.extend(query for query in followup_queries if query not in subqueries)
+            yield build_result(sufficiency=decision, all_evidence=pool.all())
             started_at = time.perf_counter()
             decision = self.judge_evidence_sufficiency(question, pool.all())
             trace.append(f"再判定 [{self._elapsed_ms(started_at)}]: {decision.status} - {decision.reason}")
             trace.append(f"再判定入力: {self._format_llm_input_stats(question, pool.all(), 'sufficiency')}")
+            yield build_result(sufficiency=decision, all_evidence=pool.all())
 
         started_at = time.perf_counter()
         selected, selection_reason = self.filter_and_order_evidence(question, pool.all())
         trace.append(f"evidence選別・並べ替え [{self._elapsed_ms(started_at)}]: {selection_reason}")
         trace.append(f"evidence選別・並べ替え入力: {self._format_llm_input_stats(question, pool.all(), 'selection')}")
+        yield build_result(
+            selected_evidence=selected,
+            selection_reason=selection_reason,
+            sufficiency=decision,
+            all_evidence=pool.all(),
+        )
         started_at = time.perf_counter()
         documents = self.format_documents(selected)
         trace.append(f"回答用ドキュメント整形 [{self._elapsed_ms(started_at)}]: {len(selected)} 件")
+        yield build_result(
+            selected_evidence=selected,
+            selection_reason=selection_reason,
+            sufficiency=decision,
+            all_evidence=pool.all(),
+        )
+        trace.append("回答生成中...")
+        yield build_result(
+            selected_evidence=selected,
+            selection_reason=selection_reason,
+            sufficiency=decision,
+            all_evidence=pool.all(),
+        )
         started_at = time.perf_counter()
         answer = answer_generator(question, selected, documents) if answer_generator else self.default_answer(question, selected, documents)
         trace.append(f"回答生成 [{self._elapsed_ms(started_at)}]")
-        trace.append(f"Agentic RAG 全体 [{self._elapsed_ms(total_started_at)}]")
+        trace.append(f"Workflow Agentic RAG 全体 [{self._elapsed_ms(total_started_at)}]")
 
-        return AgenticRAGResult(
+        yield self._build_result(
             answer=answer,
             selected_evidence=selected,
-            trace="\n".join(f"- {line}" for line in trace),
+            trace=trace,
             selection_reason=selection_reason,
             sufficiency=decision,
             all_evidence=pool.all(),
@@ -400,15 +453,31 @@ class AgenticRAGPipeline:
         return selected[: self.max_selected_evidence], reason
 
     def format_documents(self, selected: list[Evidence]) -> str:
-        return "\n\n".join(
-            f"{index}. {item.file_name}\n{item.caption or '（キャプションなし）'}"
-            for index, item in enumerate(selected, start=1)
-        )
+        return format_documents(selected)
 
     def default_answer(self, question: str, selected: list[Evidence], documents: str) -> str:
         if not selected:
             return "❌ 回答に使用できる検索結果が見つかりませんでした。"
         return f"以下の参照情報を元に回答してください。\n\n質問: {question}\n\n参照情報:\n{documents}"
+
+    def _build_result(
+        self,
+        *,
+        answer: str,
+        selected_evidence: list[Evidence],
+        trace: list[str],
+        selection_reason: str,
+        sufficiency: SufficiencyDecision,
+        all_evidence: list[Evidence],
+    ) -> WorkflowAgenticRAGResult:
+        return WorkflowAgenticRAGResult(
+            answer=answer,
+            selected_evidence=selected_evidence,
+            trace="\n".join(f"- {line}" for line in trace),
+            selection_reason=selection_reason,
+            sufficiency=sufficiency,
+            all_evidence=all_evidence,
+        )
 
     def _run_searches(self, queries: list[str], pool: EvidencePool, trace: list[str], followup=False):
         for query in queries:
