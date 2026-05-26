@@ -4,7 +4,8 @@ import tempfile
 import gradio as gr
 from PIL import Image
 
-from app.agentic_rag import AgenticRAGPipeline
+from app.agentic_rag_common import REFERENCED_GALLERY_ELEM_CLASS, referenced_gallery_rows
+from app.workflow_agentic_rag import WorkflowAgenticRAGPipeline
 from app.nlp_service import NLPService
 from app.vlm_service_factory import VLMServiceFactory
 
@@ -14,14 +15,14 @@ REFERENCE_TYPE_CAPTION_ONLY = "キャプションのみ"
 REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
 
 
-class AgenticRAGEvents:
-    """Agentic RAGタブ専用のイベントハンドラー。"""
+class WorkflowAgenticRAGEvents:
+    """Workflow Agentic RAGタブ専用のイベントハンドラー。"""
 
     def __init__(self, search_service):
         self.search_service = search_service
-        self.agentic_vlm_service = VLMServiceFactory.create_answer_vlm_service()
+        self.answer_vlm_service = VLMServiceFactory.create_answer_vlm_service()
 
-    def register_agentic_rag_events(
+    def register_workflow_agentic_rag_events(
         self,
         run_button,
         clear_button,
@@ -44,7 +45,7 @@ class AgenticRAGEvents:
         selection_reason_text,
     ):
         run_button.click(
-            fn=self.run_agentic_rag,
+            fn=self.run_workflow_agentic_rag,
             inputs=[
                 question_input,
                 uploaded_image,
@@ -63,7 +64,7 @@ class AgenticRAGEvents:
             outputs=[answer_text, referenced_images_gallery, trace_text, selection_reason_text],
         )
         clear_button.click(
-            fn=self.clear_agentic_rag,
+            fn=self.clear_workflow_agentic_rag,
             inputs=[],
             outputs=[
                 question_input,
@@ -97,31 +98,31 @@ class AgenticRAGEvents:
             queue=False,
         )
         vlm_temperature.change(
-            fn=lambda temp: self.agentic_vlm_service.update_current_vlm_settings(temperature=temp),
+            fn=lambda temp: self.answer_vlm_service.update_current_vlm_settings(temperature=temp),
             inputs=[vlm_temperature],
             outputs=[],
         )
         vlm_max_tokens.change(
-            fn=lambda tokens: self.agentic_vlm_service.update_current_vlm_settings(max_tokens=tokens),
+            fn=lambda tokens: self.answer_vlm_service.update_current_vlm_settings(max_tokens=tokens),
             inputs=[vlm_max_tokens],
             outputs=[],
         )
         vlm_oci_region.change(
-            fn=lambda region: self.agentic_vlm_service.update_current_vlm_settings(
-                oci_region=self.agentic_vlm_service.resolve_oci_region_id(region)
+            fn=lambda region: self.answer_vlm_service.update_current_vlm_settings(
+                oci_region=self.answer_vlm_service.resolve_oci_region_id(region)
             ),
             inputs=[vlm_oci_region],
             outputs=[],
         )
 
     def vlm_service_provider_changed(self, service_provider):
-        return self.agentic_vlm_service.service_provider_changed(service_provider)
+        return self.answer_vlm_service.service_provider_changed(service_provider)
 
     def vlm_model_changed(self, model):
-        self.agentic_vlm_service.update_current_vlm_settings(model=model)
-        return self.agentic_vlm_service.model_changed(model)
+        self.answer_vlm_service.update_current_vlm_settings(model=model)
+        return self.answer_vlm_service.model_changed(model)
 
-    def run_agentic_rag(
+    def run_workflow_agentic_rag(
         self,
         question,
         uploaded_image,
@@ -137,7 +138,7 @@ class AgenticRAGEvents:
         sufficiency_model,
         followup_query_model,
     ):
-        def call_agentic_judge(prompt_text):
+        def call_workflow_selection_model(prompt_text):
             return self._call_text_vlm(
                 prompt_text,
                 vlm_model,
@@ -155,11 +156,11 @@ class AgenticRAGEvents:
                 vlm_oci_region,
             )
 
-        pipeline = AgenticRAGPipeline(
+        pipeline = WorkflowAgenticRAGPipeline(
             self.search_service,
             top_k=top_k,
             max_iterations=max_iterations,
-            llm_text_generator=call_agentic_judge,
+            llm_text_generator=call_workflow_selection_model,
             decompose_llm_text_generator=lambda prompt: call_agentic_step_model(prompt, decompose_model),
             sufficiency_llm_text_generator=lambda prompt: call_agentic_step_model(prompt, sufficiency_model),
             followup_llm_text_generator=lambda prompt: call_agentic_step_model(prompt, followup_query_model),
@@ -178,25 +179,24 @@ class AgenticRAGEvents:
                 vlm_oci_region,
             )
 
-        result = pipeline.run(
+        effective_reference_type = REFERENCE_TYPE_ALL if not (question or "").strip() and uploaded_image is not None else reference_type
+        for result in pipeline.run_stream(
             question,
             uploaded_image=uploaded_image,
             answer_generator=generate_answer,
-        )
+        ):
+            yield self._format_workflow_agentic_rag_outputs(result, effective_reference_type)
+
+    def _format_workflow_agentic_rag_outputs(self, result, reference_type):
         referenced_images = [
             evidence.image
             for evidence in result.selected_evidence
             if isinstance(evidence.image, Image.Image) and reference_type != REFERENCE_TYPE_CAPTION_ONLY
         ]
         gallery = self._create_referenced_images_gallery(referenced_images)
-        trace = (
-            f"{result.trace}\n"
-            f"- 参照画像ギャラリー: selected evidence {len(result.selected_evidence)} 件, "
-            f"画像表示 {len(referenced_images)} 件"
-        )
-        return result.answer, gallery, trace, result.selection_reason
+        return result.answer, gallery, result.trace, result.selection_reason
 
-    def clear_agentic_rag(self):
+    def clear_workflow_agentic_rag(self):
         return (
             "",
             None,
@@ -208,7 +208,7 @@ class AgenticRAGEvents:
 
     def _create_referenced_images_gallery(self, referenced_images):
         image_count = len(referenced_images or [])
-        rows = max(1, min(3, (image_count + 3) // 4))
+        rows = referenced_gallery_rows(image_count)
         return gr.Gallery(
             label="参照した画像",
             value=referenced_images or [],
@@ -216,6 +216,7 @@ class AgenticRAGEvents:
             rows=rows,
             height=240 * rows,
             object_fit="contain",
+            elem_classes=[REFERENCED_GALLERY_ELEM_CLASS],
             visible=bool(referenced_images),
         )
 
@@ -244,7 +245,7 @@ class AgenticRAGEvents:
             if reference_type != REFERENCE_TYPE_CAPTION_ONLY:
                 image_paths = self._save_evidence_images(selected_evidence)
 
-            nlp_service = NLPService(self.agentic_vlm_service)
+            nlp_service = NLPService(self.answer_vlm_service)
             if image_paths:
                 answer = nlp_service.generate_answer_with_vlm_images(
                     image_paths=image_paths,
@@ -269,7 +270,7 @@ class AgenticRAGEvents:
             if not answer:
                 return "❌ 回答の生成に失敗しました。"
             reference_names = "」「".join(evidence.file_name for evidence in selected_evidence)
-            return f"（Agentic RAG が「{reference_names}」を参照して回答しました）\n\n{answer}"
+            return f"（Workflow Agentic RAG が「{reference_names}」を参照して回答しました）\n\n{answer}"
         finally:
             for image_path in image_paths:
                 if image_path and os.path.exists(image_path):
@@ -285,7 +286,7 @@ class AgenticRAGEvents:
     ):
         image_path = self._create_blank_image()
         try:
-            nlp_service = NLPService(self.agentic_vlm_service)
+            nlp_service = NLPService(self.answer_vlm_service)
             return nlp_service.generate_caption_with_vlm(
                 image_path=image_path,
                 vlm_model=vlm_model,
@@ -306,7 +307,7 @@ class AgenticRAGEvents:
         max_tokens,
         oci_region,
     ):
-        nlp_service = NLPService(self.agentic_vlm_service)
+        nlp_service = NLPService(self.answer_vlm_service)
         return nlp_service.generate_text(
             model=model,
             prompt_text=prompt_text,
@@ -323,7 +324,7 @@ class AgenticRAGEvents:
                 with open(prompt_path, "r", encoding="utf-8") as prompt_file:
                     return prompt_file.read()
         except Exception as exc:
-            print(f"Agentic RAG回答生成プロンプト読み込みエラー: {exc}")
+            print(f"Workflow Agentic RAG回答生成プロンプト読み込みエラー: {exc}")
         return "質問に対して、参照情報に基づいて日本語で回答してください。\n\n質問: {query_text}\n\n参照情報:\n{documents}"
 
     def _save_evidence_images(self, selected_evidence):

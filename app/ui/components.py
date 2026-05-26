@@ -1,6 +1,9 @@
+import json
 import os
 
 import gradio as gr
+
+from app.agentic_rag_common import REFERENCED_GALLERY_ELEM_CLASS
 
 # 定数定義
 QUERY_INPUT_PLACEHOLDER_TEXT = "検索したい画像の内容を入力してください"
@@ -13,6 +16,11 @@ REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
 ANSWER_GENERATION_MODE_LABEL_TEXT = "回答生成モード"
 ANSWER_MODE_SINGLE_IMAGE = "先頭画像あるいは選択した１つの画像"
 ANSWER_MODE_LISTWISE = "VLMによるフィルタリングと並べ替え"
+QUESTION_EXAMPLES_FILE = "question_examples.json"
+FALLBACK_QUESTION_EXAMPLES = [
+    "ORA-00923 とは何ですか？",
+    "MCPは、アプリ開発者にとってどんなメリットがありますか？",
+]
 
 class UIComponents:
     """UIコンポーネントを管理するクラス"""
@@ -68,30 +76,9 @@ class UIComponents:
                                 visible=True
                             )
                             
-                            # 検索クエリのサンプル例を追加（Columnで囲む）
+                            # 質問例を追加（Columnで囲む）
                             with gr.Column(visible=True) as query_examples:
-                                with gr.Accordion("検索クエリの例", open=False):
-                                    gr.Examples(
-                                        examples=[
-                                            "富士山と寺院", 
-                                            "縞模様の猫", 
-                                            "三匹の白い子猫", 
-                                            "ハリーにホグワーツの入学案内を持ってきたのは誰？", 
-                                            "スターライトブレイカーとは何？",
-                                            "練馬区がアニメ発祥の地と謳っている看板があるのはどこですか？",
-                                            "lost in the middle とは？",
-                                            "MCPは、アプリ開発者にとってどんなメリットがありますか？",
-                                            "ORA-00923 とは何ですか？",
-                                            "Oracle Autonomous Database は、Generative AI Agents のナレッジベースとして利用できますか？",
-                                            "ベクトル検索のチャンクサイズと件数と精度の関係は？",
-                                            "企業がコーディング・エージェントではなく独自のエージェントを開発する意義はどこにありますか？",
-                                            "川口市栄町の7月の金属ゴミの回収日はいつ？",
-                                            "2312.10997のタイトルは？", 
-                                            "https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16"
-                                        ],
-                                        inputs=query_input,
-                                        label="クリックして選択"
-                                    )
+                                self._create_question_examples(query_input)
                     with gr.Column(scale=1, visible=False) as uploaded_image_column:
                         # 画像アップロードフィールドは初期状態では非表示
                         uploaded_image = gr.Image(
@@ -688,8 +675,10 @@ class UIComponents:
                     label="参照した画像",
                     show_label=True,
                     columns=4,
-                    height=240,
+                    rows=2,
+                    height=480,
                     object_fit="contain",
+                    elem_classes=[REFERENCED_GALLERY_ELEM_CLASS],
                     visible=False
                 )
             with gr.Row():
@@ -706,12 +695,37 @@ class UIComponents:
                 
         return (reference_image_text, answer_generate_button, answer_text, reference_type_radio, answer_question_input, referenced_images_gallery, listwise_reason_text)
 
-    def create_agentic_rag_section(self):
-        """Agentic RAGタブのUIコンポーネントを作成"""
-        gr.Markdown("## Agentic マルチモーダル RAG")
-        gr.Markdown(
-            "自然文質問から質問分解、複数検索、十分性判定、再検索、選別・並べ替え、回答生成までを自動実行します。"
+    def create_workflow_agentic_rag_section(self):
+        """Workflow Agentic RAGタブのUIコンポーネントを作成"""
+        return self._create_agentic_rag_section_variant(
+            title="## Workflow Agentic マルチモーダル RAG",
+            description="自然文質問から質問分解、複数検索、十分性判定、再検索、選別・並べ替え、回答生成までを固定ワークフローで自動実行します。",
+            run_label="Workflow Agentic RAG 実行",
+            iteration_label="再検索回数上限",
+            iteration_value=2,
         )
+
+    def create_react_agentic_rag_section(self):
+        """ReAct Agentic RAGタブのUIコンポーネントを作成"""
+        return self._create_agentic_rag_section_variant(
+            title="## ReAct Agentic マルチモーダル RAG",
+            description="LLM が Thought / Action / Observation を繰り返し、必要な検索Toolを選択しながら回答生成まで進めます。",
+            run_label="ReAct Agentic RAG 実行",
+            iteration_label="最大ステップ数",
+            iteration_value=8,
+        )
+
+    def _create_agentic_rag_section_variant(
+        self,
+        *,
+        title,
+        description,
+        run_label,
+        iteration_label,
+        iteration_value,
+    ):
+        gr.Markdown(title)
+        gr.Markdown(description)
 
         with gr.Row():
             with gr.Column(scale=2):
@@ -722,6 +736,7 @@ class UIComponents:
                     interactive=True,
                     show_copy_button=True,
                 )
+                self._create_question_examples(question_input)
             with gr.Column(scale=1):
                 uploaded_image = gr.Image(
                     label="任意の入力画像",
@@ -749,16 +764,16 @@ class UIComponents:
             )
             max_iterations_input = gr.Number(
                 minimum=0,
-                maximum=3,
-                value=2,
+                maximum=12,
+                value=iteration_value,
                 step=1,
-                label="再検索回数上限",
+                label=iteration_label,
                 precision=0,
                 interactive=True,
             )
 
         with gr.Row():
-            run_button = gr.Button("Agentic RAG 実行", variant="primary")
+            run_button = gr.Button(run_label, variant="primary")
             clear_button = gr.Button("クリア")
 
         with gr.Row():
@@ -777,6 +792,7 @@ class UIComponents:
                 rows=2,
                 height=480,
                 object_fit="contain",
+                elem_classes=[REFERENCED_GALLERY_ELEM_CLASS],
                 visible=False,
             )
 
@@ -821,9 +837,17 @@ class UIComponents:
             answer_prompt_template_dropdown,
         )
 
-    def create_agentic_vlm_settings(self):
-        """Agentic RAGタブ専用VLM設定セクションのUIコンポーネントを作成"""
-        with gr.Accordion("VLM設定（Agentic RAG用）", open=False):
+    def _create_question_examples(self, input_component):
+        with gr.Accordion("質問の例", open=False):
+            return gr.Examples(
+                examples=self._load_question_examples(),
+                inputs=input_component,
+                label="クリックして選択",
+            )
+
+    def create_workflow_agentic_vlm_settings(self):
+        """Workflow Agentic RAGタブ専用VLM設定セクションのUIコンポーネントを作成"""
+        with gr.Accordion("VLM設定（Workflow Agentic RAG用）", open=False):
             try:
                 from app.vlm_service import build_vlm_ui_initialization, VLMService
 
@@ -837,7 +861,7 @@ class UIComponents:
                 all_models = _vlm_service.model_settings
                 agentic_model_choices = self._get_agentic_model_choices(all_models, vlm_choices)
             except Exception as e:
-                print(f"Agentic RAG VLMモデル初期化エラー: {e}")
+                print(f"Workflow Agentic RAG VLMモデル初期化エラー: {e}")
                 vlm_choices, default_vlm, provider_choices, vlm_models, all_models, agentic_model_choices = (
                     ["エラー"],
                     "エラー",
@@ -860,13 +884,13 @@ class UIComponents:
                 interactive=True,
             )
 
-            gr.Markdown("### Agentic 判定系モデル")
+            gr.Markdown("### Workflow Agentic 判定系モデル")
             decompose_model = gr.Dropdown(
                 label="質問分解モデル",
                 choices=agentic_model_choices,
                 value=self._resolve_agentic_model_default(
                     all_models,
-                    os.getenv("AGENTIC_DECOMPOSE_MODEL_ID"),
+                    os.getenv("WORKFLOW_AGENTIC_DECOMPOSE_MODEL_ID") or os.getenv("AGENTIC_DECOMPOSE_MODEL_ID"),
                     default_vlm,
                 ),
                 interactive=True,
@@ -876,7 +900,7 @@ class UIComponents:
                 choices=agentic_model_choices,
                 value=self._resolve_agentic_model_default(
                     all_models,
-                    os.getenv("AGENTIC_SUFFICIENCY_MODEL_ID"),
+                    os.getenv("WORKFLOW_AGENTIC_SUFFICIENCY_MODEL_ID") or os.getenv("AGENTIC_SUFFICIENCY_MODEL_ID"),
                     default_vlm,
                 ),
                 interactive=True,
@@ -886,7 +910,7 @@ class UIComponents:
                 choices=agentic_model_choices,
                 value=self._resolve_agentic_model_default(
                     all_models,
-                    os.getenv("AGENTIC_FOLLOWUP_QUERY_MODEL_ID"),
+                    os.getenv("WORKFLOW_AGENTIC_FOLLOWUP_QUERY_MODEL_ID") or os.getenv("AGENTIC_FOLLOWUP_QUERY_MODEL_ID"),
                     default_vlm,
                 ),
                 interactive=True,
@@ -957,6 +981,120 @@ class UIComponents:
             followup_query_model,
         )
 
+    def create_react_agentic_vlm_settings(self):
+        """ReAct Agentic RAGタブ専用VLM設定セクションのUIコンポーネントを作成"""
+        with gr.Accordion("VLM設定（ReAct Agentic RAG用）", open=False):
+            try:
+                from app.vlm_service import build_vlm_ui_initialization, VLMService
+
+                (
+                    vlm_choices,
+                    default_vlm,
+                    provider_choices,
+                    vlm_models,
+                    _vlm_service,
+                ) = build_vlm_ui_initialization()
+                all_models = _vlm_service.model_settings
+                agentic_model_choices = self._get_agentic_model_choices(all_models, vlm_choices)
+            except Exception as e:
+                print(f"ReAct Agentic RAG VLMモデル初期化エラー: {e}")
+                vlm_choices, default_vlm, provider_choices, vlm_models, all_models, agentic_model_choices = (
+                    ["エラー"],
+                    "エラー",
+                    ["すべて"],
+                    {},
+                    {},
+                    ["エラー"],
+                )
+
+            vlm_service_provider = gr.Dropdown(
+                label="サービスプロバイダ",
+                choices=provider_choices,
+                value="すべて",
+                interactive=True,
+            )
+            vlm_model = gr.Dropdown(
+                label="回答生成VLMモデル",
+                choices=vlm_choices,
+                value=default_vlm,
+                interactive=True,
+            )
+
+            gr.Markdown("### ReAct Controller モデル")
+            controller_model = gr.Dropdown(
+                label="ReAct Controllerモデル",
+                choices=agentic_model_choices,
+                value=self._resolve_agentic_model_default(
+                    all_models,
+                    os.getenv("REACT_AGENTIC_CONTROLLER_MODEL_ID"),
+                    default_vlm,
+                ),
+                interactive=True,
+            )
+
+            try:
+                _temp_vlm = VLMService()
+                initial_temperature = (
+                    _temp_vlm.get_model_default_temperature(default_vlm)
+                    if default_vlm != "エラー"
+                    else 0.0
+                )
+            except Exception:
+                initial_temperature = 0.0
+
+            vlm_temperature = gr.Slider(
+                label="Temperature",
+                minimum=0.0,
+                maximum=1.0,
+                step=0.1,
+                value=initial_temperature,
+                interactive=True,
+            )
+            initial_max_tokens = vlm_models.get(default_vlm, {}).get("max_tokens", 4096) if default_vlm != "エラー" else 4096
+            initial_default_tokens = vlm_models.get(default_vlm, {}).get("default_tokens", 4096) if default_vlm != "エラー" else 4096
+            vlm_max_tokens = gr.Slider(
+                label="Max tokens",
+                minimum=1,
+                maximum=initial_max_tokens,
+                step=1,
+                value=initial_default_tokens,
+                interactive=True,
+            )
+
+            oci_regions = {
+                "Brazil East (Sao Paulo)": "sa-saopaulo-1",
+                "Germany Central (Frankfurt)": "eu-frankfurt-1",
+                "Japan Central (Osaka)": "ap-osaka-1",
+                "UAE East (Dubai)": "me-dubai-1",
+                "UK South (London)": "uk-london-1",
+                "US Midwest (Chicago)": "us-chicago-1",
+            }
+            initial_is_oci = default_vlm != "エラー" and vlm_models.get(default_vlm, {}).get("api_type", "").startswith("oci")
+            initial_region_name = "Japan Central (Osaka)"
+            default_region_id = vlm_models.get(default_vlm, {}).get("default_region")
+            if default_region_id:
+                for name, region_id in oci_regions.items():
+                    if region_id == default_region_id:
+                        initial_region_name = name
+                        break
+
+            vlm_oci_region = gr.Dropdown(
+                label="OCIリージョン",
+                choices=list(oci_regions.keys()),
+                value=initial_region_name,
+                interactive=True,
+                visible=initial_is_oci,
+            )
+
+        return (
+            vlm_service_provider,
+            vlm_model,
+            vlm_temperature,
+            vlm_max_tokens,
+            vlm_oci_region,
+            controller_model,
+        )
+
     @staticmethod
     def _resolve_agentic_model_default(vlm_models, env_model_id, fallback_model):
         """Agentic判定系モデルの .env 指定を Gradio Dropdown の表示名へ解決する。"""
@@ -977,6 +1115,21 @@ class UIComponents:
     def _get_agentic_model_choices(all_models, fallback_choices):
         """Agentic判定系は画像を渡さないため、定義済み全モデルを選択肢にする。"""
         return list(all_models.keys()) if all_models else fallback_choices
+
+    @staticmethod
+    def _load_question_examples(file_path=None):
+        """3つの質問入力タブで使う質問例を外部JSONから読み込む。"""
+        example_path = file_path or os.path.join(os.getcwd(), QUESTION_EXAMPLES_FILE)
+        try:
+            with open(example_path, "r", encoding="utf-8") as examples_file:
+                payload = json.load(examples_file)
+            examples = payload.get("examples") if isinstance(payload, dict) else payload
+            if not isinstance(examples, list):
+                return list(FALLBACK_QUESTION_EXAMPLES)
+            normalized = [str(example).strip() for example in examples if str(example).strip()]
+            return normalized or list(FALLBACK_QUESTION_EXAMPLES)
+        except Exception:
+            return list(FALLBACK_QUESTION_EXAMPLES)
 
     def _get_answer_prompt_template_names(self):
         import glob
