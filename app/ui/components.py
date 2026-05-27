@@ -632,46 +632,47 @@ class UIComponents:
                     visible=True,
                 )
 
-        with gr.Row():
-            reference_type_radio = gr.Radio(
-                choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
-                value=REFERENCE_TYPE_ALL,
-                label=REFERENCE_TYPE_LABEL_TEXT,
-                interactive=True,
-            )
-            top_k_input = gr.Number(
-                minimum=1,
-                maximum=24,
-                value=8,
-                step=1,
-                label="検索件数",
-                precision=0,
-                interactive=True,
-            )
-            max_iterations_input = gr.Number(
-                minimum=0,
-                maximum=12,
-                value=iteration_value,
-                step=1,
-                label=iteration_label,
-                precision=0,
-                interactive=True,
-            )
+        with gr.Accordion("Agentic RAG設定", open=False):
+            with gr.Row():
+                reference_type_radio = gr.Radio(
+                    choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                    value=REFERENCE_TYPE_ALL,
+                    label=REFERENCE_TYPE_LABEL_TEXT,
+                    interactive=True,
+                )
+                top_k_input = gr.Number(
+                    minimum=1,
+                    maximum=24,
+                    value=8,
+                    step=1,
+                    label="検索件数",
+                    precision=0,
+                    interactive=True,
+                )
+                max_iterations_input = gr.Number(
+                    minimum=0,
+                    maximum=12,
+                    value=iteration_value,
+                    step=1,
+                    label=iteration_label,
+                    precision=0,
+                    interactive=True,
+                )
 
         with gr.Row():
             run_button = gr.Button(run_label, variant="primary")
             clear_button = gr.Button("クリア")
 
-        with gr.Row():
-            answer_text = gr.Textbox(
-                label="回答",
+        with gr.Accordion("進捗状況", open=False):
+            trace_text = gr.Textbox(
+                label="進捗状況",
                 lines=10,
                 interactive=False,
                 show_copy_button=True,
-                placeholder="回答がここに表示されます",
+                placeholder="質問分解、検索、再検索、選別の流れがここに表示されます",
             )
 
-        with gr.Row():
+        with gr.Accordion("参照した画像", open=False):
             referenced_images_gallery = gr.Gallery(
                 label="参照した画像",
                 show_label=True,
@@ -684,23 +685,21 @@ class UIComponents:
                 elem_classes=[REFERENCED_GALLERY_ELEM_CLASS],
                 visible=False,
             )
-
-        with gr.Row():
-            trace_text = gr.Textbox(
-                label="実行トレース",
-                lines=10,
-                interactive=False,
-                show_copy_button=True,
-                placeholder="質問分解、検索、再検索、選別の流れがここに表示されます",
-            )
-
-        with gr.Row():
             selection_reason_text = gr.Textbox(
                 label="選別・並べ替え理由",
                 lines=4,
                 interactive=False,
                 show_copy_button=True,
                 placeholder="回答に使用した evidence の選別理由がここに表示されます",
+            )
+
+        with gr.Row():
+            answer_text = gr.Textbox(
+                label="回答",
+                lines=10,
+                interactive=False,
+                show_copy_button=True,
+                placeholder="回答がここに表示されます",
             )
 
         with gr.Accordion("回答生成プロンプト", open=False):
