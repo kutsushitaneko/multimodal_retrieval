@@ -8,9 +8,50 @@ from app.ui.components import UIComponents
 from app.ui.events import UIEvents
 from app.ui.react_agentic_events import ReactAgenticRAGEvents
 from app.ui.workflow_agentic_events import WorkflowAgenticRAGEvents
+from app.fulltext_entity_extractor import FulltextEntityExtractor
+from app.nlp_service import NLPService
 from app.search_query_generator import SearchQueryGenerator
 from app.cleanup_service import CleanupService
+from app.vlm_service import VLMService
 import os
+
+
+def resolve_model_display_name(model_settings, env_model_id):
+    if not env_model_id:
+        return None
+    model_id = env_model_id.strip()
+    if model_id in model_settings:
+        return model_id
+    for display_name, model_info in model_settings.items():
+        if model_info.get("model_name") == model_id:
+            return display_name
+    for display_name in model_settings:
+        if model_id in display_name:
+            return display_name
+    return None
+
+
+def create_fulltext_entity_extractor():
+    if os.getenv("FULLTEXT_ENTITY_EXTRACTION_ENABLED", "false").lower() != "true":
+        return None
+    vlm_service = VLMService()
+    model = resolve_model_display_name(vlm_service.model_settings, os.getenv("FULLTEXT_ENTITY_EXTRACTION_MODEL_ID"))
+    if not model:
+        print("全文検索LLM固有表現抽出はモデル未設定のため無効です。")
+        return None
+    nlp_service = NLPService(vlm_service)
+
+    def generate_text(prompt_text):
+        return nlp_service.generate_text(
+            model=model,
+            prompt_text=prompt_text,
+            temperature=0.0,
+            max_tokens=1024,
+            oci_region=os.getenv("OCI_REGION", "ap-osaka-1"),
+        )
+
+    print(f"全文検索LLM固有表現抽出を有効化しました: {model}")
+    return FulltextEntityExtractor(generate_text)
 
 def main():
     # ベースの一時ディレクトリを作成（Gradio一時ディレクトリの親）
@@ -46,7 +87,9 @@ def main():
     atexit.register(Config.close_db_pool)
     cohere_client = config.get_cohere_client()
     oci_client = config.get_oci_generative_ai_client()
-    search_query_generator = SearchQueryGenerator()
+    search_query_generator = SearchQueryGenerator(
+        fulltext_entity_extractor=create_fulltext_entity_extractor()
+    )
     
     # 各サービスを初期化
     embedding_service = EmbeddingService(
@@ -114,8 +157,17 @@ def main():
                     workflow_agentic_vlm_max_tokens,
                     workflow_agentic_vlm_oci_region,
                     workflow_agentic_decompose_model,
+                    workflow_agentic_decompose_temperature,
+                    workflow_agentic_decompose_max_tokens,
+                    workflow_agentic_decompose_oci_region,
                     workflow_agentic_sufficiency_model,
+                    workflow_agentic_sufficiency_temperature,
+                    workflow_agentic_sufficiency_max_tokens,
+                    workflow_agentic_sufficiency_oci_region,
                     workflow_agentic_followup_query_model,
+                    workflow_agentic_followup_query_temperature,
+                    workflow_agentic_followup_query_max_tokens,
+                    workflow_agentic_followup_query_oci_region,
                 ) = ui_components.create_workflow_agentic_vlm_settings()
 
                 workflow_agentic_events.register_vlm_settings_events(
@@ -124,6 +176,18 @@ def main():
                     workflow_agentic_vlm_temperature,
                     workflow_agentic_vlm_max_tokens,
                     workflow_agentic_vlm_oci_region,
+                    workflow_agentic_decompose_model,
+                    workflow_agentic_decompose_temperature,
+                    workflow_agentic_decompose_max_tokens,
+                    workflow_agentic_decompose_oci_region,
+                    workflow_agentic_sufficiency_model,
+                    workflow_agentic_sufficiency_temperature,
+                    workflow_agentic_sufficiency_max_tokens,
+                    workflow_agentic_sufficiency_oci_region,
+                    workflow_agentic_followup_query_model,
+                    workflow_agentic_followup_query_temperature,
+                    workflow_agentic_followup_query_max_tokens,
+                    workflow_agentic_followup_query_oci_region,
                 )
 
                 workflow_agentic_events.register_workflow_agentic_rag_events(
@@ -140,8 +204,17 @@ def main():
                     workflow_agentic_vlm_max_tokens,
                     workflow_agentic_vlm_oci_region,
                     workflow_agentic_decompose_model,
+                    workflow_agentic_decompose_temperature,
+                    workflow_agentic_decompose_max_tokens,
+                    workflow_agentic_decompose_oci_region,
                     workflow_agentic_sufficiency_model,
+                    workflow_agentic_sufficiency_temperature,
+                    workflow_agentic_sufficiency_max_tokens,
+                    workflow_agentic_sufficiency_oci_region,
                     workflow_agentic_followup_query_model,
+                    workflow_agentic_followup_query_temperature,
+                    workflow_agentic_followup_query_max_tokens,
+                    workflow_agentic_followup_query_oci_region,
                     workflow_agentic_answer_text,
                     workflow_agentic_referenced_images_gallery,
                     workflow_agentic_trace_text,
@@ -172,6 +245,9 @@ def main():
                     react_agentic_vlm_max_tokens,
                     react_agentic_vlm_oci_region,
                     react_agentic_controller_model,
+                    react_agentic_controller_temperature,
+                    react_agentic_controller_max_tokens,
+                    react_agentic_controller_oci_region,
                 ) = ui_components.create_react_agentic_vlm_settings()
 
                 react_agentic_events.register_vlm_settings_events(
@@ -180,6 +256,10 @@ def main():
                     react_agentic_vlm_temperature,
                     react_agentic_vlm_max_tokens,
                     react_agentic_vlm_oci_region,
+                    react_agentic_controller_model,
+                    react_agentic_controller_temperature,
+                    react_agentic_controller_max_tokens,
+                    react_agentic_controller_oci_region,
                 )
 
                 react_agentic_events.register_react_agentic_rag_events(
@@ -196,6 +276,9 @@ def main():
                     react_agentic_vlm_max_tokens,
                     react_agentic_vlm_oci_region,
                     react_agentic_controller_model,
+                    react_agentic_controller_temperature,
+                    react_agentic_controller_max_tokens,
+                    react_agentic_controller_oci_region,
                     react_agentic_answer_text,
                     react_agentic_referenced_images_gallery,
                     react_agentic_trace_text,

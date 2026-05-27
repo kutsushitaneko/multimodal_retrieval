@@ -4,7 +4,7 @@ import tempfile
 import gradio as gr
 from PIL import Image
 
-from app.agentic_rag_common import REFERENCED_GALLERY_ELEM_CLASS, referenced_gallery_rows
+from app.agentic_rag_common import REFERENCED_GALLERY_ELEM_CLASS
 from app.workflow_agentic_rag import WorkflowAgenticRAGPipeline
 from app.nlp_service import NLPService
 from app.vlm_service_factory import VLMServiceFactory
@@ -17,6 +17,8 @@ REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
 
 class WorkflowAgenticRAGEvents:
     """Workflow Agentic RAGタブ専用のイベントハンドラー。"""
+
+    RAG_TYPE_LABEL = "Workflow Agentic RAG"
 
     def __init__(self, search_service):
         self.search_service = search_service
@@ -37,8 +39,17 @@ class WorkflowAgenticRAGEvents:
         vlm_max_tokens,
         vlm_oci_region,
         decompose_model,
+        decompose_temperature,
+        decompose_max_tokens,
+        decompose_oci_region,
         sufficiency_model,
+        sufficiency_temperature,
+        sufficiency_max_tokens,
+        sufficiency_oci_region,
         followup_query_model,
+        followup_query_temperature,
+        followup_query_max_tokens,
+        followup_query_oci_region,
         answer_text,
         referenced_images_gallery,
         trace_text,
@@ -58,8 +69,17 @@ class WorkflowAgenticRAGEvents:
                 vlm_max_tokens,
                 vlm_oci_region,
                 decompose_model,
+                decompose_temperature,
+                decompose_max_tokens,
+                decompose_oci_region,
                 sufficiency_model,
+                sufficiency_temperature,
+                sufficiency_max_tokens,
+                sufficiency_oci_region,
                 followup_query_model,
+                followup_query_temperature,
+                followup_query_max_tokens,
+                followup_query_oci_region,
             ],
             outputs=[answer_text, referenced_images_gallery, trace_text, selection_reason_text],
         )
@@ -84,6 +104,18 @@ class WorkflowAgenticRAGEvents:
         vlm_temperature,
         vlm_max_tokens,
         vlm_oci_region,
+        decompose_model=None,
+        decompose_temperature=None,
+        decompose_max_tokens=None,
+        decompose_oci_region=None,
+        sufficiency_model=None,
+        sufficiency_temperature=None,
+        sufficiency_max_tokens=None,
+        sufficiency_oci_region=None,
+        followup_query_model=None,
+        followup_query_temperature=None,
+        followup_query_max_tokens=None,
+        followup_query_oci_region=None,
     ):
         vlm_service_provider.change(
             fn=self.vlm_service_provider_changed,
@@ -114,6 +146,19 @@ class WorkflowAgenticRAGEvents:
             inputs=[vlm_oci_region],
             outputs=[],
         )
+        for model, temperature, max_tokens, oci_region in [
+            (decompose_model, decompose_temperature, decompose_max_tokens, decompose_oci_region),
+            (sufficiency_model, sufficiency_temperature, sufficiency_max_tokens, sufficiency_oci_region),
+            (followup_query_model, followup_query_temperature, followup_query_max_tokens, followup_query_oci_region),
+        ]:
+            if model is None or temperature is None or max_tokens is None or oci_region is None:
+                continue
+            model.change(
+                fn=self.agentic_model_changed,
+                inputs=[model],
+                outputs=[temperature, max_tokens, oci_region],
+                queue=False,
+            )
 
     def vlm_service_provider_changed(self, service_provider):
         return self.answer_vlm_service.service_provider_changed(service_provider)
@@ -121,6 +166,9 @@ class WorkflowAgenticRAGEvents:
     def vlm_model_changed(self, model):
         self.answer_vlm_service.update_current_vlm_settings(model=model)
         return self.answer_vlm_service.model_changed(model)
+
+    def agentic_model_changed(self, model):
+        return self.answer_vlm_service.create_model_parameter_components(model)
 
     def run_workflow_agentic_rag(
         self,
@@ -135,8 +183,17 @@ class WorkflowAgenticRAGEvents:
         vlm_max_tokens,
         vlm_oci_region,
         decompose_model,
+        decompose_temperature,
+        decompose_max_tokens,
+        decompose_oci_region,
         sufficiency_model,
+        sufficiency_temperature,
+        sufficiency_max_tokens,
+        sufficiency_oci_region,
         followup_query_model,
+        followup_query_temperature,
+        followup_query_max_tokens,
+        followup_query_oci_region,
     ):
         def call_workflow_selection_model(prompt_text):
             return self._call_text_vlm(
@@ -147,13 +204,13 @@ class WorkflowAgenticRAGEvents:
                 vlm_oci_region,
             )
 
-        def call_agentic_step_model(prompt_text, model):
+        def call_agentic_step_model(prompt_text, model, temperature, max_tokens, oci_region):
             return self._call_text_model(
                 prompt_text,
                 model or vlm_model,
-                vlm_temperature,
-                vlm_max_tokens,
-                vlm_oci_region,
+                temperature,
+                max_tokens,
+                oci_region,
             )
 
         pipeline = WorkflowAgenticRAGPipeline(
@@ -161,9 +218,27 @@ class WorkflowAgenticRAGEvents:
             top_k=top_k,
             max_iterations=max_iterations,
             llm_text_generator=call_workflow_selection_model,
-            decompose_llm_text_generator=lambda prompt: call_agentic_step_model(prompt, decompose_model),
-            sufficiency_llm_text_generator=lambda prompt: call_agentic_step_model(prompt, sufficiency_model),
-            followup_llm_text_generator=lambda prompt: call_agentic_step_model(prompt, followup_query_model),
+            decompose_llm_text_generator=lambda prompt: call_agentic_step_model(
+                prompt,
+                decompose_model,
+                decompose_temperature,
+                decompose_max_tokens,
+                decompose_oci_region,
+            ),
+            sufficiency_llm_text_generator=lambda prompt: call_agentic_step_model(
+                prompt,
+                sufficiency_model,
+                sufficiency_temperature,
+                sufficiency_max_tokens,
+                sufficiency_oci_region,
+            ),
+            followup_llm_text_generator=lambda prompt: call_agentic_step_model(
+                prompt,
+                followup_query_model,
+                followup_query_temperature,
+                followup_query_max_tokens,
+                followup_query_oci_region,
+            ),
         )
 
         def generate_answer(query, selected_evidence, documents):
@@ -207,15 +282,16 @@ class WorkflowAgenticRAGEvents:
         )
 
     def _create_referenced_images_gallery(self, referenced_images):
-        image_count = len(referenced_images or [])
-        rows = referenced_gallery_rows(image_count)
         return gr.Gallery(
             label="参照した画像",
             value=referenced_images or [],
-            columns=4,
-            rows=rows,
-            height=240 * rows,
+            show_label=True,
+            columns=[4],
+            rows=[2],
             object_fit="contain",
+            container=True,
+            preview=False,
+            allow_preview=True,
             elem_classes=[REFERENCED_GALLERY_ELEM_CLASS],
             visible=bool(referenced_images),
         )
@@ -270,7 +346,7 @@ class WorkflowAgenticRAGEvents:
             if not answer:
                 return "❌ 回答の生成に失敗しました。"
             reference_names = "」「".join(evidence.file_name for evidence in selected_evidence)
-            return f"（Workflow Agentic RAG が「{reference_names}」を参照して回答しました）\n\n{answer}"
+            return f"（{self.RAG_TYPE_LABEL} が「{reference_names}」を参照して回答しました）\n\n{answer}"
         finally:
             for image_path in image_paths:
                 if image_path and os.path.exists(image_path):

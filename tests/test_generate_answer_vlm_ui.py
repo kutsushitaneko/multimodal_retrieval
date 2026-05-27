@@ -156,3 +156,30 @@ class TestSearchAndAnswerGalleryDisplay:
         assert vector_gallery.label != "全件表示"
         assert vector_gallery.visible is True
         assert keyword_gallery.visible is False
+
+    def test_referenced_gallery_updates_match_search_result_gallery_layout(self):
+        events = make_events()
+
+        hidden_gallery = events._hidden_referenced_images_gallery()
+        visible_gallery = events._visible_referenced_images_gallery(["image-1", "image-2"])
+
+        for gallery in [hidden_gallery, visible_gallery]:
+            assert gallery.columns == [4]
+            assert gallery.rows == [2]
+            assert gallery.height is None
+            assert gallery.container is True
+            assert gallery.preview is False
+            assert gallery.allow_preview is True
+
+    def test_referenced_gallery_initial_layout_matches_search_result_gallery(self):
+        from app.ui.components import UIComponents
+
+        answer_source = inspect.getsource(UIComponents.create_answer_generation_section)
+        agentic_source = inspect.getsource(UIComponents._create_agentic_rag_section_variant)
+
+        for source in [answer_source, agentic_source]:
+            assert "columns=[4]" in source
+            assert "rows=[2]" in source
+            assert "preview=False" in source
+            assert "allow_preview=True" in source
+            assert "height=480" not in source
