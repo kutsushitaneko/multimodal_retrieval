@@ -118,7 +118,7 @@ def main():
     """
     with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕", delete_cache=(86400, 86400), css=gallery_scroll_css) as demo:
         gr.Markdown("# 🐕マルチモーダル・レトリバー🐕")
-        gr.Markdown("画像を自然言語で検索したり、検索画像を元に質問に答えることができます。アップロード画像で類似した画像を検索できます。")
+        gr.Markdown("画像データベースに自然言語で質問することができます。")
         
         state = gr.State({
             "current_page": 1,
