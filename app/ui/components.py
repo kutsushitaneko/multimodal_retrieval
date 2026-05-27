@@ -115,12 +115,14 @@ class UIComponents:
                 print(f"検索タブVLMモデル初期化エラー: {e}")
                 import traceback
                 traceback.print_exc()
+                from app.vlm_service import VLMService
                 search_vlm_choices, search_default_vlm, search_provider_choices, search_vlm_models = (
                     ["エラー"],
                     "エラー",
                     ["すべて"],
                     {},
                 )
+                _search_vlm_service = VLMService()
             
             # サービスプロバイダー選択
             search_vlm_service_provider = gr.Dropdown(
@@ -130,76 +132,14 @@ class UIComponents:
                 interactive=True
             )
             
-            # VLMモデル選択
-            search_vlm_model = gr.Dropdown(
-                label="VLMモデル",
-                choices=search_vlm_choices,
-                value=search_default_vlm,
-                interactive=True
-            )
-            
-            # 温度設定（モデル設定から初期値を取得）
-            try:
-                from app.vlm_service import VLMService
-                _temp_vlm = VLMService()
-                search_initial_temperature = (
-                    _temp_vlm.get_model_default_temperature(search_default_vlm)
-                    if search_default_vlm != "エラー"
-                    else 0.0
-                )
-            except Exception:
-                search_initial_temperature = 0.0
-            search_vlm_temperature = gr.Slider(
-                label="Temperature",
-                minimum=0.0,
-                maximum=1.0,
-                step=0.1,
-                value=search_initial_temperature,
-                interactive=True
-            )
-            
-            # Max tokens設定
-            search_initial_max_tokens = search_vlm_models.get(search_default_vlm, {}).get("max_tokens", 4096) if search_default_vlm != "エラー" else 4096
-            search_initial_default_tokens = search_vlm_models.get(search_default_vlm, {}).get("default_tokens", 4096) if search_default_vlm != "エラー" else 4096
-            
-            search_vlm_max_tokens = gr.Slider(
-                label="Max tokens",
-                minimum=1,
-                maximum=search_initial_max_tokens,
-                step=1,
-                value=search_initial_default_tokens,
-                interactive=True
-            )
-            
-            # OCIリージョン設定（OCIモデルの場合のみ表示）
-            OCI_REGIONS = {
-                "Brazil East (Sao Paulo)": "sa-saopaulo-1",
-                "Germany Central (Frankfurt)": "eu-frankfurt-1", 
-                "Japan Central (Osaka)": "ap-osaka-1",
-                "UAE East (Dubai)": "me-dubai-1",
-                "UK South (London)": "uk-london-1",
-                "US Midwest (Chicago)": "us-chicago-1"
-            }
-            
-            search_initial_is_oci = search_default_vlm != "エラー" and search_vlm_models.get(search_default_vlm, {}).get("api_type", "").startswith("oci")
-            
-            # 初期リージョンを設定（モデルのdefault_regionを優先）
-            search_initial_region_name = "Japan Central (Osaka)"  # デフォルトのフォールバック値
-            if search_initial_is_oci:
-                search_default_region_id = search_vlm_models.get(search_default_vlm, {}).get("default_region")
-                if search_default_region_id:
-                    # region_idからregion_nameを逆引き
-                    for name, region_id in OCI_REGIONS.items():
-                        if region_id == search_default_region_id:
-                            search_initial_region_name = name
-                            break
-            
-            search_vlm_oci_region = gr.Dropdown(
-                label="OCIリージョン",
-                choices=list(OCI_REGIONS.keys()),
-                value=search_initial_region_name,
-                interactive=True,
-                visible=search_initial_is_oci
+            (
+                search_vlm_model,
+                search_vlm_temperature,
+                search_vlm_max_tokens,
+                search_vlm_oci_region,
+            ) = _search_vlm_service.create_model_setting_components(
+                search_default_vlm,
+                model_choices=search_vlm_choices,
             )
             
             # VLM設定のステータス
@@ -381,12 +321,14 @@ class UIComponents:
                         print(f"VLMモデル初期化エラー: {e}")
                         import traceback
                         traceback.print_exc()
+                        from app.vlm_service import VLMService
                         vlm_choices, default_vlm, provider_choices, vlm_models = (
                             ["エラー"],
                             "エラー",
                             ["すべて"],
                             {},
                         )
+                        _upload_vlm_service = VLMService()
                     
                     # サービスプロバイダー選択
                     vlm_service_provider = gr.Dropdown(
@@ -396,72 +338,14 @@ class UIComponents:
                         interactive=True
                     )
                     
-                    # VLMモデル選択
-                    vlm_model = gr.Dropdown(
-                        label="VLMモデル",
-                        choices=vlm_choices,
-                        value=default_vlm,
-                        interactive=True
-                    )
-                    
-                    # 温度設定（モデル設定から初期値を取得）
-                    try:
-                        from app.vlm_service import VLMService
-                        _temp_vlm = VLMService()
-                        initial_temperature = _temp_vlm.get_model_default_temperature(default_vlm) if default_vlm != "エラー" else 0.0
-                    except Exception:
-                        initial_temperature = 0.0
-                    vlm_temperature = gr.Slider(
-                        label="Temperature",
-                        minimum=0.0,
-                        maximum=1.0,
-                        step=0.1,
-                        value=initial_temperature,
-                        interactive=True
-                    )
-                    
-                    # Max tokens設定
-                    initial_max_tokens = vlm_models.get(default_vlm, {}).get("max_tokens", 4096) if default_vlm != "エラー" else 4096
-                    initial_default_tokens = vlm_models.get(default_vlm, {}).get("default_tokens", 4096) if default_vlm != "エラー" else 4096
-                    
-                    vlm_max_tokens = gr.Slider(
-                        label="Max tokens",
-                        minimum=1,
-                        maximum=initial_max_tokens,
-                        step=1,
-                        value=initial_default_tokens,
-                        interactive=True
-                    )
-                    
-                    # OCIリージョン設定（OCIモデルの場合のみ表示）
-                    OCI_REGIONS = {
-                        "Brazil East (Sao Paulo)": "sa-saopaulo-1",
-                        "Germany Central (Frankfurt)": "eu-frankfurt-1", 
-                        "Japan Central (Osaka)": "ap-osaka-1",
-                        "UAE East (Dubai)": "me-dubai-1",
-                        "UK South (London)": "uk-london-1",
-                        "US Midwest (Chicago)": "us-chicago-1"
-                    }
-                    
-                    initial_is_oci = default_vlm != "エラー" and vlm_models.get(default_vlm, {}).get("api_type", "").startswith("oci")
-                    
-                    # 初期リージョンを設定（モデルのdefault_regionを優先）
-                    initial_region_name = "Japan Central (Osaka)"  # デフォルトのフォールバック値
-                    if initial_is_oci:
-                        default_region_id = vlm_models.get(default_vlm, {}).get("default_region")
-                        if default_region_id:
-                            # region_idからregion_nameを逆引き
-                            for name, region_id in OCI_REGIONS.items():
-                                if region_id == default_region_id:
-                                    initial_region_name = name
-                                    break
-                    
-                    vlm_oci_region = gr.Dropdown(
-                        label="OCIリージョン",
-                        choices=list(OCI_REGIONS.keys()),
-                        value=initial_region_name,
-                        interactive=True,
-                        visible=initial_is_oci
+                    (
+                        vlm_model,
+                        vlm_temperature,
+                        vlm_max_tokens,
+                        vlm_oci_region,
+                    ) = _upload_vlm_service.create_model_setting_components(
+                        default_vlm,
+                        model_choices=vlm_choices,
                     )
                     
                     # VLM設定のステータス
@@ -674,10 +558,12 @@ class UIComponents:
                 referenced_images_gallery = gr.Gallery(
                     label="参照した画像",
                     show_label=True,
-                    columns=4,
-                    rows=2,
-                    height=480,
+                    columns=[4],
+                    rows=[2],
                     object_fit="contain",
+                    container=True,
+                    preview=False,
+                    allow_preview=True,
                     elem_classes=[REFERENCED_GALLERY_ELEM_CLASS],
                     visible=False
                 )
@@ -709,7 +595,7 @@ class UIComponents:
         """ReAct Agentic RAGタブのUIコンポーネントを作成"""
         return self._create_agentic_rag_section_variant(
             title="## ReAct Agentic マルチモーダル RAG",
-            description="LLM が Thought / Action / Observation を繰り返し、必要な検索Toolを選択しながら回答生成まで進めます。",
+            description="LLM が Thought / Action / Observation を繰り返し、必要な検索Tool（画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選択しながら回答生成まで進めます。",
             run_label="ReAct Agentic RAG 実行",
             iteration_label="最大ステップ数",
             iteration_value=8,
@@ -788,10 +674,13 @@ class UIComponents:
         with gr.Row():
             referenced_images_gallery = gr.Gallery(
                 label="参照した画像",
-                columns=4,
-                rows=2,
-                height=480,
+                show_label=True,
+                columns=[4],
+                rows=[2],
                 object_fit="contain",
+                container=True,
+                preview=False,
+                allow_preview=True,
                 elem_classes=[REFERENCED_GALLERY_ELEM_CLASS],
                 visible=False,
             )
@@ -847,9 +736,9 @@ class UIComponents:
 
     def create_workflow_agentic_vlm_settings(self):
         """Workflow Agentic RAGタブ専用VLM設定セクションのUIコンポーネントを作成"""
-        with gr.Accordion("VLM設定（Workflow Agentic RAG用）", open=False):
+        with gr.Accordion("モデル設定", open=False):
             try:
-                from app.vlm_service import build_vlm_ui_initialization, VLMService
+                from app.vlm_service import build_vlm_ui_initialization
 
                 (
                     vlm_choices,
@@ -862,6 +751,7 @@ class UIComponents:
                 agentic_model_choices = self._get_agentic_model_choices(all_models, vlm_choices)
             except Exception as e:
                 print(f"Workflow Agentic RAG VLMモデル初期化エラー: {e}")
+                from app.vlm_service import VLMService
                 vlm_choices, default_vlm, provider_choices, vlm_models, all_models, agentic_model_choices = (
                     ["エラー"],
                     "エラー",
@@ -870,105 +760,72 @@ class UIComponents:
                     {},
                     ["エラー"],
                 )
+                _vlm_service = VLMService()
 
-            vlm_service_provider = gr.Dropdown(
-                label="サービスプロバイダ",
-                choices=provider_choices,
-                value="すべて",
-                interactive=True,
-            )
-            vlm_model = gr.Dropdown(
-                label="VLMモデル",
-                choices=vlm_choices,
-                value=default_vlm,
-                interactive=True,
-            )
-
-            gr.Markdown("### Workflow Agentic 判定系モデル")
-            decompose_model = gr.Dropdown(
-                label="質問分解モデル",
-                choices=agentic_model_choices,
-                value=self._resolve_agentic_model_default(
-                    all_models,
-                    os.getenv("WORKFLOW_AGENTIC_DECOMPOSE_MODEL_ID") or os.getenv("AGENTIC_DECOMPOSE_MODEL_ID"),
-                    default_vlm,
-                ),
-                interactive=True,
-            )
-            sufficiency_model = gr.Dropdown(
-                label="十分性判定モデル",
-                choices=agentic_model_choices,
-                value=self._resolve_agentic_model_default(
-                    all_models,
-                    os.getenv("WORKFLOW_AGENTIC_SUFFICIENCY_MODEL_ID") or os.getenv("AGENTIC_SUFFICIENCY_MODEL_ID"),
-                    default_vlm,
-                ),
-                interactive=True,
-            )
-            followup_query_model = gr.Dropdown(
-                label="追加検索クエリー生成モデル",
-                choices=agentic_model_choices,
-                value=self._resolve_agentic_model_default(
-                    all_models,
-                    os.getenv("WORKFLOW_AGENTIC_FOLLOWUP_QUERY_MODEL_ID") or os.getenv("AGENTIC_FOLLOWUP_QUERY_MODEL_ID"),
-                    default_vlm,
-                ),
-                interactive=True,
-            )
-
-            try:
-                _temp_vlm = VLMService()
-                initial_temperature = (
-                    _temp_vlm.get_model_default_temperature(default_vlm)
-                    if default_vlm != "エラー"
-                    else 0.0
+            with gr.Accordion("選別・並べ替え・回答生成モデル", open=True):
+                vlm_service_provider = gr.Dropdown(
+                    label="サービスプロバイダ",
+                    choices=provider_choices,
+                    value="すべて",
+                    interactive=True,
                 )
-            except Exception:
-                initial_temperature = 0.0
+                (
+                    vlm_model,
+                    vlm_temperature,
+                    vlm_max_tokens,
+                    vlm_oci_region,
+                ) = _vlm_service.create_model_setting_components(
+                    default_vlm,
+                    model_choices=vlm_choices,
+                )
 
-            vlm_temperature = gr.Slider(
-                label="Temperature",
-                minimum=0.0,
-                maximum=1.0,
-                step=0.1,
-                value=initial_temperature,
-                interactive=True,
-            )
-            initial_max_tokens = vlm_models.get(default_vlm, {}).get("max_tokens", 4096) if default_vlm != "エラー" else 4096
-            initial_default_tokens = vlm_models.get(default_vlm, {}).get("default_tokens", 4096) if default_vlm != "エラー" else 4096
-            vlm_max_tokens = gr.Slider(
-                label="Max tokens",
-                minimum=1,
-                maximum=initial_max_tokens,
-                step=1,
-                value=initial_default_tokens,
-                interactive=True,
-            )
+            with gr.Accordion("質問分解モデル", open=False):
+                (
+                    decompose_model,
+                    decompose_temperature,
+                    decompose_max_tokens,
+                    decompose_oci_region,
+                ) = _vlm_service.create_model_setting_components(
+                    self._resolve_agentic_model_default(
+                        all_models,
+                        os.getenv("WORKFLOW_AGENTIC_DECOMPOSE_MODEL_ID") or os.getenv("AGENTIC_DECOMPOSE_MODEL_ID"),
+                        default_vlm,
+                    ),
+                    model_choices=agentic_model_choices,
+                    model_label="質問分解モデル",
+                )
 
-            oci_regions = {
-                "Brazil East (Sao Paulo)": "sa-saopaulo-1",
-                "Germany Central (Frankfurt)": "eu-frankfurt-1",
-                "Japan Central (Osaka)": "ap-osaka-1",
-                "UAE East (Dubai)": "me-dubai-1",
-                "UK South (London)": "uk-london-1",
-                "US Midwest (Chicago)": "us-chicago-1",
-            }
-            initial_is_oci = default_vlm != "エラー" and vlm_models.get(default_vlm, {}).get("api_type", "").startswith("oci")
-            initial_region_name = "Japan Central (Osaka)"
-            default_region_id = vlm_models.get(default_vlm, {}).get("default_region")
-            if default_region_id:
-                for name, region_id in oci_regions.items():
-                    if region_id == default_region_id:
-                        initial_region_name = name
-                        break
+            with gr.Accordion("十分性判定モデル", open=False):
+                (
+                    sufficiency_model,
+                    sufficiency_temperature,
+                    sufficiency_max_tokens,
+                    sufficiency_oci_region,
+                ) = _vlm_service.create_model_setting_components(
+                    self._resolve_agentic_model_default(
+                        all_models,
+                        os.getenv("WORKFLOW_AGENTIC_SUFFICIENCY_MODEL_ID") or os.getenv("AGENTIC_SUFFICIENCY_MODEL_ID"),
+                        default_vlm,
+                    ),
+                    model_choices=agentic_model_choices,
+                    model_label="十分性判定モデル",
+                )
 
-            vlm_oci_region = gr.Dropdown(
-                label="OCIリージョン",
-                choices=list(oci_regions.keys()),
-                value=initial_region_name,
-                interactive=True,
-                visible=initial_is_oci,
-            )
+            with gr.Accordion("追加検索クエリー生成モデル", open=False):
+                (
+                    followup_query_model,
+                    followup_query_temperature,
+                    followup_query_max_tokens,
+                    followup_query_oci_region,
+                ) = _vlm_service.create_model_setting_components(
+                    self._resolve_agentic_model_default(
+                        all_models,
+                        os.getenv("WORKFLOW_AGENTIC_FOLLOWUP_QUERY_MODEL_ID") or os.getenv("AGENTIC_FOLLOWUP_QUERY_MODEL_ID"),
+                        default_vlm,
+                    ),
+                    model_choices=agentic_model_choices,
+                    model_label="追加検索クエリー生成モデル",
+                )
 
         return (
             vlm_service_provider,
@@ -977,15 +834,24 @@ class UIComponents:
             vlm_max_tokens,
             vlm_oci_region,
             decompose_model,
+            decompose_temperature,
+            decompose_max_tokens,
+            decompose_oci_region,
             sufficiency_model,
+            sufficiency_temperature,
+            sufficiency_max_tokens,
+            sufficiency_oci_region,
             followup_query_model,
+            followup_query_temperature,
+            followup_query_max_tokens,
+            followup_query_oci_region,
         )
 
     def create_react_agentic_vlm_settings(self):
         """ReAct Agentic RAGタブ専用VLM設定セクションのUIコンポーネントを作成"""
-        with gr.Accordion("VLM設定（ReAct Agentic RAG用）", open=False):
+        with gr.Accordion("モデル設定", open=False):
             try:
-                from app.vlm_service import build_vlm_ui_initialization, VLMService
+                from app.vlm_service import build_vlm_ui_initialization
 
                 (
                     vlm_choices,
@@ -996,95 +862,58 @@ class UIComponents:
                 ) = build_vlm_ui_initialization()
                 all_models = _vlm_service.model_settings
                 agentic_model_choices = self._get_agentic_model_choices(all_models, vlm_choices)
+                react_default_vlm = self._resolve_agentic_model_default(
+                    vlm_models,
+                    os.getenv("REACT_AGENTIC_VLM_MODEL_ID"),
+                    default_vlm,
+                )
             except Exception as e:
                 print(f"ReAct Agentic RAG VLMモデル初期化エラー: {e}")
-                vlm_choices, default_vlm, provider_choices, vlm_models, all_models, agentic_model_choices = (
+                from app.vlm_service import VLMService
+                vlm_choices, default_vlm, provider_choices, vlm_models, all_models, agentic_model_choices, react_default_vlm = (
                     ["エラー"],
                     "エラー",
                     ["すべて"],
                     {},
                     {},
                     ["エラー"],
+                    "エラー",
+                )
+                _vlm_service = VLMService()
+
+            with gr.Accordion("選別・並べ替え・回答生成モデル", open=True):
+                vlm_service_provider = gr.Dropdown(
+                    label="サービスプロバイダ",
+                    choices=provider_choices,
+                    value="すべて",
+                    interactive=True,
+                )
+                (
+                    vlm_model,
+                    vlm_temperature,
+                    vlm_max_tokens,
+                    vlm_oci_region,
+                ) = _vlm_service.create_model_setting_components(
+                    react_default_vlm,
+                    model_choices=vlm_choices,
+                    model_label="回答生成VLMモデル",
                 )
 
-            vlm_service_provider = gr.Dropdown(
-                label="サービスプロバイダ",
-                choices=provider_choices,
-                value="すべて",
-                interactive=True,
-            )
-            vlm_model = gr.Dropdown(
-                label="回答生成VLMモデル",
-                choices=vlm_choices,
-                value=default_vlm,
-                interactive=True,
-            )
-
-            gr.Markdown("### ReAct Controller モデル")
-            controller_model = gr.Dropdown(
-                label="ReAct Controllerモデル",
-                choices=agentic_model_choices,
-                value=self._resolve_agentic_model_default(
-                    all_models,
-                    os.getenv("REACT_AGENTIC_CONTROLLER_MODEL_ID"),
-                    default_vlm,
-                ),
-                interactive=True,
-            )
-
-            try:
-                _temp_vlm = VLMService()
-                initial_temperature = (
-                    _temp_vlm.get_model_default_temperature(default_vlm)
-                    if default_vlm != "エラー"
-                    else 0.0
+            with gr.Accordion("ReAct Controller モデル", open=False):
+                (
+                    controller_model,
+                    controller_temperature,
+                    controller_max_tokens,
+                    controller_oci_region,
+                ) = _vlm_service.create_model_setting_components(
+                    self._resolve_agentic_model_default(
+                        all_models,
+                        os.getenv("REACT_AGENTIC_CONTROLLER_MODEL_ID"),
+                        react_default_vlm,
+                    ),
+                    model_choices=agentic_model_choices,
+                    model_label="ReAct Controllerモデル",
                 )
-            except Exception:
-                initial_temperature = 0.0
-
-            vlm_temperature = gr.Slider(
-                label="Temperature",
-                minimum=0.0,
-                maximum=1.0,
-                step=0.1,
-                value=initial_temperature,
-                interactive=True,
-            )
-            initial_max_tokens = vlm_models.get(default_vlm, {}).get("max_tokens", 4096) if default_vlm != "エラー" else 4096
-            initial_default_tokens = vlm_models.get(default_vlm, {}).get("default_tokens", 4096) if default_vlm != "エラー" else 4096
-            vlm_max_tokens = gr.Slider(
-                label="Max tokens",
-                minimum=1,
-                maximum=initial_max_tokens,
-                step=1,
-                value=initial_default_tokens,
-                interactive=True,
-            )
-
-            oci_regions = {
-                "Brazil East (Sao Paulo)": "sa-saopaulo-1",
-                "Germany Central (Frankfurt)": "eu-frankfurt-1",
-                "Japan Central (Osaka)": "ap-osaka-1",
-                "UAE East (Dubai)": "me-dubai-1",
-                "UK South (London)": "uk-london-1",
-                "US Midwest (Chicago)": "us-chicago-1",
-            }
-            initial_is_oci = default_vlm != "エラー" and vlm_models.get(default_vlm, {}).get("api_type", "").startswith("oci")
-            initial_region_name = "Japan Central (Osaka)"
-            default_region_id = vlm_models.get(default_vlm, {}).get("default_region")
-            if default_region_id:
-                for name, region_id in oci_regions.items():
-                    if region_id == default_region_id:
-                        initial_region_name = name
-                        break
-
-            vlm_oci_region = gr.Dropdown(
-                label="OCIリージョン",
-                choices=list(oci_regions.keys()),
-                value=initial_region_name,
-                interactive=True,
-                visible=initial_is_oci,
-            )
 
         return (
             vlm_service_provider,
@@ -1093,6 +922,9 @@ class UIComponents:
             vlm_max_tokens,
             vlm_oci_region,
             controller_model,
+            controller_temperature,
+            controller_max_tokens,
+            controller_oci_region,
         )
 
     @staticmethod

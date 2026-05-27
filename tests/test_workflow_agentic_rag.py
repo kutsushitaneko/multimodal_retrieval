@@ -181,6 +181,17 @@ def test_workflow_and_react_agentic_rag_tabs_are_first_in_main_app():
     assert workflow_tab < react_tab < search_tab < upload_tab
 
 
+def test_agentic_model_settings_use_nested_accordions():
+    workflow_source = Path("app/ui/components.py").read_text(encoding="utf-8")
+
+    assert 'gr.Accordion("モデル設定", open=False)' in workflow_source
+    assert 'gr.Accordion("選別・並べ替え・回答生成モデル", open=True)' in workflow_source
+    assert 'gr.Accordion("質問分解モデル", open=False)' in workflow_source
+    assert 'gr.Accordion("十分性判定モデル", open=False)' in workflow_source
+    assert 'gr.Accordion("追加検索クエリー生成モデル", open=False)' in workflow_source
+    assert 'gr.Accordion("ReAct Controller モデル", open=False)' in workflow_source
+
+
 def test_evidence_pool_deduplicates_by_image_id():
     pool = EvidencePool()
 
@@ -347,8 +358,17 @@ def test_workflow_agentic_rag_event_returns_expected_outputs_without_external_vl
         1024,
         "Japan Central (Osaka)",
         "decompose-model",
+        0.1,
+        2048,
+        "US Midwest (Chicago)",
         "sufficiency-model",
+        0.2,
+        4096,
+        "Japan Central (Osaka)",
         "followup-model",
+        0.3,
+        8192,
+        "US Midwest (Chicago)",
     ))
     answer, gallery, trace, reason = outputs[-1]
 
@@ -362,6 +382,28 @@ def test_workflow_agentic_rag_event_returns_expected_outputs_without_external_vl
     assert any("回答生成中..." in output[2] for output in outputs)
     assert events._call_text_model.call_count == 2
     assert events._call_text_vlm.call_count == 1
+
+
+def test_workflow_agentic_rag_answer_label_uses_workflow_name():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = WorkflowAgenticRAGEvents(FakeSearchService())
+    selected_evidence = [EvidencePool._from_result(make_result(1, "slide.png", "猫"), "猫", "caption_vector_search")]
+
+    with patch("app.ui.workflow_agentic_events.NLPService") as mock_nlp_service:
+        mock_nlp_service.return_value.generate_caption_with_vlm.return_value = "生成回答"
+        answer = events._generate_answer_with_vlm(
+            "猫",
+            selected_evidence,
+            "参照情報",
+            REFERENCE_TYPE_CAPTION_ONLY,
+            "デフォルト（回答生成）",
+            "model",
+            0.0,
+            1024,
+            "Japan Central (Osaka)",
+        )
+
+    assert answer.startswith("（Workflow Agentic RAG が「slide.png」を参照して回答しました）")
 
 
 def test_workflow_agentic_rag_event_image_only_shows_gallery_without_llm_calls():
@@ -383,8 +425,17 @@ def test_workflow_agentic_rag_event_image_only_shows_gallery_without_llm_calls()
         1024,
         "Japan Central (Osaka)",
         "decompose-model",
+        0.1,
+        2048,
+        "US Midwest (Chicago)",
         "sufficiency-model",
+        0.2,
+        4096,
+        "Japan Central (Osaka)",
         "followup-model",
+        0.3,
+        8192,
+        "US Midwest (Chicago)",
     ))
     answer, gallery, trace, reason = outputs[-1]
 
@@ -420,17 +471,29 @@ def test_workflow_agentic_rag_event_gallery_keeps_six_referenced_images_visible(
         1024,
         "Japan Central (Osaka)",
         "decompose-model",
+        0.1,
+        2048,
+        "US Midwest (Chicago)",
         "sufficiency-model",
+        0.2,
+        4096,
+        "Japan Central (Osaka)",
         "followup-model",
+        0.3,
+        8192,
+        "US Midwest (Chicago)",
     ))
     answer, gallery, trace, reason = outputs[-1]
 
     assert answer == "生成回答"
     assert reason == "6件を選別"
     assert len(gallery.value) == 6
-    assert gallery.columns == 4
-    assert gallery.rows == 2
-    assert gallery.height == 480
+    assert gallery.columns == [4]
+    assert gallery.rows == [2]
+    assert gallery.height is None
+    assert gallery.container is True
+    assert gallery.preview is False
+    assert gallery.allow_preview is True
     assert "参照画像ギャラリー" not in trace
     assert any("回答生成中..." in output[2] for output in outputs)
 
@@ -461,8 +524,17 @@ def test_workflow_agentic_rag_event_uses_step_specific_models():
         1024,
         "Japan Central (Osaka)",
         "decompose-model",
+        0.1,
+        2048,
+        "US Midwest (Chicago)",
         "sufficiency-model",
+        0.2,
+        4096,
+        "Japan Central (Osaka)",
         "followup-model",
+        0.3,
+        8192,
+        "US Midwest (Chicago)",
     ))
 
     called_text_models = [call.args[1] for call in events._call_text_model.call_args_list]
@@ -471,5 +543,13 @@ def test_workflow_agentic_rag_event_uses_step_specific_models():
         "sufficiency-model",
         "followup-model",
         "sufficiency-model",
+    ]
+    assert [call.args[2] for call in events._call_text_model.call_args_list] == [0.1, 0.2, 0.3, 0.2]
+    assert [call.args[3] for call in events._call_text_model.call_args_list] == [2048, 4096, 8192, 4096]
+    assert [call.args[4] for call in events._call_text_model.call_args_list] == [
+        "US Midwest (Chicago)",
+        "Japan Central (Osaka)",
+        "US Midwest (Chicago)",
+        "Japan Central (Osaka)",
     ]
     assert events._call_text_vlm.call_args_list[0].args[1] == "answer-model"

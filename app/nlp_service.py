@@ -25,6 +25,13 @@ class NLPService:
         self.vlm_service = vlm_service_instance or VLMService()
         self._nlp = None
         self._lock = threading.Lock()
+
+    def _normalize_temperature_for_model(self, model_display_name, temperature):
+        """Temperature非対応モデルにはAPIパラメータを渡さない。"""
+        supports_temperature = getattr(self.vlm_service, "supports_temperature", lambda _model: True)
+        if not supports_temperature(model_display_name):
+            return None
+        return temperature
     
     def get_nlp(self):
         """spaCyのja_ginzaモデルを取得
@@ -54,6 +61,7 @@ class NLPService:
     def generate_caption_with_vlm(self, image_path, vlm_model, prompt_text, temperature=0.3, max_tokens=4096, oci_region="Japan Central (Osaka)"):
         """VLMを使用して画像のキャプションを生成"""
         try:
+            temperature = self._normalize_temperature_for_model(vlm_model, temperature)
             # VLMサービスからモデル情報を取得
             api_type = self.vlm_service.get_api_type(vlm_model)
             model_name = self.vlm_service.get_model_name(vlm_model)
@@ -79,6 +87,7 @@ class NLPService:
     def generate_answer_with_vlm_images(self, image_paths, vlm_model, prompt_text, temperature=0.3, max_tokens=4096, oci_region="Japan Central (Osaka)"):
         """複数画像をVLMに渡して回答を生成する"""
         try:
+            temperature = self._normalize_temperature_for_model(vlm_model, temperature)
             image_paths = [path for path in (image_paths or []) if path]
             if not image_paths:
                 return "エラー: VLMに渡す画像がありません"
@@ -115,6 +124,7 @@ class NLPService:
     def generate_text(self, model, prompt_text, temperature=0.0, max_tokens=4096, oci_region="Japan Central (Osaka)"):
         """画像を渡さず、定義済みモデルでテキスト生成を行う。"""
         try:
+            temperature = self._normalize_temperature_for_model(model, temperature)
             api_type = self.vlm_service.get_api_type(model)
             model_name = self.vlm_service.get_model_name(model)
             if api_type.startswith("anthropic"):
@@ -145,7 +155,7 @@ class NLPService:
                 "max_tokens": max_tokens,
                 "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_text}]}],
             }
-            if model_name != "claude-opus-4-7":
+            if temperature is not None:
                 params["temperature"] = temperature
             response = client.messages.create(**params)
             return response.content[0].text
@@ -164,12 +174,14 @@ class NLPService:
                     reasoning={"effort": "medium"},
                 )
                 return response.output_text
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt_text}],
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
+            params = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt_text}],
+                "max_tokens": max_tokens,
+            }
+            if temperature is not None:
+                params["temperature"] = temperature
+            response = client.chat.completions.create(**params)
             return response.choices[0].message.content
         except Exception as e:
             return f"OpenAI API エラー: {str(e)}"
@@ -179,12 +191,14 @@ class NLPService:
             import cohere
 
             client = cohere.Client(os.getenv("COHERE_API_KEY"))
-            response = client.chat(
-                model=model_name,
-                message=prompt_text,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            params = {
+                "model": model_name,
+                "message": prompt_text,
+                "max_tokens": max_tokens,
+            }
+            if temperature is not None:
+                params["temperature"] = temperature
+            response = client.chat(**params)
             return getattr(response, "text", "") or str(response)
         except Exception as e:
             return f"Cohere API エラー: {str(e)}"
@@ -222,7 +236,8 @@ class NLPService:
             chat_request.num_generations = 1
             chat_request.max_tokens = max_tokens
             chat_request.is_stream = False
-            chat_request.temperature = temperature
+            if temperature is not None:
+                chat_request.temperature = temperature
             chat_request.top_p = 1.0
 
             chat_details = ChatDetails()
@@ -253,7 +268,8 @@ class NLPService:
             chat_request = CohereChatRequest()
             chat_request.message = prompt_text
             chat_request.max_tokens = max_tokens
-            chat_request.temperature = temperature
+            if temperature is not None:
+                chat_request.temperature = temperature
             chat_request.is_stream = False
 
             chat_details = ChatDetails()
@@ -276,25 +292,28 @@ class NLPService:
                 body = {
                     "anthropic_version": "bedrock-2023-05-31",
                     "max_tokens": max_tokens,
-                    "temperature": temperature,
                     "messages": [{"role": "user", "content": [{"type": "text", "text": prompt_text}]}],
                 }
+                if temperature is not None:
+                    body["temperature"] = temperature
             elif "llama" in model_name.lower():
                 body = {
                     "prompt": prompt_text,
                     "max_gen_len": max_tokens,
-                    "temperature": temperature,
                     "top_p": 0.9,
                 }
+                if temperature is not None:
+                    body["temperature"] = temperature
             else:
                 body = {
                     "inputText": prompt_text,
                     "textGenerationConfig": {
                         "maxTokenCount": max_tokens,
-                        "temperature": temperature,
                         "topP": 0.9,
                     },
                 }
+                if temperature is not None:
+                    body["textGenerationConfig"]["temperature"] = temperature
 
             response = bedrock_runtime.invoke_model(
                 modelId=model_name,
@@ -326,13 +345,15 @@ class NLPService:
 
             aiplatform.init(project=project_id, location=location)
             model = GenerativeModel(model_name)
+            generation_config = {
+                "max_output_tokens": max_tokens,
+                "top_p": 0.9,
+            }
+            if temperature is not None:
+                generation_config["temperature"] = temperature
             response = model.generate_content(
                 prompt_text,
-                generation_config={
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens,
-                    "top_p": 0.9,
-                },
+                generation_config=generation_config,
             )
             return response.text
         except Exception as e:
@@ -385,7 +406,7 @@ class NLPService:
                 "max_tokens": max_tokens,
                 "messages": [{"role": "user", "content": content}],
             }
-            if model_name != "claude-opus-4-7":
+            if temperature is not None:
                 params["temperature"] = temperature
 
             response = client.messages.create(**params)
@@ -410,12 +431,14 @@ class NLPService:
 
             content = [{"type": "text", "text": prompt_text}]
             content.extend({"type": "image_url", "image_url": {"url": image_data_url}} for image_data_url in image_data_urls)
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": content}],
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
+            params = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": content}],
+                "max_tokens": max_tokens,
+            }
+            if temperature is not None:
+                params["temperature"] = temperature
+            response = client.chat.completions.create(**params)
             return response.choices[0].message.content
         except Exception as e:
             return f"OpenAI API エラー: {str(e)}"
@@ -455,7 +478,8 @@ class NLPService:
             chat_request.num_generations = 1
             chat_request.max_tokens = max_tokens
             chat_request.is_stream = False
-            chat_request.temperature = temperature
+            if temperature is not None:
+                chat_request.temperature = temperature
             chat_request.top_p = 1.0 if self.vlm_service.get_api_type(model_display_name) in ["oci.xai.chat", "oci.gemini.chat"] else 0.9
             if self.vlm_service.get_api_type(model_display_name) == "oci.llama.chat":
                 chat_request.top_k = -1
@@ -503,9 +527,10 @@ class NLPService:
             body = {
                 "anthropic_version": "bedrock-2023-05-31",
                 "max_tokens": max_tokens,
-                "temperature": temperature,
                 "messages": [{"role": "user", "content": content}],
             }
+            if temperature is not None:
+                body["temperature"] = temperature
             response = bedrock_runtime.invoke_model(
                 modelId=model_name,
                 contentType="application/json",
@@ -541,13 +566,15 @@ class NLPService:
                 parts.append(Part.from_data(data=base64.b64decode(base64_data), mime_type=media_type))
 
             model = GenerativeModel(model_name)
+            generation_config = {
+                "max_output_tokens": max_tokens,
+                "top_p": 0.9,
+            }
+            if temperature is not None:
+                generation_config["temperature"] = temperature
             response = model.generate_content(
                 parts,
-                generation_config={
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens,
-                    "top_p": 0.9,
-                },
+                generation_config=generation_config,
             )
             return response.text
         except Exception as e:
@@ -692,8 +719,9 @@ class NLPService:
                     }
                 ]
             }
-            if model_name != "claude-opus-4-7":
-                params["temperature"] = temperature
+            if temperature is not None:
+                if temperature is not None:
+                    params["temperature"] = temperature
             
             response = client.messages.create(**params)
             
@@ -760,7 +788,8 @@ class NLPService:
                 chat_request.num_generations = 1
                 chat_request.max_tokens = max_tokens
                 chat_request.is_stream = False
-                chat_request.temperature = temperature
+                if temperature is not None:
+                    chat_request.temperature = temperature
                 chat_request.top_p = 0.9
                 chat_request.top_k = -1
                 chat_request.frequency_penalty = 0.5
@@ -848,7 +877,8 @@ class NLPService:
                 chat_request.num_generations = 1
                 chat_request.max_tokens = max_tokens
                 chat_request.is_stream = False
-                chat_request.temperature = temperature
+                if temperature is not None:
+                    chat_request.temperature = temperature
                 chat_request.top_p = 1.0
                 # chat_request.top_k = -1
                 # chat_request.frequency_penalty = 0.5
@@ -928,7 +958,8 @@ class NLPService:
                 chat_request.num_generations = 1
                 chat_request.max_tokens = max_tokens
                 chat_request.is_stream = False
-                chat_request.temperature = temperature
+                if temperature is not None:
+                    chat_request.temperature = temperature
                 chat_request.top_p = 1.0
 
                 chat_details = ChatDetails()
@@ -1035,7 +1066,6 @@ class NLPService:
                 body = {
                     "anthropic_version": "bedrock-2023-05-31",
                     "max_tokens": max_tokens,
-                    "temperature": temperature,
                     "messages": [
                         {
                             "role": "user",
@@ -1056,25 +1086,29 @@ class NLPService:
                         }
                     ]
                 }
+                if temperature is not None:
+                    body["temperature"] = temperature
             elif "llama" in model_name.lower():
                 # Meta Llama Vision の場合
                 body = {
                     "prompt": f"<image>{base64_data}</image>\n{prompt_text}",
                     "max_gen_len": max_tokens,
-                    "temperature": temperature,
                     "top_p": 0.9
                 }
+                if temperature is not None:
+                    body["temperature"] = temperature
             else:
                 # その他のモデル（汎用）
                 body = {
                     "inputText": prompt_text,
                     "textGenerationConfig": {
                         "maxTokenCount": max_tokens,
-                        "temperature": temperature,
                         "topP": 0.9
                     },
                     "image": base64_data
                 }
+                if temperature is not None:
+                    body["textGenerationConfig"]["temperature"] = temperature
             
             # API呼び出し
             response = bedrock_runtime.invoke_model(
@@ -1148,10 +1182,11 @@ class NLPService:
                 
                 # 生成設定
                 generation_config = {
-                    "temperature": temperature,
                     "max_output_tokens": max_tokens,
                     "top_p": 0.9
                 }
+                if temperature is not None:
+                    generation_config["temperature"] = temperature
                 
                 # 予測実行
                 response = model.generate_content(

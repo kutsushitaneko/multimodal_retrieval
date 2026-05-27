@@ -13,6 +13,41 @@ from app.ui.workflow_agentic_events import (
 class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
     """ReAct Agentic RAGタブ専用のイベントハンドラー。"""
 
+    RAG_TYPE_LABEL = "ReAct Agentic RAG"
+
+    def register_vlm_settings_events(
+        self,
+        vlm_service_provider,
+        vlm_model,
+        vlm_temperature,
+        vlm_max_tokens,
+        vlm_oci_region,
+        controller_model=None,
+        controller_temperature=None,
+        controller_max_tokens=None,
+        controller_oci_region=None,
+    ):
+        super().register_vlm_settings_events(
+            vlm_service_provider,
+            vlm_model,
+            vlm_temperature,
+            vlm_max_tokens,
+            vlm_oci_region,
+        )
+        if (
+            controller_model is None
+            or controller_temperature is None
+            or controller_max_tokens is None
+            or controller_oci_region is None
+        ):
+            return
+        controller_model.change(
+            fn=self.agentic_model_changed,
+            inputs=[controller_model],
+            outputs=[controller_temperature, controller_max_tokens, controller_oci_region],
+            queue=False,
+        )
+
     def register_react_agentic_rag_events(
         self,
         run_button,
@@ -28,6 +63,9 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
         vlm_max_tokens,
         vlm_oci_region,
         controller_model,
+        controller_temperature,
+        controller_max_tokens,
+        controller_oci_region,
         answer_text,
         referenced_images_gallery,
         trace_text,
@@ -47,6 +85,9 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
                 vlm_max_tokens,
                 vlm_oci_region,
                 controller_model,
+                controller_temperature,
+                controller_max_tokens,
+                controller_oci_region,
             ],
             outputs=[answer_text, referenced_images_gallery, trace_text, selection_reason_text],
         )
@@ -77,21 +118,27 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
         vlm_max_tokens,
         vlm_oci_region,
         controller_model,
+        controller_temperature,
+        controller_max_tokens,
+        controller_oci_region,
     ):
+        effective_controller_model = str(controller_model or "").strip()
+
         def call_controller(prompt_text):
             return self._call_text_model(
                 prompt_text,
-                controller_model or vlm_model,
-                vlm_temperature,
-                vlm_max_tokens,
-                vlm_oci_region,
+                effective_controller_model,
+                controller_temperature,
+                controller_max_tokens,
+                controller_oci_region,
             )
 
         pipeline = ReactAgenticRAGPipeline(
             self.search_service,
             top_k=top_k,
             max_steps=max_steps,
-            controller_llm_text_generator=call_controller,
+            controller_llm_text_generator=call_controller if effective_controller_model else None,
+            controller_model_name=effective_controller_model,
         )
 
         def generate_answer(query, selected_evidence, documents):
@@ -126,3 +173,11 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
 
     def clear_react_agentic_rag(self):
         return self.clear_workflow_agentic_rag()
+
+    def _resolve_controller_generation_settings(self, controller_model):
+        if not controller_model:
+            return 0.0, 4096, None
+        temperature = self.answer_vlm_service.get_model_default_temperature(controller_model)
+        max_tokens = self.answer_vlm_service.get_model_default_tokens(controller_model)
+        default_region = self.answer_vlm_service.get_model_default_region(controller_model)
+        return temperature, max_tokens, default_region

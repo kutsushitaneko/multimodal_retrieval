@@ -1,12 +1,14 @@
 import re
 import spacy
 import ginza
+from .fulltext_entity_extractor import FulltextEntityExtractor
 from .global_nlp_service import get_global_nlp_service
 
 class SearchQueryGenerator:
-    def __init__(self):
+    def __init__(self, fulltext_entity_extractor=None):
         # グローバルNLPServiceを使用してspaCyモデルを取得（シングルトンパターン）
         self.nlp_service = get_global_nlp_service()
+        self.fulltext_entity_extractor = fulltext_entity_extractor
         
         # 色の形容詞変換マップ
         self.color_adj_to_noun = {
@@ -132,10 +134,56 @@ class SearchQueryGenerator:
         # メールアドレスパターン
         self.email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
 
+    def extract_rule_entities(self, query):
+        """ベクトル検索が苦手な固有表現をルールで抽出する。"""
+        query = query or ""
+        patterns = [
+            ("url", r'https?://[a-zA-Z0-9\-._~:/?#\[\]@!$&\'()*+,;=]+'),
+            ("paper_id", r'(?<!\d)\d{4}\.\d{4,5}(?!\d)'),
+            ("ip_address", r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
+            ("error_code", r'\b(?:ORA|PLS|SP2|TNS|HTTP|OCI)-?\d{3,6}\b'),
+            ("version", r'\bv?[0-9]+\.[0-9]+(?:\.[0-9]+)*\b'),
+            ("file_name", r'\b[a-zA-Z][a-zA-Z0-9_-]*\.[a-zA-Z0-9]{1,8}\b'),
+            ("api_name", r'\b[a-zA-Z][a-zA-Z0-9_]*\(\)\b'),
+            ("identifier", r'\b[a-zA-Z][a-zA-Z0-9]*_[a-zA-Z0-9_]+\b'),
+            ("identifier", r'\b[a-zA-Z][a-zA-Z0-9]*=[a-zA-Z0-9_.-]+\b'),
+            ("identifier", r'\b[a-zA-Z0-9.-]+:\d+\b'),
+            ("identifier", r'\b[A-Z][A-Z0-9]{2,}(?:[-_][A-Z0-9]+)*\b'),
+        ]
+        entities = []
+        for entity_type, pattern in patterns:
+            for match in re.finditer(pattern, query):
+                entities.append({"text": match.group(), "type": entity_type})
+        return FulltextEntityExtractor.normalize_entities(entities)
+
+    def extract_fulltext_entities(self, query):
+        """ルール抽出を先に行い、LLM抽出を補完として統合する。"""
+        entities = self.extract_rule_entities(query)
+        if self.fulltext_entity_extractor is not None:
+            try:
+                entities.extend(self.fulltext_entity_extractor.extract_entities(query))
+            except Exception:
+                pass
+        return FulltextEntityExtractor.normalize_entities(entities)
+
+    @staticmethod
+    def _escape_exact_entity(entity_text):
+        return str(entity_text or "").replace("{", "\\{").replace("}", "\\}")
+
+    def build_or_exact_query(self, entities):
+        """検証済み固有表現をOracle Textの中カッコ完全一致OR検索へ変換する。"""
+        normalized = FulltextEntityExtractor.normalize_entities(entities)
+        exact_terms = [f"{{{self._escape_exact_entity(entity['text'])}}}" for entity in normalized]
+        return " OR ".join(exact_terms)
+
     def generate(self, query):
         """全文検索用のクエリーを生成する関数"""
         if not query.strip():
             return ""
+
+        entity_query = self.build_or_exact_query(self.extract_fulltext_entities(query))
+        if entity_query:
+            return entity_query
         
         # URLを最初に処理（特殊パターンよりも優先）
         original_query = query
@@ -404,6 +452,22 @@ class SearchQueryGenerator:
         morphological_details = []
         original_query = query  # 元のクエリを保存
         keywords = []  # 特殊文字処理で追加されるキーワード
+
+        fulltext_entities = self.extract_fulltext_entities(original_query)
+        entity_query = self.build_or_exact_query(fulltext_entities)
+        if entity_query:
+            morphological_details.append("### 固有表現OR検索")
+            morphological_details.append("**処理概要:** ルール抽出とLLM補完で固有表現を抽出し、ベクトル検索が苦手な完全一致検索を補完します。")
+            morphological_details.append("")
+            morphological_details.append("**抽出された固有表現:**")
+            for entity in fulltext_entities:
+                morphological_details.append(f"- `{entity['text']}` ({entity['type']})")
+            morphological_details.append("")
+            morphological_details.append("#### 最終検索クエリ")
+            morphological_details.append("```")
+            morphological_details.append(entity_query)
+            morphological_details.append("```")
+            return "\n".join(morphological_details)
         
         # 簡易形態素解析で名詞が含まれているかチェック
         nlp = self.nlp_service.get_nlp()

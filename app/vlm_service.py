@@ -149,6 +149,10 @@ class VLMService:
         """モデルのデフォルトリージョンを取得"""
         return self.model_settings.get(model_display_name, {}).get("default_region", None)
 
+    def supports_temperature(self, model_display_name):
+        """モデルがtemperature指定を受け付けるかどうかを取得"""
+        return self.model_settings.get(model_display_name, {}).get("supports_temperature", True) is not False
+
     def get_model_default_temperature(self, model_display_name):
         """モデルのデフォルト温度を取得
         
@@ -177,6 +181,73 @@ class VLMService:
         if value > 1.0:
             value = 1.0
         return value
+
+    def get_model_default_region_name(self, model_display_name):
+        """モデルのdefault_regionをGradio Dropdown表示名へ変換する"""
+        default_region = self.get_model_default_region(model_display_name)
+        if default_region and default_region in self.OCI_REGIONS.values():
+            for name, region_id in self.OCI_REGIONS.items():
+                if region_id == default_region:
+                    return name
+        return "Japan Central (Osaka)"
+
+    def get_model_ui_settings(self, model_display_name):
+        """モデル選択に紐づくUI設定値を一元的に返す"""
+        api_type = self.get_api_type(model_display_name)
+        supports_temperature = self.supports_temperature(model_display_name)
+        return {
+            "temperature": self.get_model_default_temperature(model_display_name),
+            "temperature_visible": supports_temperature,
+            "temperature_interactive": supports_temperature,
+            "max_tokens_limit": self.get_model_max_tokens(model_display_name),
+            "default_tokens": self.get_model_default_tokens(model_display_name),
+            "is_oci_model": api_type.startswith("oci"),
+            "region_name": self.get_model_default_region_name(model_display_name),
+        }
+
+    def create_model_setting_components(self, selected_model, *, model_choices=None, model_label="VLMモデル"):
+        """モデル名、Temperature、Max tokens、OCIリージョンをセットで作成する"""
+        import gradio as gr
+
+        settings = self.get_model_ui_settings(selected_model)
+        model_dropdown = gr.Dropdown(
+            label=model_label,
+            choices=model_choices or list(self.get_vlm_models().keys()),
+            value=selected_model,
+            interactive=True,
+        )
+        temperature_slider = gr.Slider(
+            label="Temperature",
+            minimum=0.0,
+            maximum=1.0,
+            step=0.1,
+            value=settings["temperature"],
+            visible=settings["temperature_visible"],
+            interactive=settings["temperature_interactive"],
+        )
+        max_tokens_slider = gr.Slider(
+            label="Max tokens",
+            minimum=1,
+            maximum=settings["max_tokens_limit"],
+            step=1,
+            value=settings["default_tokens"],
+            interactive=True,
+        )
+        oci_region_dropdown = gr.Dropdown(
+            label="OCIリージョン",
+            choices=list(self.OCI_REGIONS.keys()),
+            value=settings["region_name"],
+            interactive=True,
+            visible=settings["is_oci_model"],
+        )
+        return model_dropdown, temperature_slider, max_tokens_slider, oci_region_dropdown
+
+    def create_model_parameter_components(self, selected_model):
+        """モデル変更時にTemperature、Max tokens、OCIリージョンをセットで更新する"""
+        _model_dropdown, temperature_slider, max_tokens_slider, oci_region_dropdown = self.create_model_setting_components(
+            selected_model
+        )
+        return temperature_slider, max_tokens_slider, oci_region_dropdown
     
     def get_service_provider_from_api_type(self, api_type):
         """APIタイプからサービスプロバイダーを取得"""
@@ -263,69 +334,18 @@ class VLMService:
         # 最初のモデルを選択
         selected_model = filtered_models[0] if filtered_models else "モデルがありません"
         
-        # モデルのドロップダウンを更新
-        model_dropdown = gr.Dropdown(
-            label="VLMモデル", 
-            choices=filtered_models, 
-            value=selected_model, 
-            interactive=True
-        )
-        
-        # 選択されたモデルに応じて他の設定も更新
-        max_tokens_limit = self.get_model_max_tokens(selected_model)
-        default_tokens = self.get_model_default_tokens(selected_model)
-        default_temperature = self.get_model_default_temperature(selected_model)
-        api_type = self.get_api_type(selected_model)
-        
-        # OCIモデルかどうかをチェック
-        is_oci_model = api_type.startswith("oci")
-        
-        # モデルのデフォルトリージョンを取得
-        default_region = self.get_model_default_region(selected_model)
-        
-        # リージョン設定の決定
-        if is_oci_model:
-            if default_region and default_region in self.OCI_REGIONS.values():
-                # default_regionがOCI_REGIONSの値（region_id）に存在する場合、対応するキー（region_name）を取得
-                region_name = None
-                for name, region_id in self.OCI_REGIONS.items():
-                    if region_id == default_region:
-                        region_name = name
-                        break
-                selected_region = region_name if region_name else "Japan Central (Osaka)"
-            else:
-                selected_region = "Japan Central (Osaka)"
-        else:
-            selected_region = "Japan Central (Osaka)"
-        
-        # Temperature スライダー
-        temperature_slider = gr.Slider(
-            label="Temperature",
-            minimum=0.0,
-            maximum=1.0,
-            step=0.1,
-            value=default_temperature,
-            interactive=True
-        )
-
-        max_tokens_slider = gr.Slider(
-            label="Max tokens", 
-            minimum=1, 
-            maximum=max_tokens_limit, 
-            step=1, 
-            value=default_tokens, 
-            interactive=True
-        )
-        
-        oci_region_dropdown = gr.Dropdown(
-            label="OCIリージョン", 
-            choices=list(self.OCI_REGIONS.keys()), 
-            value=selected_region, 
-            interactive=True, 
-            visible=is_oci_model
+        model_dropdown, temperature_slider, max_tokens_slider, oci_region_dropdown = self.create_model_setting_components(
+            selected_model,
+            model_choices=filtered_models,
         )
         # 内部状態も同期
-        self.update_current_vlm_settings(model=selected_model, temperature=default_temperature, max_tokens=default_tokens)
+        settings = self.get_model_ui_settings(selected_model)
+        self.update_current_vlm_settings(
+            model=selected_model,
+            temperature=settings["temperature"],
+            max_tokens=settings["default_tokens"],
+            oci_region=self.resolve_oci_region_id(settings["region_name"]),
+        )
 
         return model_dropdown, temperature_slider, max_tokens_slider, oci_region_dropdown
     
@@ -333,57 +353,14 @@ class VLMService:
         """モデル変更時の処理"""
         import gradio as gr
         
-        max_tokens_limit = self.get_model_max_tokens(model)
-        default_tokens = self.get_model_default_tokens(model)
-        default_temperature = self.get_model_default_temperature(model)
-        api_type = self.get_api_type(model)
-        
-        # OCIモデルかどうかをチェック
-        is_oci_model = api_type.startswith("oci")
-        
-        # モデルのデフォルトリージョンを取得
-        default_region = self.get_model_default_region(model)
-        
-        # リージョン設定の決定
-        if is_oci_model:
-            if default_region and default_region in self.OCI_REGIONS.values():
-                region_name = None
-                for name, region_id in self.OCI_REGIONS.items():
-                    if region_id == default_region:
-                        region_name = name
-                        break
-                selected_region = region_name if region_name else "Japan Central (Osaka)"
-            else:
-                selected_region = "Japan Central (Osaka)"
-        else:
-            selected_region = "Japan Central (Osaka)"
-        # Temperature スライダー
-        temperature_slider = gr.Slider(
-            label="Temperature",
-            minimum=0.0,
-            maximum=1.0,
-            step=0.1,
-            value=default_temperature,
-            interactive=True
-        )
-
-        max_tokens_slider = gr.Slider(
-            label="Max tokens", 
-            minimum=1, 
-            maximum=max_tokens_limit, 
-            step=1, 
-            value=default_tokens, 
-            interactive=True
-        )
-        
-        oci_region_dropdown = gr.Dropdown(
-            label="OCIリージョン", 
-            choices=list(self.OCI_REGIONS.keys()), 
-            value=selected_region, 
-            interactive=True, 
-            visible=is_oci_model
-        )
+        temperature_slider, max_tokens_slider, oci_region_dropdown = self.create_model_parameter_components(model)
         # 内部状態も同期
-        self.update_current_vlm_settings(temperature=default_temperature, max_tokens=default_tokens)
+        settings = self.get_model_ui_settings(model)
+        self.update_current_vlm_settings(
+            model=model,
+            temperature=settings["temperature"],
+            max_tokens=settings["default_tokens"],
+            oci_region=self.resolve_oci_region_id(settings["region_name"]),
+        )
 
         return temperature_slider, max_tokens_slider, oci_region_dropdown

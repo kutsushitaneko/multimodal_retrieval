@@ -74,6 +74,3 @@ def format_documents(selected: list[Evidence]) -> str:
         for index, item in enumerate(selected, start=1)
     )
 
-
-def referenced_gallery_rows(image_count: int) -> int:
-    return max(1, min(3, (image_count + 3) // 4))
