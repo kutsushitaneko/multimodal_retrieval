@@ -14,7 +14,7 @@
     - 実行クエリー、SQL、形態素解析・固有表現抽出結果の表示と再実行
 - Agentic RAG
     - `Workflow Agentic RAG`: 質問分解、複数検索、十分性判定、追加検索、evidence 選別・並べ替え、回答生成を固定ワークフローで自動実行
-    - `ReAct Agentic RAG`: LLM が Thought / Action / Observation を繰り返し、必要な検索 Tool を選びながら回答生成
+    - `ReAct Agentic RAG`: LLM が Thought / Action / Observation を繰り返し、必要な検索 Tool （画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選びながら回答生成
     - キャプションベクトル検索、キャプション全文検索、画像ベクトル検索を統合して evidence を重複排除
     - 処理ステップ、所要時間、LLM 入力規模を実行トレースとして逐次表示
 - 通常 RAG
@@ -281,7 +281,7 @@ or
 
 ### ReAct Agentic RAG
 
-`ReAct Agentic RAG` タブは、Controller モデルが Thought / Action / Observation を繰り返しながら、必要な検索 Tool を選択して回答生成まで進めるタブです。質問と任意の入力画像を指定し、`参照する情報の種類`、`検索件数`、`最大ステップ数` を設定して `ReAct Agentic RAG 実行` を押します。
+`ReAct Agentic RAG` タブは、Controller モデルが Thought / Action / Observation を繰り返しながら、必要な検索 Tool （画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選択して回答生成まで進めるタブです。質問と任意の入力画像を指定し、`参照する情報の種類`、`検索件数`、`最大ステップ数` を設定して `ReAct Agentic RAG 実行` を押します。
 
 Controller が使用できる主な Action は以下です。
 

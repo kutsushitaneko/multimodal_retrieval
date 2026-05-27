@@ -595,7 +595,7 @@ class UIComponents:
         """ReAct Agentic RAGタブのUIコンポーネントを作成"""
         return self._create_agentic_rag_section_variant(
             title="## ReAct Agentic マルチモーダル RAG",
-            description="LLM が Thought / Action / Observation を繰り返し、必要な検索Tool（画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選択しながら回答生成まで進めます。",
+            description="LLM が Thought / Action / Observation を繰り返し、必要な検索Tool（画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選択しながら回答生成まで自律的に処理を進めます。",
             run_label="ReAct Agentic RAG 実行",
             iteration_label="最大ステップ数",
             iteration_value=8,
