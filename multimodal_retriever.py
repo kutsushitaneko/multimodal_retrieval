@@ -133,7 +133,71 @@ def main():
         
         # タブ機能を追加
         with gr.Tabs():
-            # タブ1: Workflow Agentic RAG
+            # タブ1: ReAct Agentic RAG
+            with gr.Tab("ReAct Agentic RAG"):
+                (
+                    react_agentic_question_input,
+                    react_agentic_uploaded_image,
+                    react_agentic_reference_type_radio,
+                    react_agentic_top_k_input,
+                    react_agentic_max_steps_input,
+                    react_agentic_run_button,
+                    react_agentic_clear_button,
+                    react_agentic_answer_text,
+                    react_agentic_referenced_images_gallery,
+                    react_agentic_trace_text,
+                    react_agentic_selection_reason_text,
+                    react_agentic_answer_prompt_template_dropdown,
+                ) = ui_components.create_react_agentic_rag_section()
+
+                (
+                    react_agentic_vlm_service_provider,
+                    react_agentic_vlm_model,
+                    react_agentic_vlm_temperature,
+                    react_agentic_vlm_max_tokens,
+                    react_agentic_vlm_oci_region,
+                    react_agentic_controller_model,
+                    react_agentic_controller_temperature,
+                    react_agentic_controller_max_tokens,
+                    react_agentic_controller_oci_region,
+                ) = ui_components.create_react_agentic_vlm_settings()
+
+                react_agentic_events.register_vlm_settings_events(
+                    react_agentic_vlm_service_provider,
+                    react_agentic_vlm_model,
+                    react_agentic_vlm_temperature,
+                    react_agentic_vlm_max_tokens,
+                    react_agentic_vlm_oci_region,
+                    react_agentic_controller_model,
+                    react_agentic_controller_temperature,
+                    react_agentic_controller_max_tokens,
+                    react_agentic_controller_oci_region,
+                )
+
+                react_agentic_events.register_react_agentic_rag_events(
+                    react_agentic_run_button,
+                    react_agentic_clear_button,
+                    react_agentic_question_input,
+                    react_agentic_uploaded_image,
+                    react_agentic_reference_type_radio,
+                    react_agentic_top_k_input,
+                    react_agentic_max_steps_input,
+                    react_agentic_answer_prompt_template_dropdown,
+                    react_agentic_vlm_model,
+                    react_agentic_vlm_temperature,
+                    react_agentic_vlm_max_tokens,
+                    react_agentic_vlm_oci_region,
+                    react_agentic_controller_model,
+                    react_agentic_controller_temperature,
+                    react_agentic_controller_max_tokens,
+                    react_agentic_controller_oci_region,
+                    react_agentic_answer_text,
+                    react_agentic_referenced_images_gallery,
+                    react_agentic_trace_text,
+                    react_agentic_selection_reason_text,
+                )
+
+            # タブ2: Workflow Agentic RAG
             with gr.Tab("Workflow Agentic RAG"):
                 (
                     workflow_agentic_question_input,
@@ -219,70 +283,6 @@ def main():
                     workflow_agentic_referenced_images_gallery,
                     workflow_agentic_trace_text,
                     workflow_agentic_selection_reason_text,
-                )
-
-            # タブ2: ReAct Agentic RAG
-            with gr.Tab("ReAct Agentic RAG"):
-                (
-                    react_agentic_question_input,
-                    react_agentic_uploaded_image,
-                    react_agentic_reference_type_radio,
-                    react_agentic_top_k_input,
-                    react_agentic_max_steps_input,
-                    react_agentic_run_button,
-                    react_agentic_clear_button,
-                    react_agentic_answer_text,
-                    react_agentic_referenced_images_gallery,
-                    react_agentic_trace_text,
-                    react_agentic_selection_reason_text,
-                    react_agentic_answer_prompt_template_dropdown,
-                ) = ui_components.create_react_agentic_rag_section()
-
-                (
-                    react_agentic_vlm_service_provider,
-                    react_agentic_vlm_model,
-                    react_agentic_vlm_temperature,
-                    react_agentic_vlm_max_tokens,
-                    react_agentic_vlm_oci_region,
-                    react_agentic_controller_model,
-                    react_agentic_controller_temperature,
-                    react_agentic_controller_max_tokens,
-                    react_agentic_controller_oci_region,
-                ) = ui_components.create_react_agentic_vlm_settings()
-
-                react_agentic_events.register_vlm_settings_events(
-                    react_agentic_vlm_service_provider,
-                    react_agentic_vlm_model,
-                    react_agentic_vlm_temperature,
-                    react_agentic_vlm_max_tokens,
-                    react_agentic_vlm_oci_region,
-                    react_agentic_controller_model,
-                    react_agentic_controller_temperature,
-                    react_agentic_controller_max_tokens,
-                    react_agentic_controller_oci_region,
-                )
-
-                react_agentic_events.register_react_agentic_rag_events(
-                    react_agentic_run_button,
-                    react_agentic_clear_button,
-                    react_agentic_question_input,
-                    react_agentic_uploaded_image,
-                    react_agentic_reference_type_radio,
-                    react_agentic_top_k_input,
-                    react_agentic_max_steps_input,
-                    react_agentic_answer_prompt_template_dropdown,
-                    react_agentic_vlm_model,
-                    react_agentic_vlm_temperature,
-                    react_agentic_vlm_max_tokens,
-                    react_agentic_vlm_oci_region,
-                    react_agentic_controller_model,
-                    react_agentic_controller_temperature,
-                    react_agentic_controller_max_tokens,
-                    react_agentic_controller_oci_region,
-                    react_agentic_answer_text,
-                    react_agentic_referenced_images_gallery,
-                    react_agentic_trace_text,
-                    react_agentic_selection_reason_text,
                 )
 
             # タブ3: 検索機能

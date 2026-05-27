@@ -170,7 +170,7 @@ def test_agentic_model_choices_include_non_vision_models():
     ]
 
 
-def test_workflow_and_react_agentic_rag_tabs_are_first_in_main_app():
+def test_react_and_workflow_agentic_rag_tabs_are_first_in_main_app():
     source = Path("multimodal_retriever.py").read_text(encoding="utf-8")
     tabs_start = source.index("with gr.Tabs():")
     workflow_tab = source.index('with gr.Tab("Workflow Agentic RAG")', tabs_start)
@@ -178,7 +178,7 @@ def test_workflow_and_react_agentic_rag_tabs_are_first_in_main_app():
     search_tab = source.index('with gr.Tab("検索と回答生成")', tabs_start)
     upload_tab = source.index('with gr.Tab("イメージ管理")', tabs_start)
 
-    assert workflow_tab < react_tab < search_tab < upload_tab
+    assert react_tab < workflow_tab < search_tab < upload_tab
 
 
 def test_agentic_model_settings_use_nested_accordions():
