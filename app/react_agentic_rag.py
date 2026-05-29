@@ -51,6 +51,13 @@ class ReactToolRegistry:
     def __init__(self, pipeline: "ReactAgenticRAGPipeline", uploaded_image=None):
         self.pipeline = pipeline
         self.uploaded_image = uploaded_image
+        self.executed_search_keys: set[str] = set()
+        self.executed_searches: list[tuple[str, str]] = []
+
+    @staticmethod
+    def _search_key(action: str, query: str) -> str:
+        normalized = " ".join(str(query or "").split()).lower()
+        return f"{action}::{normalized}"
 
     def execute(
         self,
@@ -106,6 +113,19 @@ class ReactToolRegistry:
         query = str(action_input.get("query") or "").strip()
         if action != "image_vector_image_search" and not query:
             return "検索Actionには action_input.query が必要です。", selected_evidence, "", False, ""
+
+        key_query = "" if action == "image_vector_image_search" else query
+        search_key = self._search_key(action, key_query)
+        if search_key in self.executed_search_keys:
+            return (
+                f"{action} スキップ: 既出クエリー「{query or 'アップロード画像'}」のため再実行しません。",
+                selected_evidence,
+                "",
+                False,
+                "",
+            )
+        self.executed_search_keys.add(search_key)
+        self.executed_searches.append((action, query or "アップロード画像"))
 
         started_at = time.perf_counter()
         try:
@@ -302,6 +322,9 @@ class ReactAgenticRAGPipeline:
         controller_llm_text_generator: LLMTextGenerator | None = None,
         controller_model_name: str = "",
         max_consecutive_parse_errors: int = 2,
+        max_stale_steps: int = 2,
+        finalize_verifier_llm_text_generator: LLMTextGenerator | None = None,
+        max_verifier_retries: int = 2,
     ):
         self.search_service = search_service
         self.top_k = self._normalize_int(top_k, 8, 1, 24)
@@ -312,6 +335,9 @@ class ReactAgenticRAGPipeline:
         self.controller_llm_text_generator = controller_llm_text_generator
         self.controller_model_name = controller_model_name
         self.max_consecutive_parse_errors = self._normalize_int(max_consecutive_parse_errors, 2, 1, 5)
+        self.max_stale_steps = self._normalize_int(max_stale_steps, 2, 1, self.max_steps)
+        self.finalize_verifier_llm_text_generator = finalize_verifier_llm_text_generator
+        self.max_verifier_retries = self._normalize_int(max_verifier_retries, 2, 0, self.max_steps)
 
     def run(
         self,
@@ -392,12 +418,18 @@ class ReactAgenticRAGPipeline:
             trace.append(f"Controllerモデル: {self.controller_model_name}")
             yield build_result()
         consecutive_controller_errors = 0
+        prev_evidence_count = 0
+        stale_steps = 0
+        forced_verifications = 0
+        search_actions = self.ALLOWED_ACTIONS - {"select_evidence", "generate_final_answer"}
         for step_index in range(1, self.max_steps + 1):
             started_at = time.perf_counter()
             trace.append(f"Step {step_index}: Controller思考中...")
             yield build_result()
             controller_started_at = time.perf_counter()
-            parsed, controller_error = self._call_controller(question, pool.all(), selected_evidence, steps)
+            parsed, controller_error = self._call_controller(
+                question, pool.all(), selected_evidence, steps, registry.executed_searches
+            )
             controller_elapsed = self._elapsed_ms(controller_started_at)
             if controller_error:
                 step = ReactStep(
@@ -442,12 +474,51 @@ class ReactAgenticRAGPipeline:
 
             if step.action == "generate_final_answer":
                 if not selected_evidence:
-                    step.observation = "generate_final_answer の前に select_evidence で参照 evidence を選択してください。"
-                    steps.append(step)
-                    trace.append(f"Step {step_index} Observation: {step.observation}")
-                    self._append_step_trace(trace, step_index, self._elapsed_ms(started_at))
+                    if uploaded_image is None:
+                        step.observation = "generate_final_answer の前に select_evidence で参照 evidence を選択してください。"
+                        steps.append(step)
+                        trace.append(f"Step {step_index} Observation: {step.observation}")
+                        self._append_step_trace(trace, step_index, self._elapsed_ms(started_at))
+                        yield build_result()
+                        continue
+                    trace.append(
+                        f"Step {step_index} Observation: "
+                        "参照evidenceはありませんが、アップロード画像があるため回答生成を試みます。"
+                    )
                     yield build_result()
-                    continue
+                answerable = bool(step.action_input.get("answerable", True))
+                if (
+                    answerable is False
+                    and self.finalize_verifier_llm_text_generator is not None
+                    and pool.all()
+                    and forced_verifications < self.max_verifier_retries
+                ):
+                    leads = self._run_finalize_verifier(
+                        question, selected_evidence, pool.all(), registry.executed_searches
+                    )
+                    executed = {
+                        ReactToolRegistry._search_key("", query)
+                        for _, query in registry.executed_searches
+                    }
+                    new_leads = [
+                        lead
+                        for lead in leads
+                        if ReactToolRegistry._search_key("", lead) not in executed
+                        and " ".join(str(lead).split())
+                    ]
+                    if new_leads:
+                        forced_verifications += 1
+                        step.observation = (
+                            "確定保留: 未解決のサブ質問に使える未検索の手がかりが残っています。"
+                            "次の値で再検索してください: "
+                            + ", ".join(new_leads[:5])
+                            + "。該当が無ければ再度 generate_final_answer を選んでください。"
+                        )
+                        steps.append(step)
+                        trace.append(f"Step {step_index} Observation: {step.observation}")
+                        self._append_step_trace(trace, step_index, self._elapsed_ms(started_at))
+                        yield build_result()
+                        continue
                 documents = format_documents(selected_evidence)
                 trace.append("回答生成中...")
                 yield build_result()
@@ -481,6 +552,33 @@ class ReactAgenticRAGPipeline:
             self._append_step_trace(trace, step_index, self._elapsed_ms(started_at))
             yield build_result()
 
+            if step.action in search_actions:
+                current_evidence_count = len(pool.all())
+                if current_evidence_count <= prev_evidence_count:
+                    stale_steps += 1
+                else:
+                    stale_steps = 0
+                prev_evidence_count = current_evidence_count
+                if stale_steps >= self.max_stale_steps:
+                    trace.append(
+                        f"再検索を{stale_steps}回続けても新しい検索結果が得られないため、"
+                        "情報不足と判断して終了します。"
+                    )
+                    trace.append(f"ReAct Agentic RAG 全体 [{self._elapsed_ms(total_started_at)}]")
+                    decision = SufficiencyDecision(
+                        "insufficient",
+                        "再検索しても新しい検索結果が得られないため終了しました。",
+                        ["新規検索結果"],
+                    )
+                    yield build_result(
+                        answer=(
+                            "情報が不足しており回答できません。"
+                            "（再検索しても新しい検索結果が得られませんでした）"
+                        ),
+                        sufficiency=decision,
+                    )
+                    return
+
         decision = SufficiencyDecision("insufficient", "最大ステップ数に到達しました。", ["ReActステップ"])
         trace.append(f"最大ステップ到達: {self.max_steps} step")
         trace.append(f"ReAct Agentic RAG 全体 [{self._elapsed_ms(total_started_at)}]")
@@ -492,8 +590,11 @@ class ReactAgenticRAGPipeline:
         evidence: list[Evidence],
         selected_evidence: list[Evidence],
         steps: list[ReactStep],
+        executed_searches: list[tuple[str, str]] | None = None,
     ) -> tuple[dict[str, Any] | None, str | None]:
-        prompt = self._build_controller_prompt(question, evidence, selected_evidence, steps)
+        prompt = self._build_controller_prompt(
+            question, evidence, selected_evidence, steps, executed_searches
+        )
         response_text = ""
         try:
             response_text = str(self.controller_llm_text_generator(prompt) or "")
@@ -553,10 +654,12 @@ class ReactAgenticRAGPipeline:
         evidence: list[Evidence],
         selected_evidence: list[Evidence],
         steps: list[ReactStep],
+        executed_searches: list[tuple[str, str]] | None = None,
     ) -> str:
         evidence_summary = self._format_evidence_summary(evidence)
         selected_ids = ", ".join(item.id for item in selected_evidence) or "なし"
         history = self._format_step_history(steps)
+        executed_summary = self._format_executed_searches(executed_searches)
         return (
             "あなたはReAct型マルチモーダルRAG Controllerです。\n"
             "Thoughtで次に必要な判断を書き、Actionで許可されたToolを1つだけ選んでください。\n"
@@ -565,29 +668,104 @@ class ReactAgenticRAGPipeline:
             "必須キー: thought, action, action_input。\n"
             "形式: {\"thought\": \"短い思考\", \"action\": \"許可Action名\", \"action_input\": {\"必要なキー\": \"値\"}}\n\n"
             "許可Action:\n"
-            "- multi_search: {\"query_variants\": [\"元質問\", \"分解クエリー\", \"言い換え\", \"固有語\"], \"tools\": [\"caption_vector_search\", \"caption_fulltext_search\", \"image_vector_text_search\"]}\n"
+            "- multi_search: {\"query_variants\": [\"元質問\", \"分解クエリー\", \"言い換え\", \"固有語\"], \"tools\": [\"caption_vector_search\", \"caption_fulltext_search\", \"image_vector_text_search\"]}。image_vector_image_search を tools に含める場合、そのToolは query_variants ごとではなくアップロード画像で1回だけ実行される。\n"
             "- caption_vector_search: {\"query\": \"検索クエリー\"}。意味的類似、言い換え、抽象的質問、関連概念の発見に強い。\n"
             "- caption_fulltext_search: {\"query\": \"検索クエリー\"}。質問中の固有表現をOR完全一致検索に変換し、URL、論文ID、エラーコード、IPアドレス、製品名、固有名詞、文書内テキストなど、ベクトル検索が苦手な語を補完する。\n"
             "- image_vector_text_search: {\"query\": \"検索クエリー\"}。画像内容だけでなく、画像中のテキスト、スライド、スクリーンショット、図表の情報発見にも有効。\n"
-            "- image_vector_image_search: {\"reason\": \"入力画像に類似する画像を探す理由\"}。アップロード画像と視覚的に類似する画像を探す。\n"
-            "- select_evidence: {\"evidence_ids\": [\"188\", \"544\"], \"reason\": \"選別理由\"}\n"
-            "- generate_final_answer: {\"reason\": \"選別済みevidenceで回答できる理由\"}\n\n"
+            "- image_vector_image_search: {}。アップロード画像がある場合のみ使用できる。テキストクエリーや reason は検索条件に使わず、アップロード画像そのものから視覚的に類似する画像を探す。\n"
+            "- select_evidence: {\"evidence_ids\": [\"188\", \"544\"], \"reason\": \"選別理由\"}。既に取得済みの evidence から、最終回答に使う候補を選択して selected_evidence を更新するAction。新しい情報は取得しない。検索不足や未カバーのサブ質問を解消しない。追加情報が必要な場合は select_evidence ではなく検索Actionまたは multi_search を使う。\n"
+            "- generate_final_answer: {\"reason\": \"選別済みevidenceで回答できる理由\", \"answerable\": true}。選択 evidence だけで質問に完全回答できるなら answerable は true、情報不足や部分的にしか答えられないなら false を指定する。\n\n"
             "進め方:\n"
             "1. 初回検索では原則 multi_search を使い、caption_vector_search と image_vector_text_search を必ず含める。固有名詞、URL、論文ID、エラーコード、IPアドレス、製品名、文書内テキストが重要なら caption_fulltext_search も含める。\n"
             "2. 複合質問では query_variants に、質問の分解、言い換え、専門語、固有語、エラーコードなどを含め、検索の幅を広げる。\n"
             "3. caption_fulltext_search だけに偏らず、テキストベクトル検索と画像ベクトル検索の相補性を使う。\n"
-            "4. [CRITICAL]回答生成のための情報が不足している場合は、単一検索Actionまたは multi_search を再度、積極的に使います。追加検索をしないで情報収集を断念することは禁止です。\n"
-            "5. [CRITICAL]回答生成にあたっては一般的な知識は利用できないことに留意し、検索から回答に十分な候補が揃ったら select_evidence を実行する。\n"
-            "6. select_evidence の evidence_ids には、検索候補の evidence_id の値だけを入れる。No. は表示順であり evidence_id ではないため、絶対に evidence_ids に入れない。\n"
-            "7. select_evidence 実行前に、指定するIDが「選択可能な evidence_id 一覧」に存在することを確認する。\n"
-            "8. 悪い例: {\"evidence_ids\": [\"1\", \"2\"]}。理由: 1, 2 は No. であり evidence_id ではない。\n"
-            "9. select_evidence 後に generate_final_answer を実行して終了する。\n"
-            "10. 不正なObservationがあれば、次のActionで修正する。\n\n"
+            "4. [CRITICAL]まず質問を、回答に必要なサブ質問（求める属性・条件）に分解する。「Aの属性X」（例: 看板の場所の緯度経度＝まず看板の場所Aを特定し、次にAの緯度経度Xを調べる）のような推移的（多段・マルチホップ）質問では、ホップごとに順番に検索する。\n"
+            "5. [CRITICAL]あるホップで中間結果（場所名・固有名詞・エンティティ）が判明したら、その中間結果をクエリーに使って、まだ取得できていない次ホップの属性（緯度経度・座標・日付・数値・定義・関連情報など）を検索する。中間結果が分かった時点で満足して終了してはいけない。\n"
+            "5-1. [CRITICAL]検索結果は毎回見直して計画を更新する。推移的（多段）かどうかは最初の検索結果を見て初めて判明することがある。取得した evidence のキャプションに、答えへ近づく中間値（質問中の識別子に対応する名称・タイトル・用語など）が含まれていないか必ず確認し、含まれていればその値そのものを次の検索クエリーに使う。例: 識別子（ID・コード・番号・URL）での検索は対象の名称やタイトルだけを返すことが多いので、得られた名称・タイトルで再検索して本文・詳細・属性を取得する。本文が直接得られないからといって、得られた中間値を無関係と決めつけて断念してはいけない。\n"
+            "6. [CRITICAL]回答生成のための情報が不足している場合は、まだ試していない観点・言い換え・固有表現・分解クエリー・中間結果を使った次ホップで再検索する。ただし、同一の検索（同じToolと同じクエリー）は再実行しない（自動的にスキップされる）。全サブ質問について、中間結果を使った次ホップ検索を含む合理的な検索を出し尽くし、それでも新しい検索結果が得られない場合に限り、無理な再検索を続けず、select_evidence で最も関連する候補を選び generate_final_answer に進む（根拠が乏しければ「情報が不足しており回答できません」と回答されることを許容する）。関連候補が全く無い場合も、これ以上同種の検索を繰り返さない。ただし断念する前に、取得済みキャプションに未使用の中間値（次に検索すべき名称・タイトル・用語）が残っていないか必ず確認し、残っていればそれを使って再検索する。\n"
+            "7. [CRITICAL]回答生成にあたっては一般的な知識は利用できないことに留意し、検索から回答に十分な候補が揃ったら select_evidence を実行する。\n"
+            "8. select_evidence の evidence_ids には、検索候補の evidence_id の値だけを入れる。No. は表示順であり evidence_id ではないため、絶対に evidence_ids に入れない。\n"
+            "9. select_evidence は回答直前の候補確定に使う。情報不足や未カバーのサブ質問がある状態で同じ evidence を再選択しても進捗にならないため、追加検索が必要なら検索Actionまたは multi_search を実行する。\n"
+            "10. select_evidence 実行前に、指定するIDが「選択可能な evidence_id 一覧」に存在することを確認する。\n"
+            "11. 悪い例: {\"evidence_ids\": [\"1\", \"2\"]}。理由: 1, 2 は No. であり evidence_id ではない。\n"
+            "12. generate_final_answer の前に、質問の全サブ質問が選択済みevidenceでカバーされているか確認する。未カバーのサブ質問があり、中間結果を使った次ホップなどまだ試していない検索が残っているなら、generate_final_answer ではなく追加検索を行う。全サブ質問がカバーされていれば select_evidence 後に generate_final_answer を実行して終了する。generate_final_answer では、選択 evidence だけで質問に完全回答できる場合は action_input に answerable: true、情報不足・部分回答の場合は answerable: false を必ず付ける。\n"
+            "13. 不正なObservationがあれば、次のActionで修正する。\n\n"
             f"ユーザー質問:\n{question}\n\n"
             f"現在のevidence:\n{evidence_summary}\n\n"
             f"選択済みevidence: {selected_ids}\n\n"
+            "実行済み検索（同一の (tool, query) は再実行禁止・指定しても自動スキップされます）:\n"
+            f"{executed_summary}\n\n"
             f"実行履歴:\n{history}"
         )
+
+    def _format_executed_searches(self, executed_searches: list[tuple[str, str]] | None) -> str:
+        if not executed_searches:
+            return "（まだ検索していません）"
+        return "\n".join(f"- {action}: {query}" for action, query in executed_searches)
+
+    def _run_finalize_verifier(
+        self,
+        question: str,
+        selected_evidence: list[Evidence],
+        all_evidence: list[Evidence],
+        executed_searches: list[tuple[str, str]],
+    ) -> list[str]:
+        if self.finalize_verifier_llm_text_generator is None:
+            return []
+        prompt = self._build_finalize_verifier_prompt(
+            question, selected_evidence, all_evidence, executed_searches
+        )
+        try:
+            response_text = str(self.finalize_verifier_llm_text_generator(prompt) or "")
+            if self._detect_generation_error(response_text):
+                return []
+            return self._parse_verifier_terms(response_text)
+        except Exception:
+            return []
+
+    def _build_finalize_verifier_prompt(
+        self,
+        question: str,
+        selected_evidence: list[Evidence],
+        all_evidence: list[Evidence],
+        executed_searches: list[tuple[str, str]],
+    ) -> str:
+        executed_summary = self._format_executed_searches(executed_searches)
+        caption_lines = []
+        for index, item in enumerate(all_evidence[:50], start=1):
+            caption_lines.append(
+                f"No. {index} / evidence_id: {item.id} / caption: {item.caption or '（キャプションなし）'}"
+            )
+        captions = "\n".join(caption_lines) or "（取得済みevidenceなし）"
+        return (
+            "あなたは検索計画の検証器です。最終回答する前に、質問に答えるための追加検索が必要かどうかを判断します。\n"
+            "「もう十分か」を判定するのではなく、取得済みevidenceのキャプション本文の中から、まだ答えられていないサブ質問に近づくために次に検索すべき値（キャプションに実在する固有名詞・タイトル・名称・用語・識別子など）を抽出してください。\n"
+            "制約:\n"
+            "- すでに実行済みの検索クエリーと同じ値は挙げない。\n"
+            "- キャプションに実在しない語を創作しない。\n"
+            "- 該当が無ければ空配列を返す。\n"
+            "- 出力は文字列の配列のJSONのみ（説明文やコードフェンスを付けない）。例: [\"値1\", \"値2\"] または []\n\n"
+            f"ユーザー質問:\n{question}\n\n"
+            "実行済み検索クエリー:\n"
+            f"{executed_summary}\n\n"
+            "取得済みevidenceのキャプション:\n"
+            f"{captions}"
+        )
+
+    @staticmethod
+    def _parse_verifier_terms(response_text: str) -> list[str]:
+        text = str(response_text or "")
+        start = text.find("[")
+        end = text.rfind("]")
+        if start == -1 or end == -1 or end < start:
+            return []
+        try:
+            parsed = json.loads(text[start : end + 1])
+        except (json.JSONDecodeError, ValueError):
+            return []
+        if not isinstance(parsed, list):
+            return []
+        return [str(item).strip() for item in parsed if str(item).strip()]
 
     def _format_evidence_summary(self, evidence: list[Evidence]) -> str:
         if not evidence:

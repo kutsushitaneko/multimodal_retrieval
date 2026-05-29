@@ -148,6 +148,11 @@ def main():
                     react_agentic_trace_text,
                     react_agentic_selection_reason_text,
                     react_agentic_answer_prompt_template_dropdown,
+                    react_agentic_detail_filename_text,
+                    react_agentic_detail_image_id_text,
+                    react_agentic_detail_similarity_text,
+                    react_agentic_detail_caption_text,
+                    react_agentic_referenced_details_state,
                 ) = ui_components.create_react_agentic_rag_section()
 
                 (
@@ -195,6 +200,11 @@ def main():
                     react_agentic_referenced_images_gallery,
                     react_agentic_trace_text,
                     react_agentic_selection_reason_text,
+                    react_agentic_detail_filename_text,
+                    react_agentic_detail_image_id_text,
+                    react_agentic_detail_similarity_text,
+                    react_agentic_detail_caption_text,
+                    react_agentic_referenced_details_state,
                 )
 
             # タブ2: Workflow Agentic RAG
@@ -212,6 +222,11 @@ def main():
                     workflow_agentic_trace_text,
                     workflow_agentic_selection_reason_text,
                     workflow_agentic_answer_prompt_template_dropdown,
+                    workflow_agentic_detail_filename_text,
+                    workflow_agentic_detail_image_id_text,
+                    workflow_agentic_detail_similarity_text,
+                    workflow_agentic_detail_caption_text,
+                    workflow_agentic_referenced_details_state,
                 ) = ui_components.create_workflow_agentic_rag_section()
 
                 (
@@ -283,6 +298,11 @@ def main():
                     workflow_agentic_referenced_images_gallery,
                     workflow_agentic_trace_text,
                     workflow_agentic_selection_reason_text,
+                    workflow_agentic_detail_filename_text,
+                    workflow_agentic_detail_image_id_text,
+                    workflow_agentic_detail_similarity_text,
+                    workflow_agentic_detail_caption_text,
+                    workflow_agentic_referenced_details_state,
                 )
 
             # タブ3: 検索機能
@@ -297,7 +317,7 @@ def main():
                 pagination_row, prev_button, page_info, next_button = ui_components.create_pagination_section()
                 
                 # 画像詳細セクションのUIコンポーネントを作成
-                filename_text, similarity_text, caption_text = ui_components.create_detail_section()
+                filename_text, image_id_text, similarity_text, caption_text = ui_components.create_detail_section()
                 
                 # クエリ詳細セクションのUIコンポーネントを作成
                 executed_query_text, execute_query_button, executed_sql_text, morphological_analysis_text = ui_components.create_query_detail_section()
@@ -331,7 +351,7 @@ def main():
                     search_button, query_input, uploaded_image, search_target, 
                     search_method, search_count_input, vector_threshold, keyword_threshold, 
                     vector_gallery, keyword_gallery, filename_text, similarity_text, 
-                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, referenced_images_gallery, listwise_reason_text
+                    caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, referenced_images_gallery, listwise_reason_text, image_id_text
                 )
                 
                 ui_events.register_search_and_answer_button_events(
@@ -339,26 +359,26 @@ def main():
                     search_method, search_count_input, vector_threshold, keyword_threshold, 
                     vector_gallery, keyword_gallery, filename_text, similarity_text, 
                     caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, answer_generate_button, reference_type_radio, answer_text, answer_prompt_template_dropdown,
-                    search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region, answer_generation_mode_radio, referenced_images_gallery, listwise_reason_text
+                    search_vlm_model, search_vlm_temperature, search_vlm_max_tokens, search_vlm_oci_region, answer_generation_mode_radio, referenced_images_gallery, listwise_reason_text, image_id_text
                 )
                 
                 ui_events.register_execute_query_button_events(
                     execute_query_button, executed_query_text, search_count_input, keyword_threshold,
                     vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, 
-                    state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, answer_question_input
+                    state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, answer_question_input, image_id_text
                 )
                 
                 ui_events.register_clear_button_events(
                     clear_button, query_input, uploaded_image, vector_gallery, 
                     keyword_gallery, filename_text, similarity_text, caption_text, 
                     state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text,
-                    answer_generate_button, answer_text, reference_image_text, reference_type_radio, answer_question_input, referenced_images_gallery, listwise_reason_text
+                    answer_generate_button, answer_text, reference_image_text, reference_type_radio, answer_question_input, referenced_images_gallery, listwise_reason_text, image_id_text
                 )
                 
                 ui_events.register_show_all_button_events(
                     show_all_button, search_count_input, vector_gallery, 
                     keyword_gallery, filename_text, similarity_text, caption_text, 
-                    state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, search_target, search_method, answer_generate_button, reference_type_radio
+                    state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text, answer_question_input, search_target, search_method, answer_generate_button, reference_type_radio, image_id_text
                 )
                 
                 ui_events.register_pagination_events(
@@ -368,7 +388,7 @@ def main():
                 ui_events.register_gallery_selection_events(
                     vector_gallery, keyword_gallery, state, 
                     filename_text, similarity_text, caption_text,
-                    search_target, search_method, answer_generate_button, reference_image_text, reference_type_radio
+                    search_target, search_method, answer_generate_button, reference_image_text, reference_type_radio, image_id_text
                 )
                 
                 ui_events.register_answer_generation_events(

@@ -426,6 +426,7 @@ class UIComponents:
                 with gr.Column():
                     with gr.Row():
                         filename_text = gr.Textbox(show_label=True, label="ファイル名", interactive=False, container=True, show_copy_button=True)
+                        image_id_text = gr.Textbox(show_label=True, label="イメージID", interactive=False, container=True, show_copy_button=True)
                         similarity_text = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True)
                     with gr.Row():
                         caption_text = gr.Textbox(
@@ -438,7 +439,7 @@ class UIComponents:
                             placeholder="キャプションがここに表示されます"
                         )
                 
-        return filename_text, similarity_text, caption_text
+        return filename_text, image_id_text, similarity_text, caption_text
         
     def create_query_detail_section(self):
         """クエリ詳細セクションのUIコンポーネントを作成"""
@@ -685,6 +686,24 @@ class UIComponents:
                 elem_classes=[REFERENCED_GALLERY_ELEM_CLASS],
                 visible=False,
             )
+            with gr.Accordion("画像詳細", open=False):
+                referenced_details_state = gr.State([])
+                with gr.Row():
+                    with gr.Column():
+                        with gr.Row():
+                            detail_filename_text = gr.Textbox(show_label=True, label="ファイル名", interactive=False, container=True, show_copy_button=True)
+                            detail_image_id_text = gr.Textbox(show_label=True, label="イメージID", interactive=False, container=True, show_copy_button=True)
+                            detail_similarity_text = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True)
+                        with gr.Row():
+                            detail_caption_text = gr.Textbox(
+                                show_label=True,
+                                label="キャプション",
+                                interactive=False,
+                                lines=10,
+                                container=True,
+                                show_copy_button=True,
+                                placeholder="参照した画像を選択すると詳細がここに表示されます",
+                            )
             selection_reason_text = gr.Textbox(
                 label="選別・並べ替え理由",
                 lines=4,
@@ -723,6 +742,11 @@ class UIComponents:
             trace_text,
             selection_reason_text,
             answer_prompt_template_dropdown,
+            detail_filename_text,
+            detail_image_id_text,
+            detail_similarity_text,
+            detail_caption_text,
+            referenced_details_state,
         )
 
     def _create_question_examples(self, input_component):
