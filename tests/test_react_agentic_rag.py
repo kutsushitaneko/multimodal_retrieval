@@ -142,6 +142,197 @@ def test_react_pipeline_multi_search_reports_invalid_tools_and_empty_queries():
     assert "最大ステップ到達: 1 step" in result.trace
 
 
+def test_react_pipeline_skips_repeated_search_across_steps():
+    controller = MagicMock(return_value=(
+        '{"thought": "同じ観点で再検索する", "action": "multi_search", '
+        '"action_input": {"query_variants": ["猫"], "tools": ["caption_vector_search"]}}'
+    ))
+    fake_search = FakeSearchService()
+    pipeline = ReactAgenticRAGPipeline(
+        fake_search, max_steps=5, max_stale_steps=2, controller_llm_text_generator=controller
+    )
+
+    result = pipeline.run("猫", answer_generator=MagicMock())
+
+    assert [(call[0], call[1]) for call in fake_search.caption_calls] == [("猫", "ベクトル検索")]
+    assert "スキップ" in result.trace
+    assert "既出クエリー" in result.trace
+
+
+def test_react_pipeline_gives_up_when_no_new_evidence():
+    controller = MagicMock(return_value=(
+        '{"thought": "情報が足りないので再検索する", "action": "multi_search", '
+        '"action_input": {"query_variants": ["猫"], "tools": ["caption_vector_search"]}}'
+    ))
+    pipeline = ReactAgenticRAGPipeline(
+        FakeSearchService(), max_steps=8, max_stale_steps=2, controller_llm_text_generator=controller
+    )
+
+    result = pipeline.run("猫", answer_generator=MagicMock())
+
+    assert "情報が不足しており回答できません" in result.answer
+    assert result.sufficiency.status == "insufficient"
+    assert "最大ステップ到達" not in result.trace
+    assert "新しい検索結果が得られない" in result.trace
+
+
+def test_react_controller_prompt_lists_executed_searches_and_allows_giving_up():
+    pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
+
+    prompt_empty = pipeline._build_controller_prompt("質問", [], [], [])
+    assert "実行済み検索" in prompt_empty
+    assert "（まだ検索していません）" in prompt_empty
+    assert "断念することは禁止" not in prompt_empty
+    assert "情報が不足しており回答できません" in prompt_empty
+
+    prompt_with_history = pipeline._build_controller_prompt(
+        "質問", [], [], [], [("caption_vector_search", "猫")]
+    )
+    assert "- caption_vector_search: 猫" in prompt_with_history
+
+
+def test_react_controller_prompt_guides_multi_hop_transitive_questions():
+    pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
+
+    prompt = pipeline._build_controller_prompt("看板の場所の緯度経度は？", [], [], [])
+
+    assert "サブ質問" in prompt
+    assert "推移的" in prompt
+    assert "マルチホップ" in prompt
+    assert "中間結果" in prompt
+    assert "次ホップ" in prompt
+    assert "中間結果が分かった時点で満足して終了してはいけない" in prompt
+    assert "全サブ質問が選択済みevidenceでカバーされているか確認" in prompt
+
+
+def test_react_controller_prompt_explains_select_evidence_role():
+    pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
+
+    prompt = pipeline._build_controller_prompt("質問", [], [], [])
+
+    assert "最終回答に使う候補を選択して selected_evidence を更新するAction" in prompt
+    assert "新しい情報は取得しない" in prompt
+    assert "検索不足や未カバーのサブ質問を解消しない" in prompt
+    assert "select_evidence ではなく検索Actionまたは multi_search を使う" in prompt
+    assert "同じ evidence を再選択しても進捗にならない" in prompt
+
+
+def test_react_controller_prompt_explains_image_vector_image_search_input():
+    pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
+
+    prompt = pipeline._build_controller_prompt("質問", [], [], [])
+
+    assert "- image_vector_image_search: {}" in prompt
+    assert "image_vector_image_search: {\"reason\"" not in prompt
+    assert "アップロード画像がある場合のみ使用できる" in prompt
+    assert "テキストクエリーや reason は検索条件に使わず" in prompt
+    assert "アップロード画像そのものから視覚的に類似する画像を探す" in prompt
+    assert "query_variants ごとではなくアップロード画像で1回だけ実行される" in prompt
+
+
+def test_react_finalize_verifier_blocks_giveup_and_forces_research():
+    controller = MagicMock(side_effect=[
+        '{"thought": "初回検索", "action": "multi_search", '
+        '"action_input": {"query_variants": ["猫"], "tools": ["caption_vector_search"]}}',
+        '{"thought": "唯一の候補を選ぶ", "action": "select_evidence", "action_input": {"evidence_ids": ["1"], "reason": "唯一"}}',
+        '{"thought": "情報不足だが断念", "action": "generate_final_answer", "action_input": {"answerable": false}}',
+        '{"thought": "手がかりで再検索", "action": "caption_vector_search", "action_input": {"query": "子猫の特徴"}}',
+        '{"thought": "再度断念", "action": "generate_final_answer", "action_input": {"answerable": false}}',
+    ])
+    verifier = MagicMock(side_effect=['["子猫の特徴"]', '["子猫の特徴"]'])
+    pipeline = ReactAgenticRAGPipeline(
+        FakeSearchService(),
+        max_steps=6,
+        controller_llm_text_generator=controller,
+        finalize_verifier_llm_text_generator=verifier,
+    )
+
+    result = pipeline.run("猫について", answer_generator=lambda q, selected, docs: "生成回答")
+
+    assert "確定保留" in result.trace
+    assert result.answer == "生成回答"
+    assert verifier.call_count == 2
+
+
+def test_react_finalize_verifier_not_called_when_answerable_true():
+    controller = MagicMock(side_effect=[
+        '{"thought": "初回検索", "action": "multi_search", '
+        '"action_input": {"query_variants": ["猫"], "tools": ["caption_vector_search"]}}',
+        '{"thought": "候補を選ぶ", "action": "select_evidence", "action_input": {"evidence_ids": ["1"], "reason": "十分"}}',
+        '{"thought": "十分なので回答", "action": "generate_final_answer", "action_input": {}}',
+    ])
+    verifier = MagicMock()
+    pipeline = ReactAgenticRAGPipeline(
+        FakeSearchService(),
+        max_steps=4,
+        controller_llm_text_generator=controller,
+        finalize_verifier_llm_text_generator=verifier,
+    )
+
+    result = pipeline.run("猫について", answer_generator=lambda q, selected, docs: "生成回答")
+
+    verifier.assert_not_called()
+    assert result.answer == "生成回答"
+    assert "確定保留" not in result.trace
+
+
+def test_react_finalize_verifier_failopen_on_invalid_output():
+    controller = MagicMock(side_effect=[
+        '{"thought": "初回検索", "action": "multi_search", '
+        '"action_input": {"query_variants": ["猫"], "tools": ["caption_vector_search"]}}',
+        '{"thought": "候補を選ぶ", "action": "select_evidence", "action_input": {"evidence_ids": ["1"], "reason": "唯一"}}',
+        '{"thought": "情報不足", "action": "generate_final_answer", "action_input": {"answerable": false}}',
+    ])
+    verifier = MagicMock(return_value="not json")
+    pipeline = ReactAgenticRAGPipeline(
+        FakeSearchService(),
+        max_steps=4,
+        controller_llm_text_generator=controller,
+        finalize_verifier_llm_text_generator=verifier,
+    )
+
+    result = pipeline.run("猫について", answer_generator=lambda q, selected, docs: "生成回答")
+
+    assert verifier.call_count == 1
+    assert result.answer == "生成回答"
+    assert "確定保留" not in result.trace
+
+
+def test_react_finalize_verifier_disabled_when_generator_none():
+    controller = MagicMock(side_effect=[
+        '{"thought": "初回検索", "action": "multi_search", '
+        '"action_input": {"query_variants": ["猫"], "tools": ["caption_vector_search"]}}',
+        '{"thought": "候補を選ぶ", "action": "select_evidence", "action_input": {"evidence_ids": ["1"], "reason": "唯一"}}',
+        '{"thought": "断念", "action": "generate_final_answer", "action_input": {"answerable": false}}',
+    ])
+    pipeline = ReactAgenticRAGPipeline(
+        FakeSearchService(),
+        max_steps=4,
+        controller_llm_text_generator=controller,
+    )
+
+    result = pipeline.run("猫について", answer_generator=lambda q, selected, docs: "生成回答")
+
+    assert result.answer == "生成回答"
+    assert "確定保留" not in result.trace
+
+
+def test_react_controller_prompt_guides_replanning_after_observation():
+    pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
+
+    prompt = pipeline._build_controller_prompt("ある識別子の説明は？", [], [], [])
+
+    assert "検索結果は毎回見直して計画を更新する" in prompt
+    assert "最初の検索結果を見て初めて判明することがある" in prompt
+    assert "キャプション" in prompt
+    assert "中間値" in prompt
+    assert "識別子" in prompt
+    assert "名称やタイトルだけを返すことが多い" in prompt
+    assert "無関係と決めつけて断念してはいけない" in prompt
+    assert "未使用の中間値" in prompt
+    assert "2312.10997" not in prompt
+
+
 def test_react_controller_prompt_guides_multi_search_and_tool_strengths():
     pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
 
@@ -301,6 +492,20 @@ def test_react_pipeline_reports_generate_answer_without_selected_evidence_as_obs
     assert "最大ステップ到達: 1 step" in result.trace
 
 
+def test_react_pipeline_generates_answer_with_uploaded_image_without_selected_evidence():
+    controller = MagicMock(return_value='{"thought": "画像で回答する", "action": "generate_final_answer", "action_input": {}}')
+    answer_generator = MagicMock(return_value="生成回答")
+    pipeline = ReactAgenticRAGPipeline(FakeSearchService(), max_steps=1, controller_llm_text_generator=controller)
+    uploaded_image = Image.new("RGB", (4, 4), color="white")
+
+    result = pipeline.run("画像について", uploaded_image=uploaded_image, answer_generator=answer_generator)
+
+    assert result.answer == "生成回答"
+    answer_generator.assert_called_once_with("画像について", [], "")
+    assert "参照evidenceはありませんが、アップロード画像があるため回答生成を試みます。" in result.trace
+    assert "最大ステップ到達" not in result.trace
+
+
 def test_react_pipeline_image_only_runs_image_vector_search_only():
     controller = MagicMock()
     fake_search = FakeSearchService()
@@ -347,7 +552,7 @@ def test_react_event_streams_outputs_and_uses_controller_model():
         2048,
         "US Midwest (Chicago)",
     ))
-    answer, gallery, trace, reason = outputs[-1]
+    answer, gallery, trace, reason, details = outputs[-1]
 
     assert answer == "生成回答"
     assert gallery.visible is True
@@ -480,6 +685,56 @@ def test_react_agentic_rag_answer_label_uses_react_name():
     assert "Workflow Agentic RAG が" not in answer
 
 
+def test_react_answer_label_includes_uploaded_image_with_selected_evidence():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = ReactAgenticRAGEvents(FakeSearchService())
+    selected_evidence = [EvidencePool._from_result(make_result(1, "slide.png", "猫"), "猫", "caption_vector_search")]
+
+    with patch("app.ui.workflow_agentic_events.NLPService") as mock_nlp_service:
+        mock_nlp_service.return_value.generate_answer_with_vlm_images.return_value = "生成回答"
+        answer = events._generate_answer_with_vlm(
+            "猫",
+            selected_evidence,
+            "参照情報",
+            REFERENCE_TYPE_ALL,
+            "デフォルト（回答生成）",
+            "model",
+            0.0,
+            1024,
+            "Japan Central (Osaka)",
+            uploaded_image=Image.new("RGB", (4, 4), color="white"),
+        )
+
+    assert answer.startswith("（ReAct Agentic RAG が「ユーザーがアップロードした画像」「slide.png」を参照して回答しました）")
+    assert "Workflow Agentic RAG が" not in answer
+
+
+def test_react_vlm_generates_with_uploaded_image_without_selected_evidence():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = ReactAgenticRAGEvents(FakeSearchService())
+
+    with patch("app.ui.workflow_agentic_events.NLPService") as mock_nlp_service:
+        mock_nlp_service.return_value.generate_answer_with_vlm_images.return_value = "生成回答"
+        answer = events._generate_answer_with_vlm(
+            "アップロード画像について説明してください",
+            [],
+            "",
+            REFERENCE_TYPE_CAPTION_ONLY,
+            "デフォルト（回答生成）",
+            "model",
+            0.0,
+            1024,
+            "Japan Central (Osaka)",
+            uploaded_image=Image.new("RGB", (4, 4), color="white"),
+        )
+
+    assert answer.startswith("（ReAct Agentic RAG が「ユーザーがアップロードした画像」を参照して回答しました）")
+    mock_nlp_service.return_value.generate_answer_with_vlm_images.assert_called_once()
+    call_kwargs = mock_nlp_service.return_value.generate_answer_with_vlm_images.call_args.kwargs
+    assert len(call_kwargs["image_paths"]) == 1
+    assert "検索で見つかった参照画像がある場合は2枚目以降です" in call_kwargs["prompt_text"]
+
+
 def test_react_event_streams_multi_search_observation():
     with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
         events = ReactAgenticRAGEvents(FakeSearchService())
@@ -510,13 +765,46 @@ def test_react_event_streams_multi_search_observation():
         2048,
         "US Midwest (Chicago)",
     ))
-    answer, gallery, trace, reason = outputs[-1]
+    answer, gallery, trace, reason, details = outputs[-1]
 
     assert answer == "生成回答"
     assert gallery.visible is True
     assert reason == "選別"
     assert "Action: multi_search" in trace
     assert "queries 2 件, tools 3 種, calls 6 回, evidence 3 件" in trace
+
+
+def test_react_event_passes_uploaded_image_to_vlm_when_evidence_found():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = ReactAgenticRAGEvents(FakeSearchService())
+    events._generate_answer_with_vlm = MagicMock(return_value="生成回答")
+    events._call_text_model = MagicMock(side_effect=[
+        '{"thought": "検索する", "action": "caption_vector_search", "action_input": {"query": "猫"}}',
+        '{"thought": "選ぶ", "action": "select_evidence", "action_input": {"evidence_ids": ["1"], "reason": "選別"}}',
+        '{"thought": "回答する", "action": "generate_final_answer", "action_input": {}}',
+    ])
+    uploaded_image = Image.new("RGB", (4, 4), color="white")
+
+    outputs = list(events.run_react_agentic_rag(
+        "猫",
+        uploaded_image,
+        REFERENCE_TYPE_ALL,
+        8,
+        4,
+        "デフォルト（回答生成）",
+        "answer-model",
+        0.0,
+        1024,
+        "Japan Central (Osaka)",
+        "controller-model",
+        0.4,
+        2048,
+        "US Midwest (Chicago)",
+    ))
+    answer, _, _, _, _ = outputs[-1]
+
+    assert answer == "生成回答"
+    assert events._generate_answer_with_vlm.call_args.kwargs["uploaded_image"] is uploaded_image
 
 
 def test_react_event_does_not_fallback_controller_to_answer_vlm():
@@ -541,7 +829,7 @@ def test_react_event_does_not_fallback_controller_to_answer_vlm():
         2048,
         "US Midwest (Chicago)",
     ))
-    answer, gallery, trace, reason = outputs[-1]
+    answer, gallery, trace, reason, details = outputs[-1]
 
     assert answer == "❌ ReAct Controllerモデルが設定されていません。"
     assert gallery.visible is False
@@ -573,7 +861,7 @@ def test_react_event_image_only_shows_gallery_without_llm_calls():
         2048,
         "US Midwest (Chicago)",
     ))
-    answer, gallery, trace, reason = outputs[-1]
+    answer, gallery, trace, reason, details = outputs[-1]
 
     assert answer.startswith("画像のみ入力として扱い")
     assert gallery.visible is True

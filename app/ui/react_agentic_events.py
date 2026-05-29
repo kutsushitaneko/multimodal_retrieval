@@ -70,6 +70,11 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
         referenced_images_gallery,
         trace_text,
         selection_reason_text,
+        detail_filename_text=None,
+        detail_image_id_text=None,
+        detail_similarity_text=None,
+        detail_caption_text=None,
+        referenced_details_state=None,
     ):
         run_button.click(
             fn=self.run_react_agentic_rag,
@@ -89,7 +94,15 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
                 controller_max_tokens,
                 controller_oci_region,
             ],
-            outputs=[answer_text, referenced_images_gallery, trace_text, selection_reason_text],
+            outputs=[answer_text, referenced_images_gallery, trace_text, selection_reason_text, referenced_details_state],
+        )
+        self._register_referenced_detail_events(
+            referenced_images_gallery,
+            referenced_details_state,
+            detail_filename_text,
+            detail_image_id_text,
+            detail_similarity_text,
+            detail_caption_text,
         )
         clear_button.click(
             fn=self.clear_react_agentic_rag,
@@ -101,6 +114,11 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
                 referenced_images_gallery,
                 trace_text,
                 selection_reason_text,
+                detail_filename_text,
+                detail_image_id_text,
+                detail_similarity_text,
+                detail_caption_text,
+                referenced_details_state,
             ],
             queue=False,
         )
@@ -139,6 +157,7 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
             max_steps=max_steps,
             controller_llm_text_generator=call_controller if effective_controller_model else None,
             controller_model_name=effective_controller_model,
+            finalize_verifier_llm_text_generator=call_controller if effective_controller_model else None,
         )
 
         def generate_answer(query, selected_evidence, documents):
@@ -152,6 +171,7 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
                 vlm_temperature,
                 vlm_max_tokens,
                 vlm_oci_region,
+                uploaded_image=uploaded_image,
             )
 
         effective_reference_type = REFERENCE_TYPE_ALL if not (question or "").strip() and uploaded_image is not None else reference_type
@@ -163,13 +183,14 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
             yield self._format_react_agentic_rag_outputs(result, effective_reference_type)
 
     def _format_react_agentic_rag_outputs(self, result, reference_type):
-        referenced_images = [
-            evidence.image
-            for evidence in result.selected_evidence
-            if isinstance(evidence.image, Image.Image) and reference_type != REFERENCE_TYPE_CAPTION_ONLY
-        ]
+        referenced_images = []
+        referenced_details = []
+        for evidence in result.selected_evidence:
+            if isinstance(evidence.image, Image.Image) and reference_type != REFERENCE_TYPE_CAPTION_ONLY:
+                referenced_images.append(evidence.image)
+                referenced_details.append(self._build_referenced_detail(evidence))
         gallery = self._create_referenced_images_gallery(referenced_images)
-        return result.answer, gallery, result.trace, result.selection_reason
+        return result.answer, gallery, result.trace, result.selection_reason, referenced_details
 
     def clear_react_agentic_rag(self):
         return self.clear_workflow_agentic_rag()

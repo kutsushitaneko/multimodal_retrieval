@@ -370,7 +370,7 @@ def test_workflow_agentic_rag_event_returns_expected_outputs_without_external_vl
         8192,
         "US Midwest (Chicago)",
     ))
-    answer, gallery, trace, reason = outputs[-1]
+    answer, gallery, trace, reason, details = outputs[-1]
 
     assert answer == "生成回答"
     assert gallery.visible is True
@@ -406,6 +406,60 @@ def test_workflow_agentic_rag_answer_label_uses_workflow_name():
     assert answer.startswith("（Workflow Agentic RAG が「slide.png」を参照して回答しました）")
 
 
+def test_workflow_answer_label_includes_uploaded_image_with_selected_evidence():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = WorkflowAgenticRAGEvents(FakeSearchService())
+    selected_evidence = [EvidencePool._from_result(make_result(1, "slide.png", "猫"), "猫", "caption_vector_search")]
+
+    with patch("app.ui.workflow_agentic_events.NLPService") as mock_nlp_service:
+        mock_nlp_service.return_value.generate_answer_with_vlm_images.return_value = "生成回答"
+        answer = events._generate_answer_with_vlm(
+            "猫",
+            selected_evidence,
+            "参照情報",
+            REFERENCE_TYPE_ALL,
+            "デフォルト（回答生成）",
+            "model",
+            0.0,
+            1024,
+            "Japan Central (Osaka)",
+            uploaded_image=Image.new("RGB", (4, 4), color="white"),
+        )
+
+    assert answer.startswith("（Workflow Agentic RAG が「ユーザーがアップロードした画像」「slide.png」を参照して回答しました）")
+    mock_nlp_service.return_value.generate_answer_with_vlm_images.assert_called_once()
+    call_kwargs = mock_nlp_service.return_value.generate_answer_with_vlm_images.call_args.kwargs
+    assert len(call_kwargs["image_paths"]) == 2
+    assert "1枚目はユーザーがアップロードした画像です" in call_kwargs["prompt_text"]
+    assert "検索で見つかった参照画像がある場合は2枚目以降です" in call_kwargs["prompt_text"]
+
+
+def test_workflow_vlm_generates_with_uploaded_image_without_selected_evidence():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = WorkflowAgenticRAGEvents(FakeSearchService())
+
+    with patch("app.ui.workflow_agentic_events.NLPService") as mock_nlp_service:
+        mock_nlp_service.return_value.generate_answer_with_vlm_images.return_value = "生成回答"
+        answer = events._generate_answer_with_vlm(
+            "アップロード画像について説明してください",
+            [],
+            "",
+            REFERENCE_TYPE_CAPTION_ONLY,
+            "デフォルト（回答生成）",
+            "model",
+            0.0,
+            1024,
+            "Japan Central (Osaka)",
+            uploaded_image=Image.new("RGB", (4, 4), color="white"),
+        )
+
+    assert answer.startswith("（Workflow Agentic RAG が「ユーザーがアップロードした画像」を参照して回答しました）")
+    mock_nlp_service.return_value.generate_answer_with_vlm_images.assert_called_once()
+    call_kwargs = mock_nlp_service.return_value.generate_answer_with_vlm_images.call_args.kwargs
+    assert len(call_kwargs["image_paths"]) == 1
+    assert "検索で見つかった参照画像がある場合は2枚目以降です" in call_kwargs["prompt_text"]
+
+
 def test_workflow_agentic_rag_event_image_only_shows_gallery_without_llm_calls():
     with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
         events = WorkflowAgenticRAGEvents(FakeSearchService())
@@ -437,7 +491,7 @@ def test_workflow_agentic_rag_event_image_only_shows_gallery_without_llm_calls()
         8192,
         "US Midwest (Chicago)",
     ))
-    answer, gallery, trace, reason = outputs[-1]
+    answer, gallery, trace, reason, details = outputs[-1]
 
     assert answer.startswith("画像のみ入力として扱い")
     assert gallery.visible is True
@@ -483,7 +537,7 @@ def test_workflow_agentic_rag_event_gallery_keeps_six_referenced_images_visible(
         8192,
         "US Midwest (Chicago)",
     ))
-    answer, gallery, trace, reason = outputs[-1]
+    answer, gallery, trace, reason, details = outputs[-1]
 
     assert answer == "生成回答"
     assert reason == "6件を選別"
@@ -496,6 +550,47 @@ def test_workflow_agentic_rag_event_gallery_keeps_six_referenced_images_visible(
     assert gallery.allow_preview is True
     assert "参照画像ギャラリー" not in trace
     assert any("回答生成中..." in output[2] for output in outputs)
+
+
+def test_workflow_event_passes_uploaded_image_to_vlm_when_evidence_found():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = WorkflowAgenticRAGEvents(FakeSearchService())
+    events._generate_answer_with_vlm = MagicMock(return_value="生成回答")
+    events._call_text_model = MagicMock(side_effect=[
+        '{"subqueries": ["猫"]}',
+        '{"status": "sufficient", "reason": "候補あり", "missing_aspects": []}',
+    ])
+    events._call_text_vlm = MagicMock(return_value='{"selected_evidence_ids": ["1"], "reason": "選別"}')
+    uploaded_image = Image.new("RGB", (4, 4), color="white")
+
+    outputs = list(events.run_workflow_agentic_rag(
+        "猫",
+        uploaded_image,
+        REFERENCE_TYPE_ALL,
+        8,
+        0,
+        "デフォルト（回答生成）",
+        "answer-model",
+        0.0,
+        1024,
+        "Japan Central (Osaka)",
+        "decompose-model",
+        0.1,
+        2048,
+        "US Midwest (Chicago)",
+        "sufficiency-model",
+        0.2,
+        4096,
+        "Japan Central (Osaka)",
+        "followup-model",
+        0.3,
+        8192,
+        "US Midwest (Chicago)",
+    ))
+    answer, _, _, _, _ = outputs[-1]
+
+    assert answer == "生成回答"
+    assert events._generate_answer_with_vlm.call_args.kwargs["uploaded_image"] is uploaded_image
 
 
 def test_workflow_agentic_rag_event_uses_step_specific_models():

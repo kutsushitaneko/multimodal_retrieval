@@ -54,6 +54,11 @@ class WorkflowAgenticRAGEvents:
         referenced_images_gallery,
         trace_text,
         selection_reason_text,
+        detail_filename_text=None,
+        detail_image_id_text=None,
+        detail_similarity_text=None,
+        detail_caption_text=None,
+        referenced_details_state=None,
     ):
         run_button.click(
             fn=self.run_workflow_agentic_rag,
@@ -81,7 +86,15 @@ class WorkflowAgenticRAGEvents:
                 followup_query_max_tokens,
                 followup_query_oci_region,
             ],
-            outputs=[answer_text, referenced_images_gallery, trace_text, selection_reason_text],
+            outputs=[answer_text, referenced_images_gallery, trace_text, selection_reason_text, referenced_details_state],
+        )
+        self._register_referenced_detail_events(
+            referenced_images_gallery,
+            referenced_details_state,
+            detail_filename_text,
+            detail_image_id_text,
+            detail_similarity_text,
+            detail_caption_text,
         )
         clear_button.click(
             fn=self.clear_workflow_agentic_rag,
@@ -93,6 +106,11 @@ class WorkflowAgenticRAGEvents:
                 referenced_images_gallery,
                 trace_text,
                 selection_reason_text,
+                detail_filename_text,
+                detail_image_id_text,
+                detail_similarity_text,
+                detail_caption_text,
+                referenced_details_state,
             ],
             queue=False,
         )
@@ -202,6 +220,7 @@ class WorkflowAgenticRAGEvents:
                 vlm_temperature,
                 vlm_max_tokens,
                 vlm_oci_region,
+                uploaded_image=uploaded_image,
             )
 
         def call_agentic_step_model(prompt_text, model, temperature, max_tokens, oci_region):
@@ -252,6 +271,7 @@ class WorkflowAgenticRAGEvents:
                 vlm_temperature,
                 vlm_max_tokens,
                 vlm_oci_region,
+                uploaded_image=uploaded_image,
             )
 
         effective_reference_type = REFERENCE_TYPE_ALL if not (question or "").strip() and uploaded_image is not None else reference_type
@@ -263,13 +283,62 @@ class WorkflowAgenticRAGEvents:
             yield self._format_workflow_agentic_rag_outputs(result, effective_reference_type)
 
     def _format_workflow_agentic_rag_outputs(self, result, reference_type):
-        referenced_images = [
-            evidence.image
-            for evidence in result.selected_evidence
-            if isinstance(evidence.image, Image.Image) and reference_type != REFERENCE_TYPE_CAPTION_ONLY
-        ]
+        referenced_images = []
+        referenced_details = []
+        for evidence in result.selected_evidence:
+            if isinstance(evidence.image, Image.Image) and reference_type != REFERENCE_TYPE_CAPTION_ONLY:
+                referenced_images.append(evidence.image)
+                referenced_details.append(self._build_referenced_detail(evidence))
         gallery = self._create_referenced_images_gallery(referenced_images)
-        return result.answer, gallery, result.trace, result.selection_reason
+        return result.answer, gallery, result.trace, result.selection_reason, referenced_details
+
+    @staticmethod
+    def _build_referenced_detail(evidence):
+        return {
+            "file_name": evidence.file_name or "",
+            "image_id": "" if evidence.image_id is None else str(evidence.image_id),
+            "caption": evidence.caption or "",
+            "distance": evidence.distance,
+        }
+
+    def _register_referenced_detail_events(
+        self,
+        referenced_images_gallery,
+        referenced_details_state,
+        detail_filename_text,
+        detail_image_id_text,
+        detail_similarity_text,
+        detail_caption_text,
+    ):
+        if (
+            referenced_images_gallery is None
+            or referenced_details_state is None
+            or detail_filename_text is None
+            or detail_image_id_text is None
+            or detail_similarity_text is None
+            or detail_caption_text is None
+        ):
+            return
+        referenced_images_gallery.select(
+            fn=self._handle_referenced_selection,
+            inputs=[referenced_details_state],
+            outputs=[detail_filename_text, detail_image_id_text, detail_similarity_text, detail_caption_text],
+        )
+
+    @staticmethod
+    def _handle_referenced_selection(evt: gr.SelectData, details):
+        items = details or []
+        if evt.index is None or evt.index < 0 or evt.index >= len(items):
+            return "", "", "", ""
+        item = items[evt.index]
+        distance = item.get("distance")
+        similarity_text = "" if distance is None else f"{-1 * distance:.4f}"
+        return (
+            item.get("file_name", ""),
+            item.get("image_id", ""),
+            similarity_text,
+            item.get("caption", ""),
+        )
 
     def clear_workflow_agentic_rag(self):
         return (
@@ -279,6 +348,11 @@ class WorkflowAgenticRAGEvents:
             self._create_referenced_images_gallery([]),
             "",
             "",
+            "",
+            "",
+            "",
+            "",
+            [],
         )
 
     def _create_referenced_images_gallery(self, referenced_images):
@@ -307,8 +381,10 @@ class WorkflowAgenticRAGEvents:
         vlm_temperature,
         vlm_max_tokens,
         vlm_oci_region,
+        uploaded_image=None,
     ):
-        if not selected_evidence:
+        has_uploaded_image = isinstance(uploaded_image, Image.Image)
+        if not selected_evidence and not has_uploaded_image:
             return "❌ 回答に使用できる検索結果が見つかりませんでした。"
 
         prompt = self._load_answer_prompt(answer_prompt_template)
@@ -316,10 +392,19 @@ class WorkflowAgenticRAGEvents:
         if "{query_text}" not in prompt and "{documents}" not in prompt:
             final_prompt = f"{prompt}\n\n質問:\n{query}\n\n参照情報:\n{documents}"
 
+        if has_uploaded_image:
+            final_prompt = (
+                "【画像の並び順】1枚目はユーザーがアップロードした画像です。"
+                "検索で見つかった参照画像がある場合は2枚目以降です。\n\n"
+                f"{final_prompt}"
+            )
+
         image_paths = []
         try:
             if reference_type != REFERENCE_TYPE_CAPTION_ONLY:
                 image_paths = self._save_evidence_images(selected_evidence)
+            if has_uploaded_image:
+                image_paths.insert(0, self._save_uploaded_image(uploaded_image))
 
             nlp_service = NLPService(self.answer_vlm_service)
             if image_paths:
@@ -345,7 +430,11 @@ class WorkflowAgenticRAGEvents:
 
             if not answer:
                 return "❌ 回答の生成に失敗しました。"
-            reference_names = "」「".join(evidence.file_name for evidence in selected_evidence)
+            reference_name_items = []
+            if has_uploaded_image:
+                reference_name_items.append("ユーザーがアップロードした画像")
+            reference_name_items.extend(evidence.file_name for evidence in selected_evidence if evidence.file_name)
+            reference_names = "」「".join(reference_name_items) or "参照情報"
             return f"（{self.RAG_TYPE_LABEL} が「{reference_names}」を参照して回答しました）\n\n{answer}"
         finally:
             for image_path in image_paths:
@@ -412,6 +501,14 @@ class WorkflowAgenticRAGEvents:
                 evidence.image.save(temp_file, format="PNG")
                 image_paths.append(temp_file.name)
         return image_paths
+
+    def _save_uploaded_image(self, uploaded_image):
+        image = uploaded_image
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".png", delete=False) as temp_file:
+            image.save(temp_file, format="PNG")
+            return temp_file.name
 
     def _create_blank_image(self):
         blank_image = Image.new("RGB", (32, 32), color="white")

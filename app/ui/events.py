@@ -348,7 +348,24 @@ class UIEvents:
                 outputs=[morphological_analysis_text]
             )
         
-    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None, answer_text=None, referenced_images_gallery=None, listwise_reason_text=None):
+    @staticmethod
+    def _extract_image_id(result):
+        """検索結果dictから image_id を文字列で取り出す。無ければ空文字。"""
+        if not isinstance(result, dict):
+            return ""
+        image_id = result.get("image_id")
+        return "" if image_id is None else str(image_id)
+
+    def resolve_first_image_id(self, state_data):
+        """検索/全件表示後に、先頭の検索結果の image_id を返す。"""
+        if not isinstance(state_data, dict):
+            return ""
+        results = state_data.get("vector_results") or state_data.get("keyword_results") or []
+        if results:
+            return self._extract_image_id(results[0])
+        return ""
+
+    def register_search_button_events(self, search_button, query_input, uploaded_image, search_target, search_method, top_k_slider, vector_threshold, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, execute_query_button, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None, answer_generate_button=None, reference_type_radio=None, answer_text=None, referenced_images_gallery=None, listwise_reason_text=None, image_id_text=None):
         """検索ボタンのイベントを登録"""
         # 質問文入力エリアが指定されている場合、検索クエリを質問文入力エリアに最初に設定
         if answer_question_input is not None:
@@ -386,6 +403,10 @@ class UIEvents:
                 fn=self.update_reference_image_and_enable_answer_generation,
                 inputs=[state, search_target, search_method, reference_image_text, answer_generate_button, reference_type_radio],
                 outputs=[reference_image_text, answer_generate_button, reference_type_radio] if (reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None) else ([reference_image_text, answer_generate_button] if (reference_image_text is not None and answer_generate_button is not None) else ([reference_image_text] if reference_image_text is not None else []))
+            ).then(
+                fn=self.resolve_first_image_id,
+                inputs=[state],
+                outputs=[image_id_text] if image_id_text is not None else []
             )
         else:
             # 質問文入力エリアがない場合は従来の処理
@@ -418,6 +439,10 @@ class UIEvents:
                 fn=self.update_reference_image_and_enable_answer_generation,
                 inputs=[state, search_target, search_method, reference_image_text, answer_generate_button, reference_type_radio],
                 outputs=[reference_image_text, answer_generate_button, reference_type_radio] if (reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None) else ([reference_image_text, answer_generate_button] if (reference_image_text is not None and answer_generate_button is not None) else ([reference_image_text] if reference_image_text is not None else []))
+            ).then(
+                fn=self.resolve_first_image_id,
+                inputs=[state],
+                outputs=[image_id_text] if image_id_text is not None else []
             )
 
         if referenced_images_gallery is not None and listwise_reason_text is not None:
@@ -428,7 +453,7 @@ class UIEvents:
                 queue=False
             )
         
-    def register_execute_query_button_events(self, execute_query_button, executed_query_text, top_k_slider, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text, pagination_row, page_info, prev_button, next_button, answer_question_input=None):
+    def register_execute_query_button_events(self, execute_query_button, executed_query_text, top_k_slider, keyword_threshold, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text_out, executed_sql_text, pagination_row, page_info, prev_button, next_button, answer_question_input=None, image_id_text=None):
         """カスタムクエリ実行ボタンのイベントを登録"""
         # 質問文入力エリアが指定されている場合、実行されたクエリを質問文入力エリアに最初に設定
         if answer_question_input is not None:
@@ -448,6 +473,10 @@ class UIEvents:
                 fn=self.update_search_pagination,
                 inputs=[state],
                 outputs=[state, pagination_row, page_info, prev_button, next_button]
+            ).then(
+                fn=self.resolve_first_image_id,
+                inputs=[state],
+                outputs=[image_id_text] if image_id_text is not None else []
             )
         else:
             # 質問文入力エリアがない場合は従来の処理
@@ -463,9 +492,13 @@ class UIEvents:
                 fn=self.update_search_pagination,
                 inputs=[state],
                 outputs=[state, pagination_row, page_info, prev_button, next_button]
+            ).then(
+                fn=self.resolve_first_image_id,
+                inputs=[state],
+                outputs=[image_id_text] if image_id_text is not None else []
             )
         
-    def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text, answer_generate_button=None, answer_text=None, reference_image_text=None, reference_type_radio=None, answer_question_input=None, referenced_images_gallery=None, listwise_reason_text=None):
+    def register_clear_button_events(self, clear_button, query_input, uploaded_image, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, morphological_analysis_text, answer_generate_button=None, answer_text=None, reference_image_text=None, reference_type_radio=None, answer_question_input=None, referenced_images_gallery=None, listwise_reason_text=None, image_id_text=None):
         """クリアボタンのイベントを登録"""
         if answer_generate_button is not None and answer_text is not None:
             # 回答生成関連のコンポーネントもクリアする場合
@@ -578,8 +611,16 @@ class UIEvents:
                 outputs=[referenced_images_gallery, listwise_reason_text],
                 queue=False
             )
+
+        if image_id_text is not None:
+            clear_button.click(
+                fn=lambda: "",
+                inputs=[],
+                outputs=[image_id_text],
+                queue=False
+            )
     
-    def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None, search_target=None, search_method=None, answer_generate_button=None, reference_type_radio=None):
+    def register_show_all_button_events(self, show_all_button, top_k_slider, vector_gallery, keyword_gallery, filename_text, similarity_text, caption_text, state, executed_query_text, executed_sql_text, pagination_row, page_info, prev_button, next_button, morphological_analysis_text, reference_image_text=None, answer_question_input=None, search_target=None, search_method=None, answer_generate_button=None, reference_type_radio=None, image_id_text=None):
         """全件表示ボタンのイベントを登録"""
         if reference_image_text is not None:
             # 参照画像も含めてクリア
@@ -596,6 +637,10 @@ class UIEvents:
                 fn=self.update_reference_image_and_enable_answer_generation,
                 inputs=[state, search_target, search_method, reference_image_text, answer_generate_button, reference_type_radio],
                 outputs=[reference_image_text, answer_generate_button, reference_type_radio] if (reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None) else ([reference_image_text, answer_generate_button] if (reference_image_text is not None and answer_generate_button is not None) else ([reference_image_text] if reference_image_text is not None else []))
+            ).then(
+                fn=self.resolve_first_image_id,
+                inputs=[state],
+                outputs=[image_id_text] if image_id_text is not None else []
             )
         else:
             # 従来の処理
@@ -612,6 +657,10 @@ class UIEvents:
                 fn=self.update_reference_image_and_enable_answer_generation,
                 inputs=[state, search_target, search_method, reference_image_text, answer_generate_button, reference_type_radio],
                 outputs=[reference_image_text, answer_generate_button, reference_type_radio] if (reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None) else ([reference_image_text, answer_generate_button] if (reference_image_text is not None and answer_generate_button is not None) else ([reference_image_text] if reference_image_text is not None else []))
+            ).then(
+                fn=self.resolve_first_image_id,
+                inputs=[state],
+                outputs=[image_id_text] if image_id_text is not None else []
             )
         
         # 質問文入力エリアが指定されている場合、全件表示時に質問文をクリア
@@ -636,7 +685,7 @@ class UIEvents:
             outputs=[vector_gallery, page_info, state, keyword_gallery, prev_button_out, next_button_out]
         )
         
-    def register_gallery_selection_events(self, vector_gallery, keyword_gallery, state, filename_text, similarity_text, caption_text, search_target=None, search_method=None, answer_generate_button=None, reference_image_text=None, reference_type_radio=None):
+    def register_gallery_selection_events(self, vector_gallery, keyword_gallery, state, filename_text, similarity_text, caption_text, search_target=None, search_method=None, answer_generate_button=None, reference_image_text=None, reference_type_radio=None, image_id_text=None):
         """ギャラリー選択イベントを登録"""
         def handle_vector_selection(evt: gr.SelectData, state_data):
             # vector_galleryを選択した場合の処理
@@ -1102,6 +1151,31 @@ class UIEvents:
                 fn=handle_keyword_selection,
                 inputs=[state],
                 outputs=[filename_text, similarity_text, caption_text, vector_gallery]
+            )
+
+        # イメージID表示: 既存の選択ハンドラとは独立に、選択された画像の image_id を更新する
+        if image_id_text is not None:
+            def handle_vector_image_id(evt: gr.SelectData, state_data):
+                results = (state_data or {}).get("vector_results", []) if isinstance(state_data, dict) else []
+                if evt.index is not None and 0 <= evt.index < len(results):
+                    return self._extract_image_id(results[evt.index])
+                return ""
+
+            def handle_keyword_image_id(evt: gr.SelectData, state_data):
+                results = (state_data or {}).get("keyword_results", []) if isinstance(state_data, dict) else []
+                if evt.index is not None and 0 <= evt.index < len(results):
+                    return self._extract_image_id(results[evt.index])
+                return ""
+
+            vector_gallery.select(
+                fn=handle_vector_image_id,
+                inputs=[state],
+                outputs=[image_id_text]
+            )
+            keyword_gallery.select(
+                fn=handle_keyword_image_id,
+                inputs=[state],
+                outputs=[image_id_text]
             )
 
         
@@ -1603,6 +1677,7 @@ class UIEvents:
         answer_generation_mode_radio,
         referenced_images_gallery,
         listwise_reason_text,
+        image_id_text=None,
     ):
         """検索と回答生成ボタンのイベントを登録"""
         search_and_answer_button.click(
@@ -1653,6 +1728,10 @@ class UIEvents:
                 referenced_images_gallery,
                 listwise_reason_text,
             ],
+        ).then(
+            fn=self.resolve_first_image_id,
+            inputs=[state],
+            outputs=[image_id_text] if image_id_text is not None else []
         )
 
     def execute_search_and_answer(
