@@ -18,7 +18,7 @@
     - キャプションベクトル検索、キャプション全文検索、画像ベクトル検索を統合して evidence を重複排除
     - Workflow / ReAct 共通: アップロード画像を VLM 回答生成に渡す（検索 evidence がなくても回答を試行。検索結果がある場合は 1 枚目にアップロード画像、2 枚目以降に参照画像）
     - Workflow 専用: 参照対象の特定→属性検索の逐次フロー（Referent-before-attribute / A→X）、初回分解では第1ホップのみ検索、追加検索では evidence 由来の中間値をクエリーに連鎖、十分性 `sufficient` 以外は回答停止（fail closed）、evidence 選別もテキスト LLM（キャプションのみ参照）
-    - ReAct 専用: 同一 (tool, query) の重複検索排除、新規 evidence が増えない連続検索の自動打切、マルチホップ質問向け Controller 指示、Finalize Verifier による早期終了防止（`answerable: false` 時）
+    - ReAct 専用: 質問タイプ別の初回検索戦略（探索型は multi_search、推移的 A→X は第1ホップのみ、識別子は全文優先）。識別子・明確な推移的質問にはルールヒントを Controller プロンプトに注入（LLM 呼び出しは増やさない）。同一 (tool, query) の重複検索排除、新規 evidence が増えない連続検索の自動打切、マルチホップ向け Controller 指示、Finalize Verifier による早期終了防止（`answerable: false` 時）
     - 処理ステップ、所要時間、LLM 入力規模を進捗状況として逐次表示
 - 通常 RAG
     - 検索結果の先頭画像、または選択した1画像を元にした回答生成
@@ -406,10 +406,12 @@ Controller が使用できる主な Action は以下です。
 
 ReAct の制御機構:
 
+- **初回検索戦略の分離**: Step 1（evidence が空）では、プロンプト内の「初回検索の戦略」に従い質問タイプを判断します。探索・複合・一般は `multi_search` を推奨。推移的（A→X）は参照対象の特定のみ。識別子・完全一致は `caption_fulltext_search` 優先。ORA コードや URL などはルールで検出した場合、`進捗状況` に `検索戦略ヒント: identifier` / `transitive` と表示し、Controller プロンプトへ短いヒントを注入します（曖昧な質問はヒントなし）。
 - **重複検索排除**: 同一 (tool, query) は自動スキップされます。Controller プロンプトには実行済み検索一覧が毎回提示されます。
 - **自動打切**: 新規 evidence が増えない検索が連続した場合（デフォルト 2 回）、情報不足として終了します。
-- **マルチホップ対応**: Controller プロンプトで、質問をサブ質問に分解し、中間結果（名称・タイトル等）を次ホップのクエリに使うよう指示します。
-- **Finalize Verifier Gate**: `select_evidence` または `generate_final_answer` で `answerable: false` のとき、evidence キャプションから未検索の lead を抽出します。未検索 lead が残っていれば **確定保留** として再検索を強制します（Controller モデルを Verifier として共用）。
+- **マルチホップ対応**: 2 回目以降の Step では、質問をサブ質問に分解し、中間結果（名称・タイトル等）を次ホップのクエリに使うよう指示します。
+- **Finalize Verifier Gate**: `select_evidence` または `generate_final_answer` で `answerable: false` のとき、evidence キャプションから未検索の lead を抽出します。未検索 lead が残っていれば **確定保留** として再検索を強制します（Controller モデルを Verifier として共用）。確定保留時は lead が自然文か識別子かをルール判定し、推奨 Tool（全文 / ベクトル）を Observation に追記します。
+- **全文とベクトルの使い分け**: 初回 Step で質問中の短い識別子（エラーコード、URL、論文 ID 形式など）を `caption_fulltext_search` するのは推奨どおり。2 ホップ目以降、evidence や Verifier 由来の**長い自然文**（タイトル・要約文など）には `caption_vector_search` を使い、自然文のみを全文検索した場合は Observation にベクトル検索を促す警告を出します（Action は拒否しません）。
 
 アップロード画像の扱い:
 

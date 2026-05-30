@@ -369,15 +369,101 @@ def test_react_controller_prompt_guides_multi_search_and_tool_strengths():
     prompt = pipeline._build_controller_prompt("ORA-00923 とは何ですか？", [], [], [])
 
     assert "multi_search" in prompt
+    assert "初回検索の戦略" in prompt
+    assert "探索・複合・一般" in prompt
+    assert "推移的（A→X" in prompt
+    assert "識別子・完全一致" in prompt
+    assert "初回は caption_fulltext_search を優先" in prompt
     assert "caption_vector_search と image_vector_text_search を必ず含める" in prompt
-    assert "意味的類似、言い換え、抽象的質問" in prompt
-    assert "URL、論文ID、エラーコード" in prompt
-    assert "固有名詞" in prompt
-    assert "文書内テキスト" in prompt
-    assert "OR完全一致検索" in prompt
-    assert "IPアドレス、製品名" in prompt
-    assert "画像中のテキスト、スライド、スクリーンショット" in prompt
-    assert "質問の分解、言い換え、専門語、固有語、エラーコード" in prompt
+    assert "初回検索では原則 multi_search" not in prompt
+    assert "【初回検索ヒント: 識別子" in prompt
+
+
+def test_react_controller_prompt_includes_first_step_hint_when_transitive():
+    pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
+
+    prompt = pipeline._build_controller_prompt("看板の設置場所の緯度経度は？", [], [], [])
+
+    assert "【初回検索ヒント: 推移的 A→X】" in prompt
+    assert "属性 X" in prompt
+    assert "初回検索の戦略" in prompt
+
+
+def test_react_controller_prompt_distinguishes_fulltext_and_vector_after_first_hop():
+    pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
+
+    prompt = pipeline._build_controller_prompt("質問", [EvidencePool._from_result(make_result(1, "a.png", "c"), "q", "tool")], [], [])
+
+    assert "2-1. [CRITICAL]caption_fulltext_search" in prompt
+    assert "中カッコ完全一致向けの短い識別子" in prompt
+    assert "caption_vector_search を使う" in prompt
+    assert "名称・タイトルは caption_vector_search" in prompt
+
+
+def test_react_pipeline_warns_when_fulltext_used_on_natural_language_after_step1():
+    long_title = "Retrieval-Augmented Generation for Large Language Models: A Survey"
+    controller = MagicMock(side_effect=[
+        '{"thought": "id", "action": "caption_fulltext_search", '
+        '"action_input": {"query": "2312.10997"}}',
+        '{"thought": "title", "action": "caption_fulltext_search", '
+        f'"action_input": {{"query": "{long_title}"}}}}',
+        '{"thought": "select", "action": "select_evidence", '
+        '"action_input": {"evidence_ids": ["1"], "reason": "x", "answerable": true}}',
+        '{"thought": "answer", "action": "generate_final_answer", '
+        '"action_input": {"reason": "x", "answerable": true}}',
+    ])
+    pipeline = ReactAgenticRAGPipeline(
+        FakeSearchService(),
+        max_steps=4,
+        controller_llm_text_generator=controller,
+    )
+
+    result = pipeline.run("2312.10997 の概要", answer_generator=lambda q, selected, docs: "answer")
+
+    assert "caption_vector_search を検討してください" in result.trace
+
+
+def test_react_finalize_hold_recommends_vector_for_natural_language_lead():
+    controller = MagicMock(side_effect=[
+        '{"thought": "search", "action": "caption_fulltext_search", '
+        '"action_input": {"query": "2312.10997"}}',
+        '{"thought": "select", "action": "select_evidence", '
+        '"action_input": {"evidence_ids": ["1"], "reason": "不足", "answerable": false}}',
+        '{"thought": "answer", "action": "generate_final_answer", '
+        '"action_input": {"answerable": false}}',
+    ])
+    lead = "Retrieval-Augmented Generation for Large Language Models: A Survey"
+    verifier = MagicMock(side_effect=[f'["{lead}"]', f'["{lead}"]'])
+    pipeline = ReactAgenticRAGPipeline(
+        FakeSearchService(),
+        max_steps=4,
+        controller_llm_text_generator=controller,
+        finalize_verifier_llm_text_generator=verifier,
+    )
+
+    result = pipeline.run("2312.10997", answer_generator=lambda q, selected, docs: "answer")
+
+    assert "推奨: caption_vector_search" in result.trace
+
+
+def test_react_pipeline_trace_includes_strategy_hint():
+    controller = MagicMock(side_effect=[
+        '{"thought": "探索", "action": "multi_search", '
+        '"action_input": {"query_variants": ["猫"], "tools": ["caption_vector_search"]}}',
+        '{"thought": "選別", "action": "select_evidence", '
+        '"action_input": {"evidence_ids": ["1"], "reason": "関連", "answerable": true}}',
+        '{"thought": "回答", "action": "generate_final_answer", '
+        '"action_input": {"reason": "十分", "answerable": true}}',
+    ])
+    pipeline = ReactAgenticRAGPipeline(
+        FakeSearchService(),
+        max_steps=4,
+        controller_llm_text_generator=controller,
+    )
+
+    result = pipeline.run("猫の特徴", answer_generator=lambda q, selected, docs: "answer")
+
+    assert "検索戦略ヒント: なし" in result.trace
 
 
 def test_react_controller_prompt_separates_display_number_from_evidence_id():
