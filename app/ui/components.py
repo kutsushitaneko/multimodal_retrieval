@@ -635,12 +635,6 @@ class UIComponents:
 
         with gr.Accordion("Agentic RAG設定", open=False):
             with gr.Row():
-                reference_type_radio = gr.Radio(
-                    choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
-                    value=REFERENCE_TYPE_ALL,
-                    label=REFERENCE_TYPE_LABEL_TEXT,
-                    interactive=True,
-                )
                 top_k_input = gr.Number(
                     minimum=1,
                     maximum=24,
@@ -656,6 +650,21 @@ class UIComponents:
                     value=iteration_value,
                     step=1,
                     label=iteration_label,
+                    precision=0,
+                    interactive=True,
+                )
+                reference_type_radio = gr.Radio(
+                    choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY],
+                    value=REFERENCE_TYPE_ALL,
+                    label=REFERENCE_TYPE_LABEL_TEXT,
+                    interactive=True,
+                )
+                max_selected_evidence_input = gr.Number(
+                    minimum=1,
+                    maximum=24,
+                    value=4,
+                    step=1,
+                    label="参照ドキュメント数",
                     precision=0,
                     interactive=True,
                 )
@@ -732,9 +741,10 @@ class UIComponents:
         return (
             question_input,
             uploaded_image,
-            reference_type_radio,
             top_k_input,
             max_iterations_input,
+            reference_type_radio,
+            max_selected_evidence_input,
             run_button,
             clear_button,
             answer_text,

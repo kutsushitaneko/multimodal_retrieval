@@ -349,9 +349,10 @@ def test_workflow_agentic_rag_event_returns_expected_outputs_without_external_vl
     outputs = list(events.run_workflow_agentic_rag(
         "猫",
         None,
-        REFERENCE_TYPE_ALL,
         8,
         0,
+        REFERENCE_TYPE_ALL,
+        8,
         "デフォルト（回答生成）",
         "model",
         0.0,
@@ -470,9 +471,10 @@ def test_workflow_agentic_rag_event_image_only_shows_gallery_without_llm_calls()
     outputs = list(events.run_workflow_agentic_rag(
         "",
         Image.new("RGB", (4, 4)),
-        REFERENCE_TYPE_CAPTION_ONLY,
         8,
         2,
+        REFERENCE_TYPE_CAPTION_ONLY,
+        8,
         "デフォルト（回答生成）",
         "model",
         0.0,
@@ -516,9 +518,10 @@ def test_workflow_agentic_rag_event_gallery_keeps_six_referenced_images_visible(
     outputs = list(events.run_workflow_agentic_rag(
         "猫",
         None,
-        REFERENCE_TYPE_ALL,
         8,
         0,
+        REFERENCE_TYPE_ALL,
+        8,
         "デフォルト（回答生成）",
         "model",
         0.0,
@@ -566,9 +569,10 @@ def test_workflow_event_passes_uploaded_image_to_vlm_when_evidence_found():
     outputs = list(events.run_workflow_agentic_rag(
         "猫",
         uploaded_image,
-        REFERENCE_TYPE_ALL,
         8,
         0,
+        REFERENCE_TYPE_ALL,
+        8,
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -610,9 +614,10 @@ def test_workflow_agentic_rag_event_uses_step_specific_models():
     list(events.run_workflow_agentic_rag(
         "猫",
         None,
-        REFERENCE_TYPE_ALL,
         8,
         1,
+        REFERENCE_TYPE_ALL,
+        8,
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -648,3 +653,31 @@ def test_workflow_agentic_rag_event_uses_step_specific_models():
         "Japan Central (Osaka)",
     ]
     assert events._call_text_vlm.call_args_list[0].args[1] == "answer-model"
+
+
+def test_workflow_filter_and_order_respects_max_selected_evidence():
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), max_selected_evidence=3)
+    pool = EvidencePool()
+    for index in range(1, 6):
+        pool.add_many([make_result(index, f"file-{index}.png", f"猫 {index}")], "猫", "caption_vector")
+    selected, _reason = pipeline.filter_and_order_evidence("猫", pool.all())
+    assert len(selected) == 3
+
+
+def test_workflow_selection_prompt_includes_max_selected_evidence():
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), max_selected_evidence=4)
+    prompt = pipeline._build_evidence_eval_prompt("猫", "evidence", "selection")
+    assert "最大 4 件まで選択してください。" in prompt
+
+
+def test_agentic_rag_settings_include_max_selected_evidence_input():
+    import inspect
+
+    source = inspect.getsource(UIComponents._create_agentic_rag_section_variant)
+    assert 'label="参照ドキュメント数"' in source
+    assert "max_selected_evidence_input" in source
+    top_k_pos = source.index('label="検索件数"')
+    iteration_pos = source.index("label=iteration_label")
+    reference_pos = source.index("label=REFERENCE_TYPE_LABEL_TEXT")
+    max_selected_pos = source.index('label="参照ドキュメント数"')
+    assert top_k_pos < iteration_pos < reference_pos < max_selected_pos

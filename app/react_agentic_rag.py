@@ -318,7 +318,7 @@ class ReactAgenticRAGPipeline:
         max_steps: int = 8,
         vector_threshold: float = 0.25,
         keyword_threshold: float = 0,
-        max_selected_evidence: int = 6,
+        max_selected_evidence: int = 4,
         controller_llm_text_generator: LLMTextGenerator | None = None,
         controller_model_name: str = "",
         max_consecutive_parse_errors: int = 2,
@@ -331,7 +331,7 @@ class ReactAgenticRAGPipeline:
         self.max_steps = self._normalize_int(max_steps, 8, 1, 12)
         self.vector_threshold = vector_threshold
         self.keyword_threshold = keyword_threshold
-        self.max_selected_evidence = self._normalize_int(max_selected_evidence, 6, 1, 12)
+        self.max_selected_evidence = self._normalize_int(max_selected_evidence, 4, 1, 24)
         self.controller_llm_text_generator = controller_llm_text_generator
         self.controller_model_name = controller_model_name
         self.max_consecutive_parse_errors = self._normalize_int(max_consecutive_parse_errors, 2, 1, 5)
@@ -693,7 +693,8 @@ class ReactAgenticRAGPipeline:
             "- caption_fulltext_search: {\"query\": \"検索クエリー\"}。質問中の固有表現をOR完全一致検索に変換し、URL、論文ID、エラーコード、IPアドレス、製品名、固有名詞、文書内テキストなど、ベクトル検索が苦手な語を補完する。\n"
             "- image_vector_text_search: {\"query\": \"検索クエリー\"}。画像内容だけでなく、画像中のテキスト、スライド、スクリーンショット、図表の情報発見にも有効。\n"
             "- image_vector_image_search: {}。アップロード画像がある場合のみ使用できる。テキストクエリーや reason は検索条件に使わず、アップロード画像そのものから視覚的に類似する画像を探す。\n"
-            "- select_evidence: {\"evidence_ids\": [\"188\", \"544\"], \"reason\": \"選別理由\", \"answerable\": true}。既に取得済みの evidence から、最終回答に使う候補を選択して selected_evidence を更新するAction。新しい情報は取得しない。検索不足や未カバーのサブ質問を解消しない。追加情報が必要な場合は select_evidence ではなく検索Actionまたは multi_search を使う。選択候補だけで完全回答できるなら answerable は true、情報不足・部分回答の場合は false を指定する。\n"
+            "- select_evidence: {\"evidence_ids\": [\"188\", \"544\"], \"reason\": \"選別理由\", \"answerable\": true}。既に取得済みの evidence から、最終回答に使う候補を選択して selected_evidence を更新するAction。新しい情報は取得しない。検索不足や未カバーのサブ質問を解消しない。追加情報が必要な場合は select_evidence ではなく検索Actionまたは multi_search を使う。最大 "
+            f"{self.max_selected_evidence} 件まで選択する。選択候補だけで完全回答できるなら answerable は true、情報不足・部分回答の場合は false を指定する。\n"
             "- generate_final_answer: {\"reason\": \"選別済みevidenceで回答できる理由\", \"answerable\": true}。選択 evidence だけで質問に完全回答できるなら answerable は true、情報不足や部分的にしか答えられないなら false を指定する。\n\n"
             "進め方:\n"
             "1. 初回検索では原則 multi_search を使い、caption_vector_search と image_vector_text_search を必ず含める。固有名詞、URL、論文ID、エラーコード、IPアドレス、製品名、文書内テキストが重要なら caption_fulltext_search も含める。\n"

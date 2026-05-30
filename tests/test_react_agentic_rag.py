@@ -569,9 +569,10 @@ def test_react_event_streams_outputs_and_uses_controller_model():
     outputs = list(events.run_react_agentic_rag(
         "猫",
         None,
-        REFERENCE_TYPE_ALL,
         8,
         4,
+        REFERENCE_TYPE_ALL,
+        8,
         "デフォルト（回答生成）",
         "answer-model",
         0.7,
@@ -782,9 +783,10 @@ def test_react_event_streams_multi_search_observation():
     outputs = list(events.run_react_agentic_rag(
         "猫",
         None,
-        REFERENCE_TYPE_ALL,
         8,
         4,
+        REFERENCE_TYPE_ALL,
+        8,
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -818,9 +820,10 @@ def test_react_event_passes_uploaded_image_to_vlm_when_evidence_found():
     outputs = list(events.run_react_agentic_rag(
         "猫",
         uploaded_image,
-        REFERENCE_TYPE_ALL,
         8,
         4,
+        REFERENCE_TYPE_ALL,
+        8,
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -846,9 +849,10 @@ def test_react_event_does_not_fallback_controller_to_answer_vlm():
     outputs = list(events.run_react_agentic_rag(
         "猫",
         None,
-        REFERENCE_TYPE_ALL,
         8,
         4,
+        REFERENCE_TYPE_ALL,
+        8,
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -878,9 +882,10 @@ def test_react_event_image_only_shows_gallery_without_llm_calls():
     outputs = list(events.run_react_agentic_rag(
         "",
         Image.new("RGB", (4, 4)),
-        REFERENCE_TYPE_CAPTION_ONLY,
         8,
         4,
+        REFERENCE_TYPE_CAPTION_ONLY,
+        8,
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -900,3 +905,43 @@ def test_react_event_image_only_shows_gallery_without_llm_calls():
     assert "画像のみ入力: 画像ベクトル検索のみ実行します。" in trace
     events._generate_answer_with_vlm.assert_not_called()
     events._call_text_model.assert_not_called()
+
+
+def test_react_select_evidence_respects_max_selected_evidence():
+    controller = MagicMock(side_effect=[
+        '{"thought": "候補を探す", "action": "caption_vector_search", "action_input": {"query": "猫"}}',
+        (
+            '{"thought": "多数選ぶ", "action": "select_evidence", '
+            '"action_input": {"evidence_ids": ["1", "2", "3", "4", "5"], "reason": "関連"}}'
+        ),
+        '{"thought": "回答する", "action": "generate_final_answer", "action_input": {}}',
+    ])
+    fake_search = FakeSearchService()
+
+    def make_many_results(query, search_mode, top_k, vector_threshold, keyword_threshold):
+        fake_search.caption_calls.append((query, search_mode, top_k, vector_threshold, keyword_threshold))
+        results = [
+            make_result(index, f"file-{index}.png", f"{query} {index}", search_mode)
+            for index in range(1, 6)
+        ]
+        return results, query, "", ""
+
+    fake_search.search_by_caption = make_many_results
+    pipeline = ReactAgenticRAGPipeline(
+        fake_search,
+        top_k=8,
+        max_steps=4,
+        max_selected_evidence=3,
+        controller_llm_text_generator=controller,
+    )
+
+    result = pipeline.run("猫", answer_generator=lambda q, selected, docs: "answer")
+
+    assert [evidence.id for evidence in result.selected_evidence] == ["1", "2", "3"]
+    assert result.selection_reason == "関連"
+
+
+def test_react_controller_prompt_includes_max_selected_evidence():
+    pipeline = ReactAgenticRAGPipeline(FakeSearchService(), max_selected_evidence=4)
+    prompt = pipeline._build_controller_prompt("猫", [], [], [])
+    assert "最大 4 件まで選択する" in prompt
