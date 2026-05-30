@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from app.agentic_rag_common import (
     SufficiencyDecision,
     format_documents,
 )
+from app.paths import PROMPT_AGENT_REACT_DIR, PROMPT_SNIPPETS_DIR
+from app.prompt_loader import load_prompt
 
 
 @dataclass
@@ -680,43 +683,14 @@ class ReactAgenticRAGPipeline:
         selected_ids = ", ".join(item.id for item in selected_evidence) or "なし"
         history = self._format_step_history(steps)
         executed_summary = self._format_executed_searches(executed_searches)
-        return (
-            "あなたはReAct型マルチモーダルRAG Controllerです。\n"
-            "Thoughtで次に必要な判断を書き、Actionで許可されたToolを1つだけ選んでください。\n"
-            "ただし、初回検索では、多角的な検索を行うため multi_search を1つのActionとして使い、複数クエリーと複数検索手段をまとめて指示してください。\n"
-            "必ずJSON objectのみを返してください。空のJSON objectや、空文字のthought/actionは禁止です。\n"
-            "必須キー: thought, action, action_input。\n"
-            "形式: {\"thought\": \"短い思考\", \"action\": \"許可Action名\", \"action_input\": {\"必要なキー\": \"値\"}}\n\n"
-            "許可Action:\n"
-            "- multi_search: {\"query_variants\": [\"元質問\", \"分解クエリー\", \"言い換え\", \"固有語\"], \"tools\": [\"caption_vector_search\", \"caption_fulltext_search\", \"image_vector_text_search\"]}。image_vector_image_search を tools に含める場合、そのToolは query_variants ごとではなくアップロード画像で1回だけ実行される。\n"
-            "- caption_vector_search: {\"query\": \"検索クエリー\"}。意味的類似、言い換え、抽象的質問、関連概念の発見に強い。\n"
-            "- caption_fulltext_search: {\"query\": \"検索クエリー\"}。質問中の固有表現をOR完全一致検索に変換し、URL、論文ID、エラーコード、IPアドレス、製品名、固有名詞、文書内テキストなど、ベクトル検索が苦手な語を補完する。\n"
-            "- image_vector_text_search: {\"query\": \"検索クエリー\"}。画像内容だけでなく、画像中のテキスト、スライド、スクリーンショット、図表の情報発見にも有効。\n"
-            "- image_vector_image_search: {}。アップロード画像がある場合のみ使用できる。テキストクエリーや reason は検索条件に使わず、アップロード画像そのものから視覚的に類似する画像を探す。\n"
-            "- select_evidence: {\"evidence_ids\": [\"188\", \"544\"], \"reason\": \"選別理由\", \"answerable\": true}。既に取得済みの evidence から、最終回答に使う候補を選択して selected_evidence を更新するAction。新しい情報は取得しない。検索不足や未カバーのサブ質問を解消しない。追加情報が必要な場合は select_evidence ではなく検索Actionまたは multi_search を使う。最大 "
-            f"{self.max_selected_evidence} 件まで選択する。選択候補だけで完全回答できるなら answerable は true、情報不足・部分回答の場合は false を指定する。\n"
-            "- generate_final_answer: {\"reason\": \"選別済みevidenceで回答できる理由\", \"answerable\": true}。選択 evidence だけで質問に完全回答できるなら answerable は true、情報不足や部分的にしか答えられないなら false を指定する。\n\n"
-            "進め方:\n"
-            "1. 初回検索では原則 multi_search を使い、caption_vector_search と image_vector_text_search を必ず含める。固有名詞、URL、論文ID、エラーコード、IPアドレス、製品名、文書内テキストが重要なら caption_fulltext_search も含める。\n"
-            "2. 複合質問では query_variants に、質問の分解、言い換え、専門語、固有語、エラーコードなどを含め、検索の幅を広げる。\n"
-            "3. caption_fulltext_search だけに偏らず、テキストベクトル検索と画像ベクトル検索の相補性を使う。\n"
-            "4. [CRITICAL]まず質問を、回答に必要なサブ質問（求める属性・条件）に分解する。「Aの属性X」（例: 看板の場所の緯度経度＝まず看板の場所Aを特定し、次にAの緯度経度Xを調べる）のような推移的（多段・マルチホップ）質問では、ホップごとに順番に検索する。\n"
-            "5. [CRITICAL]あるホップで中間結果（場所名・固有名詞・エンティティ）が判明したら、その中間結果をクエリーに使って、まだ取得できていない次ホップの属性（緯度経度・座標・日付・数値・定義・関連情報など）を検索する。中間結果が分かった時点で満足して終了してはいけない。\n"
-            "5-1. [CRITICAL]検索結果は毎回見直して計画を更新する。推移的（多段）かどうかは最初の検索結果を見て初めて判明することがある。取得した evidence のキャプションに、答えへ近づく中間値（質問中の識別子に対応する名称・タイトル・用語など）が含まれていないか必ず確認し、含まれていればその値そのものを次の検索クエリーに使う。例: 識別子（ID・コード・番号・URL）での検索は対象の名称やタイトルだけを返すことが多いので、得られた名称・タイトルで再検索して本文・詳細・属性を取得する。本文が直接得られないからといって、得られた中間値を無関係と決めつけて断念してはいけない。\n"
-            "6. [CRITICAL]回答生成のための情報が不足している場合は、まだ試していない観点・言い換え・固有表現・分解クエリー・中間結果を使った次ホップで再検索する。ただし、同一の検索（同じToolと同じクエリー）は再実行しない（自動的にスキップされる）。全サブ質問について、中間結果を使った次ホップ検索を含む合理的な検索を出し尽くし、それでも新しい検索結果が得られない場合に限り、無理な再検索を続けず、select_evidence で最も関連する候補を選び generate_final_answer に進む（根拠が乏しければ「情報が不足しており回答できません」と回答されることを許容する）。関連候補が全く無い場合も、これ以上同種の検索を繰り返さない。ただし断念する前に、取得済みキャプションに未使用の中間値（次に検索すべき名称・タイトル・用語）が残っていないか必ず確認し、残っていればそれを使って再検索する。\n"
-            "7. [CRITICAL]回答生成にあたっては一般的な知識は利用できないことに留意し、検索から回答に十分な候補が揃ったら select_evidence を実行する。\n"
-            "8. select_evidence の evidence_ids には、検索候補の evidence_id の値だけを入れる。No. は表示順であり evidence_id ではないため、絶対に evidence_ids に入れない。\n"
-            "9. select_evidence は回答直前の候補確定に使う。情報不足や未カバーのサブ質問がある状態で同じ evidence を再選択しても進捗にならないため、追加検索が必要なら検索Actionまたは multi_search を実行する。情報不足だが候補を選ぶ場合は action_input に answerable:false を必ず付ける。\n"
-            "10. select_evidence 実行前に、指定するIDが「選択可能な evidence_id 一覧」に存在することを確認する。\n"
-            "11. 悪い例: {\"evidence_ids\": [\"1\", \"2\"]}。理由: 1, 2 は No. であり evidence_id ではない。\n"
-            "12. generate_final_answer の前に、質問の全サブ質問が選択済みevidenceでカバーされているか確認する。未カバーのサブ質問があり、中間結果を使った次ホップなどまだ試していない検索が残っているなら、generate_final_answer ではなく追加検索を行う。全サブ質問がカバーされていれば select_evidence 後に generate_final_answer を実行して終了する。generate_final_answer では、選択 evidence だけで質問に完全回答できる場合は action_input に answerable: true、情報不足・部分回答の場合は answerable: false を必ず付ける。\n"
-            "13. 不正なObservationがあれば、次のActionで修正する。\n\n"
-            f"ユーザー質問:\n{question}\n\n"
-            f"現在のevidence:\n{evidence_summary}\n\n"
-            f"選択済みevidence: {selected_ids}\n\n"
-            "実行済み検索（同一の (tool, query) は再実行禁止・指定しても自動スキップされます）:\n"
-            f"{executed_summary}\n\n"
-            f"実行履歴:\n{history}"
+        return load_prompt(
+            os.path.join(PROMPT_AGENT_REACT_DIR, "controller.txt"),
+            max_selected_evidence=self.max_selected_evidence,
+            question=question,
+            evidence_summary=evidence_summary,
+            selected_ids=selected_ids,
+            executed_summary=executed_summary,
+            history=history,
         )
 
     def _format_executed_searches(self, executed_searches: list[tuple[str, str]] | None) -> str:
@@ -799,19 +773,11 @@ class ReactAgenticRAGPipeline:
                 f"No. {index} / evidence_id: {item.id} / caption: {item.caption or '（キャプションなし）'}"
             )
         captions = "\n".join(caption_lines) or "（取得済みevidenceなし）"
-        return (
-            "あなたは検索計画の検証器です。最終回答する前に、質問に答えるための追加検索が必要かどうかを判断します。\n"
-            "「もう十分か」を判定するのではなく、取得済みevidenceのキャプション本文の中から、まだ答えられていないサブ質問に近づくために次に検索すべき値（キャプションに実在する固有名詞・タイトル・名称・用語・識別子など）を抽出してください。\n"
-            "制約:\n"
-            "- すでに実行済みの検索クエリーと同じ値は挙げない。\n"
-            "- キャプションに実在しない語を創作しない。\n"
-            "- 該当が無ければ空配列を返す。\n"
-            "- 出力は文字列の配列のJSONのみ（説明文やコードフェンスを付けない）。例: [\"値1\", \"値2\"] または []\n\n"
-            f"ユーザー質問:\n{question}\n\n"
-            "実行済み検索クエリー:\n"
-            f"{executed_summary}\n\n"
-            "取得済みevidenceのキャプション:\n"
-            f"{captions}"
+        return load_prompt(
+            os.path.join(PROMPT_AGENT_REACT_DIR, "finalize_verifier.txt"),
+            question=question,
+            executed_summary=executed_summary,
+            captions=captions,
         )
 
     @staticmethod
@@ -880,7 +846,11 @@ class ReactAgenticRAGPipeline:
     def default_answer(self, question: str, selected: list[Evidence], documents: str) -> str:
         if not selected:
             return "❌ 回答に使用できる検索結果が見つかりませんでした。"
-        return f"以下の参照情報を元に回答してください。\n\n質問: {question}\n\n参照情報:\n{documents}"
+        return load_prompt(
+            os.path.join(PROMPT_SNIPPETS_DIR, "answer_fallback.txt"),
+            question=question,
+            documents=documents,
+        )
 
     def _build_result(
         self,

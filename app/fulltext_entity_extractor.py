@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Callable
+
+from app.paths import PROMPT_RETRIEVAL_DIR
+from app.prompt_loader import load_prompt
 
 
 LLMTextGenerator = Callable[[str], str]
@@ -119,12 +123,7 @@ class FulltextEntityExtractor:
 
     @staticmethod
     def _build_prompt(query: str) -> str:
-        return (
-            "あなたは全文検索を補完する固有表現抽出器です。\n"
-            "ユーザー質問から、ベクトル検索が苦手な完全一致・固有表現検索に有効な語だけを抽出してください。\n"
-            "対象: 製品名、サービス名、組織名、人名、地名、エラーコード、論文ID、URL、IPアドレス、ファイル名、API名、バージョン、識別子。\n"
-            "一般語（意味、理由、原因、特徴、詳細、サービス、システム等）は除外してください。\n"
-            "SQLや検索クエリーは作らず、必ずJSONのみを返してください。\n"
-            "形式: {\"entities\": [{\"text\": \"ORA-00923\", \"type\": \"error_code\"}]}\n\n"
-            f"ユーザー質問:\n{query}"
+        return load_prompt(
+            os.path.join(PROMPT_RETRIEVAL_DIR, "fulltext_entity_extract.txt"),
+            query=query,
         )

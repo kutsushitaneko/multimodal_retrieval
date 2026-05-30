@@ -19,6 +19,7 @@ samples/
 *.npy
 *.code-workspace
 output.log
+multimodal_retriever.pid
 __pycache__
 tests/__pycache__/
 DevDay25マルチモーダルデモ環境構築.md

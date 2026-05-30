@@ -1,6 +1,8 @@
 import json
 import os
 
+from app.paths import CONFIG_MODEL_SETTINGS
+
 
 def resolve_default_vlm_display_name(vlm_models, mllm_model_id=None):
     """環境変数 MLLM_MODEL_ID または Vision モデル一覧の先頭からデフォルト表示名を決定する"""
@@ -46,7 +48,7 @@ def build_vlm_ui_initialization():
 
 class VLMService:
     def __init__(self):
-        self.model_settings_path = "model_settings.json"
+        self.model_settings_path = CONFIG_MODEL_SETTINGS
         self.model_settings = self._load_model_settings()
         
         # 現在選択されているVLM設定を保持する辞書

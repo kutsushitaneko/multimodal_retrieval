@@ -12,24 +12,12 @@ from dotenv import load_dotenv, find_dotenv
 
 from app.embedding_service import EmbeddingService
 from app.nlp_service import NLPService
+from app.prompt_service import PromptService
 from app.vlm_service_factory import VLMServiceFactory
 
 
-DEFAULT_CAPTION_PROMPT = """
-この画像を詳しく分析してください。
-
-以下の観点で画像を分析してください。
-1. 画像に何が写っているか
-2. 全体的な印象や特徴
-3. 注目すべきポイント
-4. 画像に描かれているもののカテゴリと固有の名称
-5. 画像に描かれているテキスト
-6. 画像に描かれている URL、IDなどの情報
-7. 画像が説明、紹介しようとしている内容
-
-テキストはすべて抽出してください。
-日本語で詳しく説明してください。
-"""
+def _default_caption_prompt():
+    return PromptService(category="caption").load_template("デフォルト") or ""
 
 
 def get_image_caption(nlp_service, image_path, vlm_settings, custom_prompt=None):
@@ -37,7 +25,7 @@ def get_image_caption(nlp_service, image_path, vlm_settings, custom_prompt=None)
     caption = nlp_service.generate_caption_with_vlm(
         image_path=image_path,
         vlm_model=vlm_settings["model"],
-        prompt_text=custom_prompt or DEFAULT_CAPTION_PROMPT,
+        prompt_text=custom_prompt or _default_caption_prompt(),
         temperature=vlm_settings["temperature"],
         max_tokens=vlm_settings["max_tokens"],
         oci_region=vlm_settings["oci_region"],

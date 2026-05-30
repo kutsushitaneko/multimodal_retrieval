@@ -44,7 +44,7 @@
 
 ### app/vlm_service.py
 - **VLMService**: Vision 対応モデル設定の参照と UI 更新ヘルパー。
-  - model_settings.json を読み込み、Vision 対応モデルのみを提供。
+  - model_settings.json を `config/model_settings.json` から読み込み、Vision 対応モデルのみを提供。
   - サービスプロバイダー（OCI/AWS/Anthropic/OpenAI/Cohere）での絞り込み、モデル変更時の関連 UI（max tokens/temperature/OCI リージョン）更新用オブジェクトを返すユーティリティを提供。
 
 ### app/vlm_service_factory.py
@@ -71,8 +71,15 @@
   - get_text_embedding / get_image_embedding: プロバイダーに応じた実装を選択し、必要に応じて画像の JPEG 変換→DataURL 化を実施。
 
 ### app/prompt_service.py
-- **PromptService**: `prompt/*.txt` の列挙・読込・保存・削除を行うテンプレート管理。
-  - get_template_names / load_template / save_template / delete_template などの基本操作を提供。
+- **PromptService**: `prompt/caption/` と `prompt/answer/` のテンプレート列挙・読込・保存・削除を行う。
+  - category 引数（`caption` / `answer`）でサブフォルダーを切り替え。
+  - render_answer_prompt: 回答生成用プレースホルダ `{query_text}` / `{documents}` の置換。
+
+### app/prompt_loader.py
+- **load_prompt**: Agent / Retrieval 用の読み取り専用テンプレートを `prompt/agent/`、`prompt/retrieval/`、`prompt/snippets/` から読み込み、プレースホルダを置換。
+
+### app/paths.py
+- プロンプト・設定ファイルのパス定数（`PROMPT_*`, `CONFIG_*`）を集約。
 
 ### app/cleanup_service.py
 - **CleanupService**: `temp/gradio` 配下の Gradio 一時ファイルを定期クリーンアップ。

@@ -17,6 +17,7 @@
     - `ReAct Agentic RAG`: LLM が Thought / Action / Observation を繰り返し、必要な検索 Tool （画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選びながら回答生成
     - キャプションベクトル検索、キャプション全文検索、画像ベクトル検索を統合して evidence を重複排除
     - Workflow / ReAct 共通: アップロード画像を VLM 回答生成に渡す（検索 evidence がなくても回答を試行。検索結果がある場合は 1 枚目にアップロード画像、2 枚目以降に参照画像）
+    - Workflow 専用: 参照対象の特定→属性検索の逐次フロー（Referent-before-attribute / A→X）、初回分解では第1ホップのみ検索、追加検索では evidence 由来の中間値をクエリーに連鎖、十分性 `sufficient` 以外は回答停止（fail closed）、evidence 選別もテキスト LLM（キャプションのみ参照）
     - ReAct 専用: 同一 (tool, query) の重複検索排除、新規 evidence が増えない連続検索の自動打切、マルチホップ質問向け Controller 指示、Finalize Verifier による早期終了防止（`answerable: false` 時）
     - 処理ステップ、所要時間、LLM 入力規模を進捗状況として逐次表示
 - 通常 RAG
@@ -47,18 +48,22 @@
 - Anthropic
 - AWS / Amazon Bedrock
 
-VLM とテキスト生成モデルの選択肢は `model_settings.json` で定義します。最終回答生成やキャプション生成で画像を渡す VLM Dropdown には、`vision: true` が設定されたモデルのみが表示されます。Workflow Agentic RAG の判定系モデルと ReAct Controller モデルは画像を渡さないため、`model_settings.json` の全モデルを選択できます。OCI のモデルでは、モデルごとの `default_region` が設定されている場合は初期リージョンとして使用されます。
+VLM とテキスト生成モデルの選択肢は `config/model_settings.json` で定義します。最終回答生成やキャプション生成で画像を渡す VLM Dropdown には、`vision: true` が設定されたモデルのみが表示されます。Workflow Agentic RAG の判定系モデル（質問分解、十分性判定、追加検索クエリー生成、evidence 選別）と ReAct Controller モデルは画像を渡さないため、`config/model_settings.json` の全モデルを選択できます。OCI のモデルでは、モデルごとの `default_region` が設定されている場合は初期リージョンとして使用されます。
 
 ## アプリケーションのファイル説明
 - アプリ本体: `multimodal_retriever.py`
 - 環境変数: `.env`（例: `.env_example`）
-- VLM / テキスト生成モデル定義: `model_settings.json`
+- VLM / テキスト生成モデル定義: `config/model_settings.json`
 - 画像のバッチ登録スクリプト: `batch_injestion.py`
 - データベース環境構築 SQL: `sql` フォルダ
 - Python ライブラリの依存関係: `requirements.txt`
-- キャプション生成用プロンプト: `prompt` フォルダ
-- 回答生成用プロンプト: `answer_prompt` フォルダ
-- 質問例: `question_examples.json`
+- プロンプトテンプレート: `prompt` フォルダ（用途別サブフォルダー）
+  - `prompt/caption`: キャプション生成用（UI編集可）
+  - `prompt/answer`: 回答生成用（UI編集可）
+  - `prompt/agent`: Agentic RAG 制御用（ReAct Controller、Workflow 等）
+  - `prompt/retrieval`: 検索補助（Listwise 選別、全文固有語抽出）
+  - `prompt/snippets`: 共通スニペット
+- 質問例: `config/question_examples.json`
 - アプリ起動用バッチスクリプト: `run.sh`
 
 ## データベースの準備
@@ -140,7 +145,7 @@ MLLM_MODEL_PROVIDER=OCI
 MLLM_MODEL_ID=meta.llama-4-maverick-17b-128e-instruct-fp8
 ```
 
-`MLLM_MODEL_ID` は Gradio UI 起動時の回答生成・キャプション生成 VLM の初期選択と、バッチ登録時のキャプション生成に使用されます。`model_settings.json` の表示名、または `model_name` と一致する値を設定してください。UI では Workflow Agentic RAG、ReAct Agentic RAG、検索・回答生成、イメージ管理の VLM 設定をそれぞれ独立して変更できます。
+`MLLM_MODEL_ID` は Gradio UI 起動時の回答生成・キャプション生成 VLM の初期選択と、バッチ登録時のキャプション生成に使用されます。`config/model_settings.json` の表示名、または `model_name` と一致する値を設定してください。UI では Workflow Agentic RAG、ReAct Agentic RAG、検索・回答生成、イメージ管理の VLM 設定をそれぞれ独立して変更できます。
 
 #### Workflow Agentic RAG 判定系モデルのデフォルト設定
 
@@ -150,7 +155,7 @@ WORKFLOW_AGENTIC_SUFFICIENCY_MODEL_ID=meta.llama-4-maverick-17b-128e-instruct-fp
 WORKFLOW_AGENTIC_FOLLOWUP_QUERY_MODEL_ID=google.gemini-2.5-flash-lite
 ```
 
-`WORKFLOW_AGENTIC_DECOMPOSE_MODEL_ID` は質問分解、`WORKFLOW_AGENTIC_SUFFICIENCY_MODEL_ID` は十分性判定、`WORKFLOW_AGENTIC_FOLLOWUP_QUERY_MODEL_ID` は追加検索クエリー生成の初期モデルです。`model_settings.json` の表示名、または `model_name` と一致する値を設定してください。後方互換として `AGENTIC_DECOMPOSE_MODEL_ID`、`AGENTIC_SUFFICIENCY_MODEL_ID`、`AGENTIC_FOLLOWUP_QUERY_MODEL_ID` も参照されます。
+`WORKFLOW_AGENTIC_DECOMPOSE_MODEL_ID` は質問分解、`WORKFLOW_AGENTIC_SUFFICIENCY_MODEL_ID` は十分性判定と evidence 選別、`WORKFLOW_AGENTIC_FOLLOWUP_QUERY_MODEL_ID` は追加検索クエリー生成の初期モデルです。`config/model_settings.json` の表示名、または `model_name` と一致する値を設定してください。後方互換として `AGENTIC_DECOMPOSE_MODEL_ID`、`AGENTIC_SUFFICIENCY_MODEL_ID`、`AGENTIC_FOLLOWUP_QUERY_MODEL_ID` も参照されます。
 
 #### ReAct Agentic RAG のデフォルト設定
 
@@ -159,7 +164,7 @@ REACT_AGENTIC_VLM_MODEL_ID=meta.llama-4-maverick-17b-128e-instruct-fp8
 REACT_AGENTIC_CONTROLLER_MODEL_ID=google.gemini-2.5-flash-lite
 ```
 
-`REACT_AGENTIC_VLM_MODEL_ID` は ReAct Agentic RAG タブの回答生成 VLM 初期値です。未設定の場合は `MLLM_MODEL_ID` 由来の通常 VLM 初期値を使用します。`REACT_AGENTIC_CONTROLLER_MODEL_ID` は Thought / Action / Observation の次の Action を決める Controller 初期値です。どちらも `model_settings.json` の表示名、または `model_name` と一致する値を設定してください。
+`REACT_AGENTIC_VLM_MODEL_ID` は ReAct Agentic RAG タブの回答生成 VLM 初期値です。未設定の場合は `MLLM_MODEL_ID` 由来の通常 VLM 初期値を使用します。`REACT_AGENTIC_CONTROLLER_MODEL_ID` は Thought / Action / Observation の次の Action を決める Controller 初期値です。どちらも `config/model_settings.json` の表示名、または `model_name` と一致する値を設定してください。
 
 #### 全文検索の LLM 固有表現抽出（オプション）
 
@@ -253,12 +258,15 @@ uv run multimodal_retriever.py
 or
 
 ```bash
-./run.sh
+./run.sh          # 起動（start と同じ）
+./run.sh start    # バックグラウンド起動
+./run.sh stop     # 停止
+./run.sh restart  # 再起動
 ```
 
-アプリケーションは`.env`ファイルの設定に従って、ローカルまたはリモートモードで起動します。Gradio の一時ディレクトリはカレントディレクトリ配下の `temp/gradio` に作成されます。
+`run.sh` は `uv run multimodal_retriever.py` をバックグラウンドで起動し、標準出力と標準エラーを `output.log` に出力します。PID は `multimodal_retriever.pid` に保存されます。既に起動中の場合、`start` はエラー終了し、`restart` を使ってください。
 
-`run.sh` は `uv run multimodal_retriever.py` をバックグラウンドで起動し、標準出力と標準エラーを `output.log` に出力します。
+アプリケーションは`.env`ファイルの設定に従って、ローカルまたはリモートモードで起動します。Gradio の一時ディレクトリはカレントディレクトリ配下の `temp/gradio` に作成されます。
 
 ## UIの主な使い方
 
@@ -277,24 +285,24 @@ or
 
 主な処理の流れは以下です。
 
-- 質問を最大5件のサブクエリーへ分解します。
-- 各サブクエリーに対して、キャプションベクトル検索、キャプション全文検索、テキストによる画像ベクトル検索を実行します。
+- 質問を最大5件のサブクエリーへ分解します。マルチホップ質問（「対象 A の属性 X」型）では、初回は参照対象・エンティティの特定（第1ホップ）のみを検索し、属性 X は追加検索フェーズで扱います。
+- 初回サブクエリーに対して、キャプションベクトル検索、キャプション全文検索、テキストによる画像ベクトル検索を実行します。
 - 入力画像がある場合は、画像による類似画像ベクトル検索も実行します。
-- 検索結果を evidence として重複排除し、十分性判定を行います。
-- evidence が不足している場合は、追加検索クエリーを生成し、上限回数まで再検索します。
-- 回答に使う evidence を選別・並べ替え、選択された画像とキャプションを元に回答を生成します。
+- 検索結果を evidence として重複排除し、十分性判定を行います（同一対象について全観点がカバーされているか、`supporting_evidence_ids` で根拠を明示）。
+- evidence が不足している場合は、取得済み evidence を参照して追加検索クエリーを生成し（中間値 + 不足属性の chained query を優先）、上限回数まで再検索・再判定します。
+- 十分性が `sufficient` のときのみ、回答に使う evidence をテキスト LLM で選別・並べ替え、選択された画像とキャプションを元に回答を生成します。
 
 補足:
 
-- 十分性判定は `insufficient` / `uncertain` でも選別・回答生成まで進みます（停止ゲートではありません）。再検索は `sufficient` になるか、再検索回数上限に達するまで行います。
-- evidence 選別 LLM はキャプションのみを参照します（実画像は回答生成 VLM のみで使用）。
+- **fail closed**: 十分性が `sufficient` にならない場合（`insufficient` / `uncertain`、再検索回数上限到達、追加クエリー生成失敗）は、選別・回答生成を行わず「情報が不足しており回答できません」と表示します。
+- evidence 選別 LLM もテキストモデル（デフォルトは十分性判定モデル）で、キャプションのみを参照します（実画像は回答生成 VLM のみで使用）。選別に失敗した場合も回答しません。
 - アップロード画像がある場合、検索 evidence が 0 件でも VLM で回答を試行します。検索結果がある場合も、アップロード画像を VLM 入力の 1 枚目、参照画像を 2 枚目以降に渡します。回答冒頭には `ユーザーがアップロードした画像` と検索結果のファイル名を併記します。
 
 質問なしで画像だけを入力した場合は、画像ベクトル検索のみを実行し、類似画像を `参照した画像` に表示します（VLM 回答は行いません）。
 
 `参照した画像` アコーディオン内には `画像詳細` サブアコーディオンがあり、ギャラリーで選択した画像のファイル名、イメージID、コサイン類似度、キャプションを表示します。
 
-`モデル設定` では、回答生成 VLM と、質問分解モデル、十分性判定モデル、追加検索クエリー生成モデルを個別に選択できます。`進捗状況` には質問分解、各検索、十分性判定、追加検索、evidence 選別・並べ替え、回答生成の進行状況と所要時間が逐次表示されます。
+`モデル設定` では、回答生成 VLM と、質問分解モデル、十分性判定モデル（evidence 選別にも使用）、追加検索クエリー生成モデルを個別に選択できます。`進捗状況` には質問分解、各検索、十分性判定、追加検索、evidence 選別・並べ替え、回答生成の進行状況と所要時間が逐次表示されます。
 
 #### 処理フロー（フローチャート）
 
@@ -305,7 +313,7 @@ flowchart TD
     Gate -->|画像のみ| ImgSearch[画像ベクトル検索]
     ImgSearch --> Gallery[ギャラリー表示のみ]
     Gallery --> End[UI出力]
-    Gate -->|質問あり| Decompose[質問分解]
+    Gate -->|質問あり| Decompose["質問分解\n(初回=第1ホップのみ)"]
     Decompose --> InitSearch["各subquery: 3種検索"]
     InitSearch --> Pool[(EvidencePool)]
     Pool --> HasImg{uploaded_image?}
@@ -314,19 +322,22 @@ flowchart TD
     HasImg -->|No| Suff
     Pool --> Suff[十分性判定]
     Suff --> Loop{sufficient?}
-    Loop -->|Yes| Select[evidence選別]
+    Loop -->|Yes| Select[evidence選別 LLM]
     Loop -->|No| IterCheck{iteration上限?}
-    IterCheck -->|Yes| Select
-    IterCheck -->|No| Followup[追加クエリ生成]
+    IterCheck -->|Yes| Stop[情報不足で終了]
+    IterCheck -->|No| Followup["追加クエリ生成\n(evidence参照)"]
     Followup --> FollowupEmpty{queries空?}
-    FollowupEmpty -->|Yes| Select
+    FollowupEmpty -->|Yes| Stop
     FollowupEmpty -->|No| ReSearch["各followup: 3種再検索"]
     ReSearch --> Pool
     ReSearch --> ReSuff[再判定]
     ReSuff --> Loop
-    Select --> Format[format_documents]
+    Select --> SelectOK{選別成功?}
+    SelectOK -->|No| Stop
+    SelectOK -->|Yes| Format[format_documents]
     Format --> VLM["VLM回答生成\n(uploaded_image含む)"]
     VLM --> End
+    Stop --> End
 ```
 
 #### 処理フロー（シーケンス図）
@@ -338,7 +349,6 @@ sequenceDiagram
     participant PL as WorkflowPipeline
     participant SS as SearchService
     participant LLM as TextLLM
-    participant Sel as SelectionModel
     participant VLM as AnswerVLM
 
     UI->>EV: run_workflow_agentic_rag
@@ -362,12 +372,20 @@ sequenceDiagram
         end
         PL-->>EV: yield中間結果
     end
-    PL->>Sel: filter_and_order_evidence
-    Note over Sel: 空白画像VLMでキャプションのみ選別
-    PL->>PL: format_documents
-    PL->>EV: answer_generator
-    EV->>VLM: generate_answer_with_vlm_images
-    EV-->>UI: answer, gallery, trace
+    alt not sufficient
+        PL-->>UI: 情報不足で終了
+    else sufficient
+        PL->>LLM: filter_and_order_evidence
+        Note over LLM: テキストLLMでキャプションのみ選別
+        alt 選別失敗
+            PL-->>UI: 情報不足で終了
+        else 選別成功
+            PL->>PL: format_documents
+            PL->>EV: answer_generator
+            EV->>VLM: generate_answer_with_vlm_images
+            EV-->>UI: answer, gallery, trace
+        end
+    end
 ```
 
 ### ReAct Agentic RAG
@@ -542,7 +560,7 @@ sequenceDiagram
 - `クリア`: 検索入力、検索結果、回答表示などをクリアします。
 - `全件表示`: 登録済み画像をアップロード日時が新しい順に表示します。
 
-検索入力では、テキストクエリ欄と画像アップロード欄がクエリーの種類に応じて切り替わります。テキストクエリには `質問の例` からサンプルを選択できます。質問例は `question_examples.json` で管理します。
+検索入力では、テキストクエリ欄と画像アップロード欄がクエリーの種類に応じて切り替わります。テキストクエリには `質問の例` からサンプルを選択できます。質問例は `config/question_examples.json` で管理します。
 
 検索結果と詳細情報は以下の領域に表示されます。
 

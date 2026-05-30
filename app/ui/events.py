@@ -1,9 +1,13 @@
 import gradio as gr
 from PIL import Image
 import math
+import os
 import time
 from io import BytesIO
 from app.agentic_rag_common import REFERENCED_GALLERY_ELEM_CLASS
+from app.paths import PROMPT_RETRIEVAL_DIR
+from app.prompt_loader import load_prompt
+from app.prompt_service import PromptService
 from app.vlm_service import VLMService
 
 # 定数定義
@@ -2178,27 +2182,14 @@ class UIEvents:
                 print(f"  - キャプション長: {len(caption)}")
                 print(f"  - キャプション内容（最初の100文字）: {caption[:100]}...")
             
-            # プロンプトテンプレートの置換処理
-            final_prompt = answer_prompt
-            if verbose:
-                print(f"[DEBUG] プロンプト置換処理開始")
-            
-            # {query_text} を検索クエリで置換
-            final_prompt = final_prompt.replace("{query_text}", query_text)
-            if verbose:
-                print(f"[DEBUG] query_text置換後: {{query_text}} -> '{query_text}'")
-            
-            # {documents} の置換処理（参照情報の種類に応じて）
             if reference_type == "すべて" or reference_type == "キャプションのみ":
-                # キャプションを含める
-                final_prompt = final_prompt.replace("{documents}", caption)
-                if verbose:
-                    print(f"[DEBUG] documents置換: キャプションを使用（長さ: {len(caption)}）")
+                documents_text = caption
             elif reference_type == "画像のみ":
-                # キャプションは空にする
-                final_prompt = final_prompt.replace("{documents}", "以下の画像")
-                if verbose:
-                    print(f"[DEBUG] documents置換: 空文字を使用")
+                documents_text = "以下の画像"
+            else:
+                documents_text = caption
+
+            final_prompt = PromptService.render_answer_prompt(answer_prompt, query_text, documents_text)
             
             if verbose:
                 print(f"[DEBUG] 最終プロンプト:")
@@ -2388,7 +2379,7 @@ class UIEvents:
         if reference_type == REFERENCE_TYPE_IMAGE_ONLY:
             documents = "以下の画像群を、VLMが回答生成に自然な順序へ並べ替えたものです。"
 
-        final_prompt = answer_prompt.replace("{query_text}", query_text).replace("{documents}", documents)
+        final_prompt = PromptService.render_answer_prompt(answer_prompt, query_text, documents)
         image_paths = []
 
         try:
@@ -2475,14 +2466,10 @@ class UIEvents:
                 ])
             )
 
-        return (
-            "あなたはマルチモーダルRAGの検索結果を評価するアシスタントです。\n"
-            "ユーザーの質問に回答するために役立つ画像だけを選び、回答で参照すると自然な順番に並べてください。\n"
-            "必ずJSONのみを返してください。説明文やMarkdownは不要です。\n"
-            "JSON形式: {\"selected_image_ids\": [\"id1\", \"id2\"], \"reason\": \"短い理由\"}\n\n"
-            f"ユーザーの質問:\n{query_text}\n\n"
-            "検索結果候補:\n"
-            f"{chr(10).join(candidate_lines)}"
+        return load_prompt(
+            os.path.join(PROMPT_RETRIEVAL_DIR, "listwise_selection.txt"),
+            query_text=query_text,
+            candidates="\n".join(candidate_lines),
         )
 
     def _parse_listwise_selection(self, selection_response, candidates):
@@ -3587,27 +3574,22 @@ class UIEvents:
             ) 
 
     # 回答生成プロンプト関連のメソッド
+    def _answer_prompt_service(self):
+        return PromptService(category="answer")
+
     def load_answer_prompt_template(self, template_name):
         """回答生成プロンプトテンプレートを読み込み"""
-        import os
-        
         try:
-            answer_prompt_path = os.path.join("answer_prompt", f"{template_name}.txt")
-            if os.path.exists(answer_prompt_path):
-                with open(answer_prompt_path, 'r', encoding='utf-8') as f:
-                    prompt_text = f.read()
+            prompt_text = self._answer_prompt_service().load_template(template_name) or ""
+            if prompt_text:
                 return prompt_text, prompt_text, f"回答生成プロンプトテンプレート '{template_name}' を読み込みました。"
-            else:
-                return "", "", f"❌ 回答生成プロンプトテンプレート '{template_name}' が見つかりません。"
+            return "", "", f"❌ 回答生成プロンプトテンプレート '{template_name}' が見つかりません。"
         except Exception as e:
             print(f"回答生成プロンプトテンプレート読み込みエラー: {e}")
             return "", "", f"❌ 回答生成プロンプトテンプレート '{template_name}' の読み込みに失敗しました。"
     
     def save_answer_prompt_template(self, template_name, prompt_text):
         """回答生成プロンプトテンプレートを保存"""
-        import os
-        import glob
-        
         if not template_name or not template_name.strip():
             return gr.update(), "❌ 回答生成プロンプト名を入力してください。"
         
@@ -3615,55 +3597,30 @@ class UIEvents:
             return gr.update(), "❌ 回答生成プロンプトの内容を入力してください。"
         
         try:
-            # answer_promptフォルダーが存在しない場合は作成
-            answer_prompt_dir = "answer_prompt"
-            if not os.path.exists(answer_prompt_dir):
-                os.makedirs(answer_prompt_dir, exist_ok=True)
-            
-            # ファイルに保存
-            answer_prompt_path = os.path.join(answer_prompt_dir, f"{template_name.strip()}.txt")
-            with open(answer_prompt_path, 'w', encoding='utf-8') as f:
-                f.write(prompt_text.strip())
-            
-            # テンプレートリストを更新
-            template_files = glob.glob(os.path.join(answer_prompt_dir, "*.txt"))
-            template_names = []
-            for file_path in template_files:
-                basename = os.path.basename(file_path)
-                template_name_from_file = os.path.splitext(basename)[0]
-                template_names.append(template_name_from_file)
-            
-            return gr.update(choices=template_names), f"✅ 回答生成プロンプトテンプレート '{template_name}' を保存しました。"
+            prompt_service = self._answer_prompt_service()
+            success = prompt_service.save_template(template_name.strip(), prompt_text.strip())
+            if not success:
+                return gr.update(), f"❌ 回答生成プロンプトテンプレート '{template_name}' の保存に失敗しました。"
+            return gr.update(choices=prompt_service.get_template_names()), f"✅ 回答生成プロンプトテンプレート '{template_name}' を保存しました。"
         except Exception as e:
             print(f"回答生成プロンプトテンプレート保存エラー: {e}")
             return gr.update(), f"❌ 回答生成プロンプトテンプレート '{template_name}' の保存に失敗しました。"
     
     def cancel_answer_prompt_edit(self, current_template_name):
         """回答生成プロンプト編集を取消"""
-        import os
-        
         try:
-            answer_prompt_path = os.path.join("answer_prompt", f"{current_template_name}.txt")
-            if os.path.exists(answer_prompt_path):
-                with open(answer_prompt_path, 'r', encoding='utf-8') as f:
-                    original_prompt = f.read()
+            original_prompt = self._answer_prompt_service().load_template(current_template_name) or ""
+            if original_prompt:
                 return original_prompt, "回答生成プロンプト編集を取り消しました。"
-            else:
-                return "", "元の回答生成プロンプトの読み込みに失敗しました。"
+            return "", "元の回答生成プロンプトの読み込みに失敗しました。"
         except Exception as e:
             print(f"回答生成プロンプト編集取消エラー: {e}")
             return "", "元の回答生成プロンプトの読み込みに失敗しました。"
     
     def get_current_answer_prompt(self, template_name):
         """現在選択されている回答生成プロンプトテンプレートを取得"""
-        import os
-        
         try:
-            answer_prompt_path = os.path.join("answer_prompt", f"{template_name}.txt")
-            if os.path.exists(answer_prompt_path):
-                with open(answer_prompt_path, 'r', encoding='utf-8') as f:
-                    return f.read()
-            return ""
+            return self._answer_prompt_service().load_template(template_name) or ""
         except Exception as e:
             print(f"回答生成プロンプト取得エラー: {e}")
             return ""
@@ -3674,72 +3631,48 @@ class UIEvents:
     
     def delete_answer_prompt_template(self, current_template_name):
         """回答生成プロンプトテンプレートを削除"""
-        import os
-        import glob
-        
-        # デフォルトテンプレートの削除を防止
-        if current_template_name == "デフォルト（回答生成）":
+        prompt_service = self._answer_prompt_service()
+        default_template_name = prompt_service.get_default_template_name()
+
+        if current_template_name == default_template_name:
             return (
-                gr.update(),  # answer_prompt_template_dropdown（変更なし）
-                gr.update(),  # current_answer_prompt_display（変更なし）
-                gr.update(),  # answer_prompt_edit_textbox（変更なし）
-                "❌ デフォルト回答生成プロンプトは削除できません。",  # answer_prompt_status_message
-                gr.Checkbox(value=False, interactive=True),  # confirm_answer_prompt_delete_checkbox（リセット）
-                gr.Button(interactive=False)  # delete_answer_prompt_button（無効化）
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                "❌ デフォルト回答生成プロンプトは削除できません。",
+                gr.Checkbox(value=False, interactive=True),
+                gr.Button(interactive=False),
             )
-        
+
         try:
-            # プロンプトテンプレートファイルを削除
-            answer_prompt_path = os.path.join("answer_prompt", f"{current_template_name}.txt")
-            if os.path.exists(answer_prompt_path):
-                os.remove(answer_prompt_path)
-                
-                # テンプレートリストを更新し、デフォルトテンプレートを選択
-                answer_prompt_dir = "answer_prompt"
-                template_files = glob.glob(os.path.join(answer_prompt_dir, "*.txt"))
-                template_names = []
-                for file_path in template_files:
-                    basename = os.path.basename(file_path)
-                    template_name_from_file = os.path.splitext(basename)[0]
-                    template_names.append(template_name_from_file)
-                
-                default_template_name = "デフォルト（回答生成）"
-                if default_template_name not in template_names:
-                    template_names.insert(0, default_template_name)
-                
-                # デフォルトプロンプトを読み込み
-                default_prompt_path = os.path.join(answer_prompt_dir, f"{default_template_name}.txt")
-                default_prompt = ""
-                if os.path.exists(default_prompt_path):
-                    with open(default_prompt_path, 'r', encoding='utf-8') as f:
-                        default_prompt = f.read()
-                
+            if not prompt_service.delete_template(current_template_name):
                 return (
-                    gr.update(choices=template_names, value=default_template_name),  # answer_prompt_template_dropdown
-                    default_prompt,  # current_answer_prompt_display
-                    default_prompt,  # answer_prompt_edit_textbox
-                    f"✅ 回答生成プロンプトテンプレート '{current_template_name}' を削除しました。",  # answer_prompt_status_message
-                    gr.Checkbox(value=False, interactive=True),  # confirm_answer_prompt_delete_checkbox（リセット）
-                    gr.Button(interactive=False)  # delete_answer_prompt_button（無効化）
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    f"❌ 回答生成プロンプトテンプレート '{current_template_name}' が見つかりません。",
+                    gr.Checkbox(value=False, interactive=True),
+                    gr.Button(interactive=False),
                 )
-            else:
-                return (
-                    gr.update(),  # answer_prompt_template_dropdown（変更なし）
-                    gr.update(),  # current_answer_prompt_display（変更なし）
-                    gr.update(),  # answer_prompt_edit_textbox（変更なし）
-                    f"❌ 回答生成プロンプトテンプレート '{current_template_name}' が見つかりません。",  # answer_prompt_status_message
-                    gr.Checkbox(value=False, interactive=True),  # confirm_answer_prompt_delete_checkbox（リセット）
-                    gr.Button(interactive=False)  # delete_answer_prompt_button（無効化）
-                )
+
+            default_prompt = prompt_service.load_template(default_template_name) or ""
+            return (
+                gr.update(choices=prompt_service.get_template_names(), value=default_template_name),
+                default_prompt,
+                default_prompt,
+                f"✅ 回答生成プロンプトテンプレート '{current_template_name}' を削除しました。",
+                gr.Checkbox(value=False, interactive=True),
+                gr.Button(interactive=False),
+            )
         except Exception as e:
             print(f"回答生成プロンプトテンプレート削除エラー: {e}")
             return (
-                gr.update(),  # answer_prompt_template_dropdown（変更なし）
-                gr.update(),  # current_answer_prompt_display（変更なし）
-                gr.update(),  # answer_prompt_edit_textbox（変更なし）
-                f"❌ 回答生成プロンプトテンプレート '{current_template_name}' の削除に失敗しました。",  # answer_prompt_status_message
-                gr.Checkbox(value=False, interactive=True),  # confirm_answer_prompt_delete_checkbox（リセット）
-                gr.Button(interactive=False)  # delete_answer_prompt_button（無効化）
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                f"❌ 回答生成プロンプトテンプレート '{current_template_name}' の削除に失敗しました。",
+                gr.Checkbox(value=False, interactive=True),
+                gr.Button(interactive=False),
             )
 
     def update_reference_image_and_enable_answer_generation(self, state_data, search_target, search_method, reference_image_text=None, answer_generate_button=None, reference_type_radio=None):
