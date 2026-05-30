@@ -18,6 +18,13 @@ from app.agentic_rag_common import (
     SufficiencyDecision,
     format_documents,
 )
+from app.agentic_search_strategy import (
+    SearchStrategyHint,
+    classify_question_strategy,
+    format_first_step_hint_for_prompt,
+    format_leads_tool_recommendations,
+    fulltext_natural_language_warning,
+)
 from app.paths import PROMPT_AGENT_REACT_DIR, PROMPT_SNIPPETS_DIR
 from app.prompt_loader import load_prompt
 
@@ -56,6 +63,7 @@ class ReactToolRegistry:
         self.uploaded_image = uploaded_image
         self.executed_search_keys: set[str] = set()
         self.executed_searches: list[tuple[str, str]] = []
+        self.completed_steps_before_action = 0
 
     @staticmethod
     def _search_key(action: str, query: str) -> str:
@@ -169,13 +177,19 @@ class ReactToolRegistry:
         except Exception as exc:
             return f"{action} エラー [{self.pipeline._elapsed_ms(started_at)}]: {exc}", selected_evidence, "", False, ""
 
-        return (
-            f"{action} [{self.pipeline._elapsed_ms(started_at)}]: {query or 'アップロード画像'} -> {len(results)}件, evidence {len(pool.all())} 件",
-            selected_evidence,
-            "",
-            False,
-            "",
+        observation = (
+            f"{action} [{self.pipeline._elapsed_ms(started_at)}]: {query or 'アップロード画像'} -> {len(results)}件, "
+            f"evidence {len(pool.all())} 件"
         )
+        if (
+            action == "caption_fulltext_search"
+            and self.completed_steps_before_action >= 1
+            and query
+        ):
+            warning = fulltext_natural_language_warning(query)
+            if warning:
+                observation = f"{observation}\n{warning}"
+        return observation, selected_evidence, "", False, ""
 
     def _execute_multi_search(
         self,
@@ -425,6 +439,12 @@ class ReactAgenticRAGPipeline:
         stale_steps = 0
         forced_verifications = 0
         search_actions = self.ALLOWED_ACTIONS - {"select_evidence", "generate_final_answer"}
+        strategy_hint = classify_question_strategy(question)
+        trace.append(
+            "検索戦略ヒント: "
+            + (strategy_hint.strategy if strategy_hint.strategy != "none" else "なし")
+        )
+        yield build_result()
         for step_index in range(1, self.max_steps + 1):
             started_at = time.perf_counter()
             trace.append(f"Step {step_index}: Controller思考中...")
@@ -506,11 +526,9 @@ class ReactAgenticRAGPipeline:
                     )
                     if new_leads:
                         forced_verifications += 1
-                        step.observation = (
-                            "確定保留: 未解決のサブ質問に使える未検索の手がかりが残っています。"
-                            "次の値で再検索してください: "
-                            + ", ".join(new_leads[:5])
-                            + "。該当が無ければ再度 generate_final_answer を選んでください。"
+                        step.observation = self._build_finalize_hold_observation(
+                            new_leads[:5],
+                            "該当が無ければ再度 generate_final_answer を選んでください。",
                         )
                         steps.append(step)
                         trace.append(f"Step {step_index} Observation: {step.observation}")
@@ -531,6 +549,7 @@ class ReactAgenticRAGPipeline:
                 yield build_result(answer=answer, sufficiency=decision)
                 return
 
+            registry.completed_steps_before_action = len(steps)
             observations = []
             for observation, new_selected, new_reason, _, _ in registry.iter_execute(
                 step.action,
@@ -563,11 +582,9 @@ class ReactAgenticRAGPipeline:
                 )
                 if new_leads:
                     forced_verifications += 1
-                    gate_observation = (
-                        "確定保留: 未解決のサブ質問に使える未検索の手がかりが残っています。"
-                        "次の値で再検索してください: "
-                        + ", ".join(new_leads[:5])
-                        + "。該当が無ければ generate_final_answer で answerable:false を指定してください。"
+                    gate_observation = self._build_finalize_hold_observation(
+                        new_leads[:5],
+                        "該当が無ければ generate_final_answer で answerable:false を指定してください。",
                     )
                     step.observation = "\n".join([part for part in [step.observation, gate_observation] if part])
                     trace.append(f"Step {step_index} Observation: {gate_observation}")
@@ -683,6 +700,11 @@ class ReactAgenticRAGPipeline:
         selected_ids = ", ".join(item.id for item in selected_evidence) or "なし"
         history = self._format_step_history(steps)
         executed_summary = self._format_executed_searches(executed_searches)
+        if not evidence and not steps:
+            strategy_for_prompt = classify_question_strategy(question)
+        else:
+            strategy_for_prompt = SearchStrategyHint(strategy="none", hint_text="")
+        first_step_hint = format_first_step_hint_for_prompt(strategy_for_prompt)
         return load_prompt(
             os.path.join(PROMPT_AGENT_REACT_DIR, "controller.txt"),
             max_selected_evidence=self.max_selected_evidence,
@@ -691,6 +713,7 @@ class ReactAgenticRAGPipeline:
             selected_ids=selected_ids,
             executed_summary=executed_summary,
             history=history,
+            first_step_hint=first_step_hint,
         )
 
     def _format_executed_searches(self, executed_searches: list[tuple[str, str]] | None) -> str:
@@ -737,6 +760,17 @@ class ReactAgenticRAGPipeline:
             and " ".join(str(lead).split())
         ]
         return leads, new_leads
+
+    @staticmethod
+    def _build_finalize_hold_observation(new_leads: list[str], suffix: str) -> str:
+        lead_list = ", ".join(new_leads)
+        recommendations = format_leads_tool_recommendations(new_leads)
+        return (
+            "確定保留: 未解決のサブ質問に使える未検索の手がかりが残っています。"
+            f"次の値で再検索してください: {lead_list}。"
+            f"{recommendations} "
+            f"{suffix}"
+        )
 
     @staticmethod
     def _format_verifier_leads(leads: list[str]) -> str:
