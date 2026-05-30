@@ -5,6 +5,9 @@ import gradio as gr
 from PIL import Image
 
 from app.agentic_rag_common import REFERENCED_GALLERY_ELEM_CLASS
+from app.paths import PROMPT_SNIPPETS_DIR
+from app.prompt_loader import load_prompt
+from app.prompt_service import PromptService
 from app.workflow_agentic_rag import WorkflowAgenticRAGPipeline
 from app.nlp_service import NLPService
 from app.vlm_service_factory import VLMServiceFactory
@@ -216,16 +219,6 @@ class WorkflowAgenticRAGEvents:
         followup_query_max_tokens,
         followup_query_oci_region,
     ):
-        def call_workflow_selection_model(prompt_text):
-            return self._call_text_vlm(
-                prompt_text,
-                vlm_model,
-                vlm_temperature,
-                vlm_max_tokens,
-                vlm_oci_region,
-                uploaded_image=uploaded_image,
-            )
-
         def call_agentic_step_model(prompt_text, model, temperature, max_tokens, oci_region):
             return self._call_text_model(
                 prompt_text,
@@ -235,12 +228,23 @@ class WorkflowAgenticRAGEvents:
                 oci_region,
             )
 
+        selection_model = sufficiency_model or vlm_model
+        selection_temperature = sufficiency_temperature if sufficiency_temperature is not None else vlm_temperature
+        selection_max_tokens = sufficiency_max_tokens if sufficiency_max_tokens is not None else vlm_max_tokens
+        selection_oci_region = sufficiency_oci_region or vlm_oci_region
+
         pipeline = WorkflowAgenticRAGPipeline(
             self.search_service,
             top_k=top_k,
             max_iterations=max_iterations,
             max_selected_evidence=max_selected_evidence,
-            llm_text_generator=call_workflow_selection_model,
+            llm_text_generator=lambda prompt: call_agentic_step_model(
+                prompt,
+                selection_model,
+                selection_temperature,
+                selection_max_tokens,
+                selection_oci_region,
+            ),
             decompose_llm_text_generator=lambda prompt: call_agentic_step_model(
                 prompt,
                 decompose_model,
@@ -392,16 +396,11 @@ class WorkflowAgenticRAGEvents:
             return "❌ 回答に使用できる検索結果が見つかりませんでした。"
 
         prompt = self._load_answer_prompt(answer_prompt_template)
-        final_prompt = prompt.replace("{query_text}", query or "").replace("{documents}", documents or "")
-        if "{query_text}" not in prompt and "{documents}" not in prompt:
-            final_prompt = f"{prompt}\n\n質問:\n{query}\n\n参照情報:\n{documents}"
+        final_prompt = PromptService.render_answer_prompt(prompt, query or "", documents or "")
 
         if has_uploaded_image:
-            final_prompt = (
-                "【画像の並び順】1枚目はユーザーがアップロードした画像です。"
-                "検索で見つかった参照画像がある場合は2枚目以降です。\n\n"
-                f"{final_prompt}"
-            )
+            image_order_prefix = load_prompt(os.path.join(PROMPT_SNIPPETS_DIR, "answer_image_order_prefix.txt"))
+            final_prompt = f"{image_order_prefix}\n{final_prompt}"
 
         image_paths = []
         try:
@@ -486,15 +485,16 @@ class WorkflowAgenticRAGEvents:
         )
 
     def _load_answer_prompt(self, template_name):
-        template_name = template_name or "デフォルト（回答生成）"
-        prompt_path = os.path.join("answer_prompt", f"{template_name}.txt")
-        try:
-            if os.path.exists(prompt_path):
-                with open(prompt_path, "r", encoding="utf-8") as prompt_file:
-                    return prompt_file.read()
-        except Exception as exc:
-            print(f"Workflow Agentic RAG回答生成プロンプト読み込みエラー: {exc}")
-        return "質問に対して、参照情報に基づいて日本語で回答してください。\n\n質問: {query_text}\n\n参照情報:\n{documents}"
+        template_name = template_name or PromptService(category="answer").get_default_template_name()
+        prompt_service = PromptService(category="answer")
+        prompt = prompt_service.load_template(template_name)
+        if prompt:
+            return prompt
+        return load_prompt(
+            os.path.join(PROMPT_SNIPPETS_DIR, "answer_fallback.txt"),
+            question="{query_text}",
+            documents="{documents}",
+        )
 
     def _save_evidence_images(self, selected_evidence):
         image_paths = []

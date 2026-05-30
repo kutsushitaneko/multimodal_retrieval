@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
-from app.agentic_rag_common import MAX_EVIDENCE_FOR_LLM_PROMPT, EvidencePool
+from app.agentic_rag_common import MAX_EVIDENCE_FOR_LLM_PROMPT, EvidencePool, SufficiencyDecision
 from app.workflow_agentic_rag import WorkflowAgenticRAGPipeline
 from app.ui.components import UIComponents
 from app.ui.workflow_agentic_events import WorkflowAgenticRAGEvents, REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY
@@ -18,6 +18,22 @@ def make_result(image_id, file_name, caption, search_mode="ベクトル検索"):
         "distance": 0.1,
         "image": Image.new("RGB", (4, 4), color="white"),
     }
+
+
+def make_sufficient_json(*evidence_ids: str) -> str:
+    ids_json = ", ".join(f'"{evidence_id}"' for evidence_id in evidence_ids)
+    return (
+        '{"status": "sufficient", "reason": "根拠あり", '
+        f'"missing_aspects": [], "supporting_evidence_ids": [{ids_json}]}}'
+    )
+
+
+# llm_text_generator のみ渡すと decompose も同じ generator を使うため、先頭に空 subqueries を置く。
+DECOMPOSE_RULES_FALLBACK_JSON = '{"subqueries": []}'
+
+
+def make_shared_pipeline_llm_side_effect(*responses: str) -> list[str]:
+    return [DECOMPOSE_RULES_FALLBACK_JSON, *responses]
 
 
 class FakeSearchService:
@@ -94,7 +110,7 @@ def test_llm_decompose_question_is_used_when_available():
 def test_llm_judgement_and_selection_are_used_when_available():
     responses = [
         '{"subqueries": ["猫の特徴"]}',
-        '{"status": "sufficient", "reason": "根拠あり", "missing_aspects": []}',
+        make_sufficient_json("1", "2", "3"),
         '{"selected_evidence_ids": ["2"], "reason": "2番目が最適"}',
     ]
     llm = MagicMock(side_effect=responses)
@@ -111,7 +127,7 @@ def test_llm_judgement_and_selection_are_used_when_available():
 
 def test_step_specific_llm_generators_are_used():
     decompose_llm = MagicMock(return_value='{"subqueries": ["初回クエリー"]}')
-    sufficiency_llm = MagicMock(return_value='{"status": "sufficient", "reason": "十分", "missing_aspects": []}')
+    sufficiency_llm = MagicMock(return_value=make_sufficient_json("1"))
     followup_llm = MagicMock(return_value='{"queries": ["追加クエリー"]}')
     selection_llm = MagicMock(return_value='{"selected_evidence_ids": ["1"], "reason": "選別"}')
     pipeline = WorkflowAgenticRAGPipeline(
@@ -126,7 +142,7 @@ def test_step_specific_llm_generators_are_used():
 
     result = pipeline.run("猫", answer_generator=lambda q, selected, docs: docs)
 
-    assert result.sufficiency.reason == "十分"
+    assert result.sufficiency.reason == "根拠あり"
     assert result.selection_reason == "選別"
     assert decompose_llm.call_count == 1
     assert sufficiency_llm.call_count == 1
@@ -211,13 +227,17 @@ def test_evidence_prompt_includes_up_to_configured_limit():
 
     prompt = pipeline._format_evidence_for_prompt(evidence)
 
-    assert f"{MAX_EVIDENCE_FOR_LLM_PROMPT}. id: {MAX_EVIDENCE_FOR_LLM_PROMPT}" in prompt
-    assert f"{MAX_EVIDENCE_FOR_LLM_PROMPT + 1}. id: {MAX_EVIDENCE_FOR_LLM_PROMPT + 1}" not in prompt
+    assert f"evidence_id: {MAX_EVIDENCE_FOR_LLM_PROMPT}" in prompt
+    assert f"evidence_id: {MAX_EVIDENCE_FOR_LLM_PROMPT + 1}" not in prompt
 
 
 def test_pipeline_runs_multiple_search_modes_and_orders_evidence():
     fake_search = FakeSearchService()
-    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
+    llm = MagicMock(side_effect=make_shared_pipeline_llm_side_effect(
+        make_sufficient_json("1", "2", "3"),
+        '{"selected_evidence_ids": ["1"], "reason": "選別"}',
+    ))
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0, llm_text_generator=llm)
 
     result = pipeline.run("富士山と寺院", answer_generator=lambda q, selected, docs: docs)
 
@@ -231,7 +251,11 @@ def test_pipeline_runs_multiple_search_modes_and_orders_evidence():
 
 def test_pipeline_trace_includes_elapsed_times():
     fake_search = FakeSearchService()
-    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
+    llm = MagicMock(side_effect=make_shared_pipeline_llm_side_effect(
+        make_sufficient_json("1", "2", "3"),
+        '{"selected_evidence_ids": ["1"], "reason": "選別"}',
+    ))
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0, llm_text_generator=llm)
 
     result = pipeline.run("ORA-00923 とは何ですか？", answer_generator=lambda q, selected, docs: "answer")
 
@@ -248,7 +272,11 @@ def test_pipeline_trace_includes_elapsed_times():
 
 def test_pipeline_run_stream_yields_incremental_results():
     fake_search = FakeSearchService()
-    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
+    llm = MagicMock(side_effect=make_shared_pipeline_llm_side_effect(
+        make_sufficient_json("1", "2", "3"),
+        '{"selected_evidence_ids": ["1"], "reason": "選別"}',
+    ))
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0, llm_text_generator=llm)
 
     results = list(pipeline.run_stream("猫", answer_generator=lambda q, selected, docs: "answer"))
 
@@ -266,7 +294,7 @@ def test_pipeline_trace_formats_queries_and_llm_input_stats():
         '{"subqueries": ["missing 概要", "missing 詳細"]}',
         '{"status": "insufficient", "reason": "不足", "missing_aspects": ["詳細"]}',
         '{"queries": ["猫 概要", "猫 詳細"]}',
-        '{"status": "sufficient", "reason": "十分", "missing_aspects": []}',
+        make_sufficient_json("1"),
         '{"selected_evidence_ids": ["1"], "reason": "選別"}',
     ])
     pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), top_k=8, max_iterations=1, llm_text_generator=llm)
@@ -288,7 +316,11 @@ def test_pipeline_trace_formats_queries_and_llm_input_stats():
 
 def test_pipeline_default_thresholds_match_existing_search_tab_defaults():
     fake_search = FakeSearchService()
-    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
+    llm = MagicMock(side_effect=make_shared_pipeline_llm_side_effect(
+        make_sufficient_json("1", "2", "3"),
+        '{"selected_evidence_ids": ["1"], "reason": "選別"}',
+    ))
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0, llm_text_generator=llm)
 
     pipeline.run("ORA-00923エラーの原因と意味", answer_generator=lambda q, selected, docs: docs)
 
@@ -305,11 +337,17 @@ def test_pipeline_respects_followup_iteration_limit():
 
     assert "追加検索 1/1" in result.trace
     assert "追加検索 2/1" not in result.trace
+    assert result.answer.startswith("情報が不足しており回答できません")
+    assert result.selected_evidence == []
 
 
 def test_pipeline_adds_uploaded_image_search():
     fake_search = FakeSearchService()
-    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0)
+    llm = MagicMock(side_effect=make_shared_pipeline_llm_side_effect(
+        make_sufficient_json("1", "2", "3", "4"),
+        '{"selected_evidence_ids": ["1"], "reason": "選別"}',
+    ))
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0, llm_text_generator=llm)
 
     pipeline.run("猫", uploaded_image=Image.new("RGB", (4, 4)), answer_generator=lambda q, selected, docs: "answer")
 
@@ -340,9 +378,7 @@ def test_workflow_agentic_rag_event_returns_expected_outputs_without_external_vl
     events._generate_answer_with_vlm = MagicMock(return_value="生成回答")
     events._call_text_model = MagicMock(side_effect=[
         '{"subqueries": ["猫"]}',
-        '{"status": "sufficient", "reason": "候補あり", "missing_aspects": []}',
-    ])
-    events._call_text_vlm = MagicMock(side_effect=[
+        make_sufficient_json("1", "2", "3"),
         '{"selected_evidence_ids": ["1"], "reason": "猫に関係するため"}',
     ])
 
@@ -381,8 +417,7 @@ def test_workflow_agentic_rag_event_returns_expected_outputs_without_external_vl
     assert len(outputs) > 1
     assert "参照画像ギャラリー" not in trace
     assert any("回答生成中..." in output[2] for output in outputs)
-    assert events._call_text_model.call_count == 2
-    assert events._call_text_vlm.call_count == 1
+    assert events._call_text_model.call_count == 3
 
 
 def test_workflow_agentic_rag_answer_label_uses_workflow_name():
@@ -511,9 +546,9 @@ def test_workflow_agentic_rag_event_gallery_keeps_six_referenced_images_visible(
     events._generate_answer_with_vlm = MagicMock(return_value="生成回答")
     events._call_text_model = MagicMock(side_effect=[
         '{"subqueries": ["猫"]}',
-        '{"status": "sufficient", "reason": "候補あり", "missing_aspects": []}',
+        make_sufficient_json("1", "2", "3", "4", "5", "6"),
+        '{"selected_evidence_ids": ["1", "2", "3", "4", "5", "6"], "reason": "6件を選別"}',
     ])
-    events._call_text_vlm = MagicMock(return_value='{"selected_evidence_ids": ["1", "2", "3", "4", "5", "6"], "reason": "6件を選別"}')
 
     outputs = list(events.run_workflow_agentic_rag(
         "猫",
@@ -561,9 +596,9 @@ def test_workflow_event_passes_uploaded_image_to_vlm_when_evidence_found():
     events._generate_answer_with_vlm = MagicMock(return_value="生成回答")
     events._call_text_model = MagicMock(side_effect=[
         '{"subqueries": ["猫"]}',
-        '{"status": "sufficient", "reason": "候補あり", "missing_aspects": []}',
+        make_sufficient_json("1", "2", "3", "4"),
+        '{"selected_evidence_ids": ["1"], "reason": "選別"}',
     ])
-    events._call_text_vlm = MagicMock(return_value='{"selected_evidence_ids": ["1"], "reason": "選別"}')
     uploaded_image = Image.new("RGB", (4, 4), color="white")
 
     outputs = list(events.run_workflow_agentic_rag(
@@ -605,9 +640,7 @@ def test_workflow_agentic_rag_event_uses_step_specific_models():
         '{"subqueries": ["missing"]}',
         '{"status": "insufficient", "reason": "不足", "missing_aspects": ["詳細"]}',
         '{"queries": ["猫"]}',
-        '{"status": "sufficient", "reason": "追加で十分", "missing_aspects": []}',
-    ])
-    events._call_text_vlm = MagicMock(side_effect=[
+        make_sufficient_json("1"),
         '{"selected_evidence_ids": ["1"], "reason": "選別"}',
     ])
 
@@ -643,20 +676,22 @@ def test_workflow_agentic_rag_event_uses_step_specific_models():
         "sufficiency-model",
         "followup-model",
         "sufficiency-model",
+        "sufficiency-model",
     ]
-    assert [call.args[2] for call in events._call_text_model.call_args_list] == [0.1, 0.2, 0.3, 0.2]
-    assert [call.args[3] for call in events._call_text_model.call_args_list] == [2048, 4096, 8192, 4096]
+    assert [call.args[2] for call in events._call_text_model.call_args_list] == [0.1, 0.2, 0.3, 0.2, 0.2]
+    assert [call.args[3] for call in events._call_text_model.call_args_list] == [2048, 4096, 8192, 4096, 4096]
     assert [call.args[4] for call in events._call_text_model.call_args_list] == [
         "US Midwest (Chicago)",
         "Japan Central (Osaka)",
         "US Midwest (Chicago)",
         "Japan Central (Osaka)",
+        "Japan Central (Osaka)",
     ]
-    assert events._call_text_vlm.call_args_list[0].args[1] == "answer-model"
 
 
 def test_workflow_filter_and_order_respects_max_selected_evidence():
-    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), max_selected_evidence=3)
+    selection_llm = MagicMock(return_value='{"selected_evidence_ids": ["1", "2", "3"], "reason": "上位3件"}')
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), max_selected_evidence=3, llm_text_generator=selection_llm)
     pool = EvidencePool()
     for index in range(1, 6):
         pool.add_many([make_result(index, f"file-{index}.png", f"猫 {index}")], "猫", "caption_vector")
@@ -668,6 +703,97 @@ def test_workflow_selection_prompt_includes_max_selected_evidence():
     pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), max_selected_evidence=4)
     prompt = pipeline._build_evidence_eval_prompt("猫", "evidence", "selection")
     assert "最大 4 件まで選択してください。" in prompt
+
+
+def test_sufficient_requires_valid_supporting_evidence_ids():
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService())
+    pool = EvidencePool()
+    pool.add_many([make_result(421, "sign.png", "看板は上石神井駅")], "q", "caption_vector")
+    llm = MagicMock(return_value=make_sufficient_json("999"))
+    pipeline.sufficiency_llm_text_generator = llm
+
+    decision = pipeline.judge_evidence_sufficiency("看板の場所", pool.all())
+
+    assert decision.status == "uncertain"
+    assert "999" in decision.reason
+
+
+def test_sufficient_without_supporting_evidence_ids_is_downgraded():
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService())
+    pool = EvidencePool()
+    pool.add_many([make_result(1, "a.png", "caption")], "q", "caption_vector")
+    llm = MagicMock(return_value='{"status": "sufficient", "reason": "十分", "missing_aspects": []}')
+    pipeline.sufficiency_llm_text_generator = llm
+
+    decision = pipeline.judge_evidence_sufficiency("質問", pool.all())
+
+    assert decision.status == "uncertain"
+    assert "supporting_evidence_ids" in decision.reason
+
+
+def test_insufficient_after_max_iterations_does_not_answer():
+    llm = MagicMock(side_effect=[
+        '{"subqueries": ["missing"]}',
+        '{"status": "insufficient", "reason": "不足", "missing_aspects": ["詳細"]}',
+        '{"queries": ["missing 詳細"]}',
+    ])
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), max_iterations=1, llm_text_generator=llm)
+
+    result = pipeline.run("missing", answer_generator=lambda q, selected, docs: "should-not-run")
+
+    assert result.answer.startswith("情報が不足しており回答できません")
+    assert result.selected_evidence == []
+    assert "十分性未達のため回答生成を停止" in result.trace
+
+
+def test_followup_includes_evidence_summary():
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService())
+    pool = EvidencePool()
+    pool.add_many([make_result(421, "sign.png", "看板は上石神井駅")], "q", "caption_vector")
+    followup_llm = MagicMock(return_value='{"queries": ["上石神井駅 座標"]}')
+    pipeline.followup_llm_text_generator = followup_llm
+    decision = SufficiencyDecision("insufficient", "座標不足", ["座標"])
+
+    pipeline.generate_followup_queries("看板の座標", decision, ["看板 場所"], pool.all())
+
+    prompt = followup_llm.call_args.args[0]
+    assert "evidence_id: 421" in prompt
+    assert "上石神井駅" in prompt
+
+
+def test_filter_failure_returns_empty_not_keyword_fallback():
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), llm_text_generator=None)
+    pool = EvidencePool()
+    pool.add_many([make_result(1, "a.png", "猫")], "猫", "caption_vector")
+
+    selected, reason = pipeline.filter_and_order_evidence("猫", pool.all())
+
+    assert selected == []
+    assert "選びませんでした" in reason
+
+
+def test_mixed_evidence_pool_without_llm_does_not_generate_answer():
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), max_iterations=0)
+    pool = EvidencePool()
+    pool.add_many([make_result(421, "sign.png", "看板は上石神井駅前")], "q1", "caption_vector")
+    pool.add_many([make_result(12, "other.png", "東武練馬駅 北緯35度46分")], "q2", "caption_vector")
+
+    result = pipeline.run(
+        "練馬区の看板の場所の緯度経度は？",
+        answer_generator=lambda q, selected, docs: "should-not-run",
+    )
+
+    assert result.answer.startswith("情報が不足しており回答できません")
+    assert result.selected_evidence == []
+
+
+def test_decompose_parses_dependent_aspects_without_blocking_subqueries():
+    llm = MagicMock(return_value='{"subqueries": ["対象Aの特定"], "dependent_aspects": ["属性X"]}')
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), decompose_llm_text_generator=llm)
+
+    queries = pipeline.decompose_question("対象Aの属性Xは？")
+
+    assert queries == ["対象Aの特定"]
 
 
 def test_agentic_rag_settings_include_max_selected_evidence_input():

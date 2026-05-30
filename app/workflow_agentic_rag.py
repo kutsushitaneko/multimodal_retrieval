@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import json
 import time
@@ -17,6 +18,8 @@ from app.agentic_rag_common import (
     SufficiencyDecision,
     format_documents,
 )
+from app.paths import PROMPT_AGENT_WORKFLOW_DIR, PROMPT_SNIPPETS_DIR
+from app.prompt_loader import load_prompt
 
 
 @dataclass
@@ -168,7 +171,7 @@ class WorkflowAgenticRAGPipeline:
         iterations = 0
         while decision.status != "sufficient" and iterations < self.max_iterations:
             started_at = time.perf_counter()
-            followup_queries = self.generate_followup_queries(question, decision, subqueries)
+            followup_queries = self.generate_followup_queries(question, decision, subqueries, pool.all())
             followup_query_lines = self._format_numbered_items(followup_queries) if followup_queries else "\n  なし"
             trace.append(
                 f"追加検索クエリー生成 [{self._elapsed_ms(started_at)}]: {len(followup_queries)} 件"
@@ -202,6 +205,19 @@ class WorkflowAgenticRAGPipeline:
             trace.append(f"再判定入力: {self._format_llm_input_stats(question, pool.all(), 'sufficiency')}")
             yield build_result(sufficiency=decision, all_evidence=pool.all())
 
+        if decision.status != "sufficient":
+            trace.append(f"十分性未達のため回答生成を停止: {decision.status} - {decision.reason}")
+            trace.append(f"Workflow Agentic RAG 全体 [{self._elapsed_ms(total_started_at)}]")
+            yield self._build_result(
+                answer=f"情報が不足しており回答できません。（Workflow: {decision.reason}）",
+                selected_evidence=[],
+                trace=trace,
+                selection_reason="",
+                sufficiency=decision,
+                all_evidence=pool.all(),
+            )
+            return
+
         started_at = time.perf_counter()
         selected, selection_reason = self.filter_and_order_evidence(question, pool.all())
         trace.append(f"evidence選別・並べ替え [{self._elapsed_ms(started_at)}]: {selection_reason}")
@@ -212,6 +228,19 @@ class WorkflowAgenticRAGPipeline:
             sufficiency=decision,
             all_evidence=pool.all(),
         )
+        if not selected:
+            trace.append("evidence選別に失敗したため回答生成を停止。")
+            trace.append(f"Workflow Agentic RAG 全体 [{self._elapsed_ms(total_started_at)}]")
+            yield self._build_result(
+                answer="情報が不足しており回答できません。（Workflow: 回答に使える evidence を選別できませんでした）",
+                selected_evidence=[],
+                trace=trace,
+                selection_reason=selection_reason,
+                sufficiency=decision,
+                all_evidence=pool.all(),
+            )
+            return
+
         started_at = time.perf_counter()
         documents = self.format_documents(selected)
         trace.append(f"回答用ドキュメント整形 [{self._elapsed_ms(started_at)}]: {len(selected)} 件")
@@ -257,16 +286,9 @@ class WorkflowAgenticRAGPipeline:
         if self.decompose_llm_text_generator is None:
             return []
 
-        prompt = (
-            "あなたはマルチモーダルRAGの検索計画を作るエージェントです。\n"
-            "ユーザー質問を、回答に必要な観点ごとの検索サブクエリーへ分解してください。\n"
-            "単一観点の質問は無理に分解せず、1件だけ返してください。\n"
-            "画像ベクトル検索、キャプションベクトル検索、全文検索の全てに使いやすい自然文にしてください。\n"
-            "全文検索は固有表現OR検索として、URL、論文ID、エラーコード、IPアドレス、製品名、固有名詞、文書内テキストの補完に使われます。\n"
-            "重複したサブクエリーは禁止です。\n"
-            "必ずJSONのみを返してください。\n"
-            "形式: {\"subqueries\": [\"query1\", \"query2\"]}\n\n"
-            f"ユーザー質問:\n{question}"
+        prompt = load_prompt(
+            os.path.join(PROMPT_AGENT_WORKFLOW_DIR, "decompose.txt"),
+            question=question,
         )
         try:
             parsed = self._parse_llm_json(self.decompose_llm_text_generator(prompt))
@@ -274,10 +296,16 @@ class WorkflowAgenticRAGPipeline:
             return []
 
         raw_queries = []
+        dependent_aspects: list[str] = []
         if isinstance(parsed, dict):
             raw_queries = parsed.get("subqueries") or parsed.get("queries") or []
+            aspects = parsed.get("dependent_aspects") or []
+            if isinstance(aspects, list):
+                dependent_aspects = [str(item).strip() for item in aspects if str(item).strip()]
         elif isinstance(parsed, list):
             raw_queries = parsed
+        if dependent_aspects:
+            print(f"初回検索対象外の属性: {', '.join(dependent_aspects)}")
         return self._dedupe_queries(raw_queries)[:5]
 
     def _decompose_question_with_rules(self, question: str) -> list[str]:
@@ -308,15 +336,7 @@ class WorkflowAgenticRAGPipeline:
 
         if not evidence:
             return SufficiencyDecision("insufficient", "検索候補がありません。", ["検索候補"])
-        if len(evidence) >= 3:
-            return SufficiencyDecision("sufficient", f"{len(evidence)}件の候補が見つかりました。")
-
-        keywords = self._keywords(question)
-        captions = " ".join(item.caption for item in evidence)
-        matched = [keyword for keyword in keywords if keyword and keyword in captions]
-        if matched:
-            return SufficiencyDecision("sufficient", f"質問語に一致する候補があります: {', '.join(matched[:3])}")
-        return SufficiencyDecision("uncertain", "候補数が少なく、質問語との一致も限定的です。", keywords[:3])
+        return SufficiencyDecision("uncertain", "LLMによる十分性判定が利用できません。", ["十分性判定"])
 
     def _judge_evidence_sufficiency_with_llm(
         self,
@@ -340,9 +360,24 @@ class WorkflowAgenticRAGPipeline:
         missing_aspects = parsed.get("missing_aspects") or []
         if not isinstance(missing_aspects, list):
             missing_aspects = []
+        reason = str(parsed.get("reason") or "LLMが十分性を判定しました。")
+        if status == "sufficient":
+            supporting_ids = parsed.get("supporting_evidence_ids") or []
+            if not isinstance(supporting_ids, list) or not supporting_ids:
+                status = "uncertain"
+                reason = "supporting_evidence_ids が未指定のため sufficient を確認できません。"
+            else:
+                evidence_ids = {str(item.id) for item in evidence}
+                invalid_ids = [str(item_id) for item_id in supporting_ids if str(item_id) not in evidence_ids]
+                if invalid_ids:
+                    status = "uncertain"
+                    reason = (
+                        "supporting_evidence_ids に存在しない ID があるため sufficient を確認できません: "
+                        + ", ".join(invalid_ids)
+                    )
         return SufficiencyDecision(
             status=status,
-            reason=str(parsed.get("reason") or "LLMが十分性を判定しました。"),
+            reason=reason,
             missing_aspects=[str(item).strip() for item in missing_aspects if str(item).strip()][:5],
         )
 
@@ -351,8 +386,9 @@ class WorkflowAgenticRAGPipeline:
         question: str,
         decision: SufficiencyDecision,
         existing_queries: list[str],
+        evidence: list[Evidence] | None = None,
     ) -> list[str]:
-        llm_queries = self._generate_followup_queries_with_llm(question, decision, existing_queries)
+        llm_queries = self._generate_followup_queries_with_llm(question, decision, existing_queries, evidence or [])
         if llm_queries:
             return llm_queries
 
@@ -373,20 +409,19 @@ class WorkflowAgenticRAGPipeline:
         question: str,
         decision: SufficiencyDecision,
         existing_queries: list[str],
+        evidence: list[Evidence],
     ) -> list[str]:
         if self.followup_llm_text_generator is None:
             return []
 
-        prompt = (
-            "あなたはマルチモーダルRAGの追加検索クエリーを作るエージェントです。\n"
-            "不足観点を埋めるため、画像ベクトル検索、キャプションベクトル検索、全文検索に使える追加クエリーを最大3件作ってください。\n"
-            "全文検索向けには、URL、論文ID、エラーコード、IPアドレス、製品名、固有名詞などの固有表現を残してください。\n"
-            "既存クエリーと重複しないようにしてください。\n"
-            "必ずJSONのみを返してください。\n"
-            "形式: {\"queries\": [\"query1\", \"query2\"]}\n\n"
-            f"ユーザー質問:\n{question}\n\n"
-            f"十分性判定: {decision.status}\n理由: {decision.reason}\n不足観点: {', '.join(decision.missing_aspects)}\n"
-            f"既存クエリー: {', '.join(existing_queries)}"
+        prompt = load_prompt(
+            os.path.join(PROMPT_AGENT_WORKFLOW_DIR, "followup.txt"),
+            question=question,
+            status=decision.status,
+            reason=decision.reason,
+            missing_aspects=", ".join(decision.missing_aspects),
+            existing_queries=", ".join(existing_queries),
+            evidence_summary=self._format_evidence_for_prompt(evidence),
         )
         try:
             parsed = self._parse_llm_json(self.followup_llm_text_generator(prompt))
@@ -405,21 +440,7 @@ class WorkflowAgenticRAGPipeline:
         if llm_selection is not None:
             return llm_selection
 
-        keywords = self._keywords(question)
-
-        def score(item: Evidence):
-            caption_score = sum(1 for keyword in keywords if keyword and keyword in item.caption)
-            source_score = {
-                "caption_fulltext": 3,
-                "caption_vector": 2,
-                "image_vector_text": 2,
-                "image_vector_image": 2,
-            }.get(item.source_tool, 1)
-            return caption_score * 10 + source_score
-
-        selected = sorted(evidence, key=score, reverse=True)[: self.max_selected_evidence]
-        reason = f"VLM選別ステップ相当: {len(evidence)}件から回答に使う候補を{len(selected)}件に絞り、質問語との一致と検索方式で並べ替えました。"
-        return selected, reason
+        return [], "LLMによる evidence 選別が利用できなかったため、回答用 evidence を選びませんでした。"
 
     def _filter_and_order_evidence_with_llm(
         self,
@@ -460,7 +481,11 @@ class WorkflowAgenticRAGPipeline:
     def default_answer(self, question: str, selected: list[Evidence], documents: str) -> str:
         if not selected:
             return "❌ 回答に使用できる検索結果が見つかりませんでした。"
-        return f"以下の参照情報を元に回答してください。\n\n質問: {question}\n\n参照情報:\n{documents}"
+        return load_prompt(
+            os.path.join(PROMPT_SNIPPETS_DIR, "answer_fallback.txt"),
+            question=question,
+            documents=documents,
+        )
 
     def _build_result(
         self,
@@ -553,11 +578,11 @@ class WorkflowAgenticRAGPipeline:
         if not evidence:
             return "（検索候補なし）"
         lines = []
-        for index, item in enumerate(evidence[:MAX_EVIDENCE_FOR_LLM_PROMPT], start=1):
+        for item in evidence[:MAX_EVIDENCE_FOR_LLM_PROMPT]:
             lines.append(
                 "\n".join(
                     [
-                        f"{index}. id: {item.id}",
+                        f"evidence_id: {item.id}",
                         f"   file_name: {item.file_name}",
                         f"   source_tool: {item.source_tool}",
                         f"   source_query: {item.source_query}",
@@ -586,24 +611,13 @@ class WorkflowAgenticRAGPipeline:
         )
 
     def _build_evidence_eval_prompt(self, question: str, evidence_prompt: str, step: str) -> str:
-        if step == "selection":
-            instruction = (
-                "あなたはマルチモーダルRAGの検索候補を選別・並べ替えするエージェントです。\n"
-                "ユーザー質問に回答するために役立つ evidence だけを選び、回答で参照すると自然な順序に並べてください。\n"
-                f"最大 {self.max_selected_evidence} 件まで選択してください。\n"
-                "必ずJSONのみを返してください。\n"
-                "形式: {\"selected_evidence_ids\": [\"id1\", \"id2\"], \"reason\": \"短い理由\"}\n\n"
-            )
-        else:
-            instruction = (
-                "あなたはマルチモーダルRAGの検索結果を評価するエージェントです。\n"
-                "ユーザー質問に回答するために、検索候補が十分か判定してください。\n"
-                "status は sufficient, insufficient, uncertain のいずれかです。\n"
-                "不足している観点があれば missing_aspects に短い語句で入れてください。\n"
-                "必ずJSONのみを返してください。\n"
-                "形式: {\"status\": \"sufficient\", \"reason\": \"理由\", \"missing_aspects\": []}\n\n"
-            )
-        return f"{instruction}ユーザー質問:\n{question}\n\n検索候補:\n{evidence_prompt}"
+        template_name = "evidence_selection.txt" if step == "selection" else "evidence_sufficiency.txt"
+        return load_prompt(
+            os.path.join(PROMPT_AGENT_WORKFLOW_DIR, template_name),
+            max_selected_evidence=self.max_selected_evidence,
+            question=question,
+            evidence_prompt=evidence_prompt,
+        )
 
     @staticmethod
     def _format_numbered_items(items: list[str]) -> str:

@@ -4,6 +4,8 @@ import os
 import gradio as gr
 
 from app.agentic_rag_common import REFERENCED_GALLERY_ELEM_CLASS
+from app.paths import CONFIG_QUESTION_EXAMPLES
+from app.prompt_service import PromptService
 
 # 定数定義
 QUERY_INPUT_PLACEHOLDER_TEXT = "検索したい画像の内容を入力してください"
@@ -16,7 +18,7 @@ REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
 ANSWER_GENERATION_MODE_LABEL_TEXT = "回答生成モード"
 ANSWER_MODE_SINGLE_IMAGE = "先頭画像あるいは選択した１つの画像"
 ANSWER_MODE_LISTWISE = "VLMによるフィルタリングと並べ替え"
-QUESTION_EXAMPLES_FILE = "question_examples.json"
+QUESTION_EXAMPLES_FILE = CONFIG_QUESTION_EXAMPLES
 FALLBACK_QUESTION_EXAMPLES = [
     "ORA-00923 とは何ですか？",
     "MCPは、アプリ開発者にとってどんなメリットがありますか？",
@@ -997,78 +999,24 @@ class UIComponents:
             return list(FALLBACK_QUESTION_EXAMPLES)
 
     def _get_answer_prompt_template_names(self):
-        import glob
-
-        default_name = self._get_default_answer_prompt_template_name()
-        prompt_dir = "answer_prompt"
-        template_names = []
-        for file_path in glob.glob(os.path.join(prompt_dir, "*.txt")):
-            template_names.append(os.path.splitext(os.path.basename(file_path))[0])
-        if default_name not in template_names:
-            template_names.insert(0, default_name)
-        return template_names
+        return PromptService(category="answer").get_template_names()
 
     def _get_default_answer_prompt_template_name(self):
-        return "デフォルト（回答生成）"
+        return PromptService(category="answer").get_default_template_name()
     
     def create_answer_prompt_settings_section(self):
         """回答生成プロンプトの設定と編集セクションのUIコンポーネントを作成"""
+        answer_prompt_service = PromptService(category="answer")
+        initial_answer_choices = answer_prompt_service.get_template_names()
+        initial_answer_value = answer_prompt_service.get_default_template_name()
+        initial_answer_prompt = answer_prompt_service.load_template(initial_answer_value) or ""
         with gr.Accordion("回答生成プロンプトの設定と編集", open=False):
-            # 回答生成プロンプトテンプレートの初期化
-            def initialize_answer_prompt_template_choices():
-                try:
-                    import os
-                    import glob
-                    answer_prompt_dir = "answer_prompt"
-                    if not os.path.exists(answer_prompt_dir):
-                        os.makedirs(answer_prompt_dir, exist_ok=True)
-                    
-                    # answer_promptフォルダーからテンプレート一覧を取得
-                    template_files = glob.glob(os.path.join(answer_prompt_dir, "*.txt"))
-                    template_names = []
-                    for file_path in template_files:
-                        basename = os.path.basename(file_path)
-                        template_name = os.path.splitext(basename)[0]
-                        template_names.append(template_name)
-                    
-                    # デフォルトテンプレートを確認
-                    default_template_name = "デフォルト（回答生成）"
-                    if not template_names:
-                        template_names = [default_template_name]
-                    elif default_template_name not in template_names:
-                        template_names.insert(0, default_template_name)
-                    
-                    return template_names, default_template_name
-                except Exception as e:
-                    print(f"回答生成プロンプトテンプレート初期化エラー: {e}")
-                    return ["デフォルト（回答生成）"], "デフォルト（回答生成）"
-            
-            initial_answer_choices, initial_answer_value = initialize_answer_prompt_template_choices()
-            
-            # 回答生成プロンプトテンプレート選択
             answer_prompt_template_dropdown = gr.Dropdown(
                 label="回答生成プロンプトテンプレート",
                 choices=initial_answer_choices,
                 value=initial_answer_value,
-                interactive=True
+                interactive=True,
             )
-            
-            # デフォルト回答生成プロンプトを読み込み
-            def get_initial_answer_prompt():
-                try:
-                    import os
-                    answer_prompt_path = os.path.join("answer_prompt", f"{initial_answer_value}.txt")
-                    if os.path.exists(answer_prompt_path):
-                        with open(answer_prompt_path, 'r', encoding='utf-8') as f:
-                            return f.read()
-                    return ""
-                except Exception as e:
-                    print(f"デフォルト回答生成プロンプト読み込みエラー: {e}")
-                    return ""
-            
-            initial_answer_prompt = get_initial_answer_prompt()
-            
-            # 回答生成プロンプト表示・編集を左右に配置
             with gr.Row():
                 with gr.Column(scale=1):
                     # 左側：現在の回答生成プロンプト（表示のみ）

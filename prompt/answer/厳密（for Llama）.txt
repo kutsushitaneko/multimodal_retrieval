@@ -20,6 +20,6 @@
   「情報不足のため、回答できません」  
 
 ### ドキュメント
-{{documents}}
+{documents}
 ### 現在の質問  
-{{query_text}}
+{query_text}
