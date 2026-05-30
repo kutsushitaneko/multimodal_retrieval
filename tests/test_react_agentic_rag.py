@@ -210,11 +210,13 @@ def test_react_controller_prompt_explains_select_evidence_role():
 
     prompt = pipeline._build_controller_prompt("質問", [], [], [])
 
+    assert '"answerable": true' in prompt
     assert "最終回答に使う候補を選択して selected_evidence を更新するAction" in prompt
     assert "新しい情報は取得しない" in prompt
     assert "検索不足や未カバーのサブ質問を解消しない" in prompt
     assert "select_evidence ではなく検索Actionまたは multi_search を使う" in prompt
     assert "同じ evidence を再選択しても進捗にならない" in prompt
+    assert "情報不足だが候補を選ぶ場合は action_input に answerable:false を必ず付ける" in prompt
 
 
 def test_react_controller_prompt_explains_image_vector_image_search_input():
@@ -252,6 +254,34 @@ def test_react_finalize_verifier_blocks_giveup_and_forces_research():
     assert "確定保留" in result.trace
     assert result.answer == "生成回答"
     assert verifier.call_count == 2
+
+
+def test_react_select_evidence_answerable_false_runs_finalize_verifier():
+    controller = MagicMock(side_effect=[
+        '{"thought": "初回検索", "action": "multi_search", '
+        '"action_input": {"query_variants": ["猫"], "tools": ["caption_vector_search"]}}',
+        (
+            '{"thought": "候補はあるが不足", "action": "select_evidence", '
+            '"action_input": {"evidence_ids": ["1"], "reason": "本文不足", "answerable": false}}'
+        ),
+        '{"thought": "手がかりで再検索", "action": "caption_vector_search", "action_input": {"query": "子猫の特徴"}}',
+        '{"thought": "情報不足で回答", "action": "generate_final_answer", "action_input": {"answerable": false}}',
+    ])
+    verifier = MagicMock(side_effect=['["子猫の特徴"]', '["子猫の特徴"]'])
+    pipeline = ReactAgenticRAGPipeline(
+        FakeSearchService(),
+        max_steps=5,
+        controller_llm_text_generator=controller,
+        finalize_verifier_llm_text_generator=verifier,
+    )
+
+    result = pipeline.run("猫について", answer_generator=lambda q, selected, docs: "生成回答")
+
+    assert result.answer == "生成回答"
+    assert verifier.call_count == 2
+    assert "確定保留" in result.trace
+    assert "次の値で再検索してください: 子猫の特徴" in result.trace
+    assert "finalize verifier: extracted 1 leads: 子猫の特徴; unsearched 1: 子猫の特徴" in result.trace
 
 
 def test_react_finalize_verifier_not_called_when_answerable_true():

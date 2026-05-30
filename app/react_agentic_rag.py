@@ -486,26 +486,21 @@ class ReactAgenticRAGPipeline:
                         "参照evidenceはありませんが、アップロード画像があるため回答生成を試みます。"
                     )
                     yield build_result()
-                answerable = bool(step.action_input.get("answerable", True))
+                answerable = self._is_answerable(step.action_input)
                 if (
                     answerable is False
                     and self.finalize_verifier_llm_text_generator is not None
                     and pool.all()
                     and forced_verifications < self.max_verifier_retries
                 ):
-                    leads = self._run_finalize_verifier(
+                    leads, new_leads = self._find_unsearched_finalize_leads(
                         question, selected_evidence, pool.all(), registry.executed_searches
                     )
-                    executed = {
-                        ReactToolRegistry._search_key("", query)
-                        for _, query in registry.executed_searches
-                    }
-                    new_leads = [
-                        lead
-                        for lead in leads
-                        if ReactToolRegistry._search_key("", lead) not in executed
-                        and " ".join(str(lead).split())
-                    ]
+                    trace.append(
+                        f"finalize verifier: extracted {len(leads)} leads"
+                        f"{self._format_verifier_leads(leads)}; unsearched {len(new_leads)}"
+                        f"{self._format_verifier_leads(new_leads)}"
+                    )
                     if new_leads:
                         forced_verifications += 1
                         step.observation = (
@@ -548,6 +543,31 @@ class ReactAgenticRAGPipeline:
                     trace.append(f"Step {step_index} Observation: {observation}")
                     yield build_result()
             step.observation = "\n".join(observations)
+            if (
+                step.action == "select_evidence"
+                and self._is_answerable(step.action_input) is False
+                and self.finalize_verifier_llm_text_generator is not None
+                and pool.all()
+                and forced_verifications < self.max_verifier_retries
+            ):
+                leads, new_leads = self._find_unsearched_finalize_leads(
+                    question, selected_evidence, pool.all(), registry.executed_searches
+                )
+                trace.append(
+                    f"finalize verifier: extracted {len(leads)} leads"
+                    f"{self._format_verifier_leads(leads)}; unsearched {len(new_leads)}"
+                    f"{self._format_verifier_leads(new_leads)}"
+                )
+                if new_leads:
+                    forced_verifications += 1
+                    gate_observation = (
+                        "確定保留: 未解決のサブ質問に使える未検索の手がかりが残っています。"
+                        "次の値で再検索してください: "
+                        + ", ".join(new_leads[:5])
+                        + "。該当が無ければ generate_final_answer で answerable:false を指定してください。"
+                    )
+                    step.observation = "\n".join([part for part in [step.observation, gate_observation] if part])
+                    trace.append(f"Step {step_index} Observation: {gate_observation}")
             steps.append(step)
             self._append_step_trace(trace, step_index, self._elapsed_ms(started_at))
             yield build_result()
@@ -673,7 +693,7 @@ class ReactAgenticRAGPipeline:
             "- caption_fulltext_search: {\"query\": \"検索クエリー\"}。質問中の固有表現をOR完全一致検索に変換し、URL、論文ID、エラーコード、IPアドレス、製品名、固有名詞、文書内テキストなど、ベクトル検索が苦手な語を補完する。\n"
             "- image_vector_text_search: {\"query\": \"検索クエリー\"}。画像内容だけでなく、画像中のテキスト、スライド、スクリーンショット、図表の情報発見にも有効。\n"
             "- image_vector_image_search: {}。アップロード画像がある場合のみ使用できる。テキストクエリーや reason は検索条件に使わず、アップロード画像そのものから視覚的に類似する画像を探す。\n"
-            "- select_evidence: {\"evidence_ids\": [\"188\", \"544\"], \"reason\": \"選別理由\"}。既に取得済みの evidence から、最終回答に使う候補を選択して selected_evidence を更新するAction。新しい情報は取得しない。検索不足や未カバーのサブ質問を解消しない。追加情報が必要な場合は select_evidence ではなく検索Actionまたは multi_search を使う。\n"
+            "- select_evidence: {\"evidence_ids\": [\"188\", \"544\"], \"reason\": \"選別理由\", \"answerable\": true}。既に取得済みの evidence から、最終回答に使う候補を選択して selected_evidence を更新するAction。新しい情報は取得しない。検索不足や未カバーのサブ質問を解消しない。追加情報が必要な場合は select_evidence ではなく検索Actionまたは multi_search を使う。選択候補だけで完全回答できるなら answerable は true、情報不足・部分回答の場合は false を指定する。\n"
             "- generate_final_answer: {\"reason\": \"選別済みevidenceで回答できる理由\", \"answerable\": true}。選択 evidence だけで質問に完全回答できるなら answerable は true、情報不足や部分的にしか答えられないなら false を指定する。\n\n"
             "進め方:\n"
             "1. 初回検索では原則 multi_search を使い、caption_vector_search と image_vector_text_search を必ず含める。固有名詞、URL、論文ID、エラーコード、IPアドレス、製品名、文書内テキストが重要なら caption_fulltext_search も含める。\n"
@@ -685,7 +705,7 @@ class ReactAgenticRAGPipeline:
             "6. [CRITICAL]回答生成のための情報が不足している場合は、まだ試していない観点・言い換え・固有表現・分解クエリー・中間結果を使った次ホップで再検索する。ただし、同一の検索（同じToolと同じクエリー）は再実行しない（自動的にスキップされる）。全サブ質問について、中間結果を使った次ホップ検索を含む合理的な検索を出し尽くし、それでも新しい検索結果が得られない場合に限り、無理な再検索を続けず、select_evidence で最も関連する候補を選び generate_final_answer に進む（根拠が乏しければ「情報が不足しており回答できません」と回答されることを許容する）。関連候補が全く無い場合も、これ以上同種の検索を繰り返さない。ただし断念する前に、取得済みキャプションに未使用の中間値（次に検索すべき名称・タイトル・用語）が残っていないか必ず確認し、残っていればそれを使って再検索する。\n"
             "7. [CRITICAL]回答生成にあたっては一般的な知識は利用できないことに留意し、検索から回答に十分な候補が揃ったら select_evidence を実行する。\n"
             "8. select_evidence の evidence_ids には、検索候補の evidence_id の値だけを入れる。No. は表示順であり evidence_id ではないため、絶対に evidence_ids に入れない。\n"
-            "9. select_evidence は回答直前の候補確定に使う。情報不足や未カバーのサブ質問がある状態で同じ evidence を再選択しても進捗にならないため、追加検索が必要なら検索Actionまたは multi_search を実行する。\n"
+            "9. select_evidence は回答直前の候補確定に使う。情報不足や未カバーのサブ質問がある状態で同じ evidence を再選択しても進捗にならないため、追加検索が必要なら検索Actionまたは multi_search を実行する。情報不足だが候補を選ぶ場合は action_input に answerable:false を必ず付ける。\n"
             "10. select_evidence 実行前に、指定するIDが「選択可能な evidence_id 一覧」に存在することを確認する。\n"
             "11. 悪い例: {\"evidence_ids\": [\"1\", \"2\"]}。理由: 1, 2 は No. であり evidence_id ではない。\n"
             "12. generate_final_answer の前に、質問の全サブ質問が選択済みevidenceでカバーされているか確認する。未カバーのサブ質問があり、中間結果を使った次ホップなどまだ試していない検索が残っているなら、generate_final_answer ではなく追加検索を行う。全サブ質問がカバーされていれば select_evidence 後に generate_final_answer を実行して終了する。generate_final_answer では、選択 evidence だけで質問に完全回答できる場合は action_input に answerable: true、情報不足・部分回答の場合は answerable: false を必ず付ける。\n"
@@ -722,6 +742,47 @@ class ReactAgenticRAGPipeline:
             return self._parse_verifier_terms(response_text)
         except Exception:
             return []
+
+    def _find_unsearched_finalize_leads(
+        self,
+        question: str,
+        selected_evidence: list[Evidence],
+        all_evidence: list[Evidence],
+        executed_searches: list[tuple[str, str]],
+    ) -> tuple[list[str], list[str]]:
+        leads = self._run_finalize_verifier(question, selected_evidence, all_evidence, executed_searches)
+        executed = {
+            ReactToolRegistry._search_key("", query)
+            for _, query in executed_searches
+        }
+        new_leads = [
+            lead
+            for lead in leads
+            if ReactToolRegistry._search_key("", lead) not in executed
+            and " ".join(str(lead).split())
+        ]
+        return leads, new_leads
+
+    @staticmethod
+    def _format_verifier_leads(leads: list[str]) -> str:
+        if not leads:
+            return ""
+        return f": {', '.join(leads[:5])}"
+
+    @staticmethod
+    def _is_answerable(action_input: dict[str, Any]) -> bool:
+        if "answerable" not in action_input:
+            return True
+        value = action_input.get("answerable")
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"false", "no", "0", "不可能", "不可", "情報不足"}:
+                return False
+            if normalized in {"true", "yes", "1", "可能", "十分"}:
+                return True
+        return bool(value)
 
     def _build_finalize_verifier_prompt(
         self,
