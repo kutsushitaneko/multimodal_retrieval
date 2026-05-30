@@ -266,7 +266,14 @@ or
 
 ### Workflow Agentic RAG
 
-`Workflow Agentic RAG` タブは、自然文の質問から回答生成までを固定ワークフローで実行するタブです。質問と任意の入力画像を指定し、`参照する情報の種類`、`検索件数`、`再検索回数上限` を設定して `Workflow Agentic RAG 実行` を押します。
+`Workflow Agentic RAG` タブは、自然文の質問から回答生成までを固定ワークフローで実行するタブです。質問と任意の入力画像を指定し、`Agentic RAG設定`（検索件数、再検索回数上限、参照する情報の種類、参照ドキュメント数）を設定して `Workflow Agentic RAG 実行` を押します。
+
+`Agentic RAG設定` の項目は次の順で並びます。
+
+- `検索件数`: 1〜24件（デフォルト 8）
+- `再検索回数上限`: 0〜12（デフォルト 2）
+- `参照する情報の種類`: `すべて` / `キャプションのみ` / `画像のみ`
+- `参照ドキュメント数`: 回答に使う evidence の最大件数（1〜24、デフォルト 4）
 
 主な処理の流れは以下です。
 
@@ -365,7 +372,9 @@ sequenceDiagram
 
 ### ReAct Agentic RAG
 
-`ReAct Agentic RAG` タブは、Controller モデルが Thought / Action / Observation を繰り返しながら、必要な検索 Tool （画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選択して回答生成まで進めるタブです。質問と任意の入力画像を指定し、`参照する情報の種類`、`検索件数`、`最大ステップ数` を設定して `ReAct Agentic RAG 実行` を押します。
+`ReAct Agentic RAG` タブは、Controller モデルが Thought / Action / Observation を繰り返しながら、必要な検索 Tool （画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選択して回答生成まで進めるタブです。質問と任意の入力画像を指定し、`Agentic RAG設定`（検索件数、最大ステップ数、参照する情報の種類、参照ドキュメント数）を設定して `ReAct Agentic RAG 実行` を押します。
+
+`Agentic RAG設定` の項目は Workflow と同様に、検索件数 → 最大ステップ数 → 参照する情報の種類 → 参照ドキュメント数（1〜24、デフォルト 4）の順で並びます。`select_evidence` で選べる evidence 件数は `参照ドキュメント数` で制限されます。
 
 Controller が使用できる主な Action は以下です。
 

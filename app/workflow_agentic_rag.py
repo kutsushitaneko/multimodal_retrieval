@@ -40,7 +40,7 @@ class WorkflowAgenticRAGPipeline:
         max_iterations: int = 2,
         vector_threshold: float = 0.25,
         keyword_threshold: float = 0,
-        max_selected_evidence: int = 6,
+        max_selected_evidence: int = 4,
         llm_text_generator: LLMTextGenerator | None = None,
         decompose_llm_text_generator: LLMTextGenerator | None = None,
         sufficiency_llm_text_generator: LLMTextGenerator | None = None,
@@ -51,7 +51,7 @@ class WorkflowAgenticRAGPipeline:
         self.max_iterations = self._normalize_int(max_iterations, 2, 0, 3)
         self.vector_threshold = vector_threshold
         self.keyword_threshold = keyword_threshold
-        self.max_selected_evidence = self._normalize_int(max_selected_evidence, 6, 1, 12)
+        self.max_selected_evidence = self._normalize_int(max_selected_evidence, 4, 1, 24)
         self.llm_text_generator = llm_text_generator
         self.decompose_llm_text_generator = decompose_llm_text_generator or llm_text_generator
         self.sufficiency_llm_text_generator = sufficiency_llm_text_generator or llm_text_generator
@@ -590,6 +590,7 @@ class WorkflowAgenticRAGPipeline:
             instruction = (
                 "あなたはマルチモーダルRAGの検索候補を選別・並べ替えするエージェントです。\n"
                 "ユーザー質問に回答するために役立つ evidence だけを選び、回答で参照すると自然な順序に並べてください。\n"
+                f"最大 {self.max_selected_evidence} 件まで選択してください。\n"
                 "必ずJSONのみを返してください。\n"
                 "形式: {\"selected_evidence_ids\": [\"id1\", \"id2\"], \"reason\": \"短い理由\"}\n\n"
             )
