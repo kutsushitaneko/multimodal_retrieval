@@ -21,6 +21,7 @@ from app.agentic_rag_common import (
 from app.agentic_search_strategy import (
     SearchStrategyHint,
     classify_question_strategy,
+    count_regex_detected_entities,
     format_first_step_hint_for_prompt,
     format_leads_tool_recommendations,
     fulltext_mixed_query_warning,
@@ -28,6 +29,8 @@ from app.agentic_search_strategy import (
 )
 from app.paths import PROMPT_AGENT_REACT_DIR, PROMPT_SNIPPETS_DIR
 from app.prompt_loader import load_prompt
+from app.search_planner import SearchPlanner
+from app.search_query_generator import SearchQueryGenerator
 
 
 @dataclass
@@ -92,6 +95,9 @@ class ReactToolRegistry:
         pool: EvidencePool,
         selected_evidence: list[Evidence],
     ):
+        if action == "plan_and_execute_search":
+            yield from self._iter_execute_plan_and_search(action_input, pool, selected_evidence)
+            return
         if action == "multi_search":
             yield from self._iter_execute_multi_search(action_input, pool, selected_evidence)
             return
@@ -191,6 +197,99 @@ class ReactToolRegistry:
             if warning:
                 observation = f"{observation}\n{warning}"
         return observation, selected_evidence, "", False, ""
+
+    def _resolve_search_query(self, tool: str, query: str, exact_terms: list[str] | None = None) -> str:
+        if tool != "caption_fulltext_search":
+            return query
+        terms = [str(term).strip() for term in (exact_terms or []) if str(term).strip()]
+        if terms:
+            entities = [{"text": term, "type": "identifier"} for term in terms]
+            built = self.pipeline.search_query_generator.build_or_exact_query(entities)
+            if built:
+                return built
+        return query
+
+    def _iter_execute_plan_and_search(
+        self,
+        action_input: dict[str, Any],
+        pool: EvidencePool,
+        selected_evidence: list[Evidence],
+    ):
+        question = str(getattr(self.pipeline, "current_question", "") or "").strip()
+        if not question:
+            yield "plan_and_execute_search には質問文が必要です。", selected_evidence, "", False, ""
+            return
+
+        phase = str(action_input.get("phase") or "").strip().lower()
+        if phase not in {"initial", "followup"}:
+            phase = "initial" if not pool.all() else "followup"
+        notes = str(action_input.get("notes") or "").strip()
+
+        planner = self.pipeline.search_planner
+        if planner is None:
+            yield "Search Planner モデルが設定されていません。", selected_evidence, "", False, ""
+            return
+
+        yield "Search Planner 計画中...", selected_evidence, "", False, ""
+        planner_started_at = time.perf_counter()
+        plan, planner_error = planner.plan(
+            question,
+            evidence_summary=self.pipeline._format_evidence_summary(pool.all()),
+            executed_searches=self.executed_searches,
+            phase=phase,
+            controller_notes=notes,
+            has_uploaded_image=self.uploaded_image is not None,
+        )
+        if planner_error or plan is None:
+            yield (
+                f"plan_and_execute_search Plannerエラー [{self.pipeline._elapsed_ms(planner_started_at)}]: "
+                f"{planner_error or '計画不明'}",
+                selected_evidence,
+                "",
+                False,
+                "",
+            )
+            return
+
+        plan_header = (
+            f"Search Planner [{self.pipeline._elapsed_ms(planner_started_at)}]: "
+            f"multihop={plan.is_likely_multihop}, hop_goal={plan.current_hop_goal or '（なし）'}, "
+            f"tasks={len(plan.search_tasks)}"
+        )
+        if plan.dependent_aspects:
+            plan_header += f", dependent_aspects={len(plan.dependent_aspects)}"
+        yield plan_header, selected_evidence, "", False, ""
+
+        started_at = time.perf_counter()
+        observations = []
+        executed_count = 0
+        for task in plan.search_tasks:
+            resolved_query = self._resolve_search_query(task.tool, task.query, task.exact_terms)
+            label = resolved_query or "アップロード画像"
+            yield f"plan_and_execute_search 実行中: {task.tool} / {label}", selected_evidence, "", False, ""
+            search_input = {"query": resolved_query} if task.tool != "image_vector_image_search" else {}
+            observation, selected_evidence, _, _, _ = self._execute_search(
+                task.tool,
+                search_input,
+                pool,
+                selected_evidence,
+            )
+            if task.reason:
+                observation = f"{observation}\n  reason: {task.reason}"
+            observations.append(observation)
+            executed_count += 1
+            yield observation, selected_evidence, "", False, ""
+
+        detail = "\n    ".join(observations)
+        yield (
+            f"plan_and_execute_search [{self.pipeline._elapsed_ms(started_at)}]: "
+            f"phase={phase}, tasks {len(plan.search_tasks)} 件, calls {executed_count} 回, "
+            f"evidence {len(pool.all())} 件\n    {detail}",
+            selected_evidence,
+            "",
+            False,
+            "",
+        )
 
     def _execute_multi_search(
         self,
@@ -319,6 +418,7 @@ class ReactAgenticRAGPipeline:
     """Thought/Action/Observationを繰り返すReAct型Agentic RAGパイプライン。"""
 
     ALLOWED_ACTIONS = {
+        "plan_and_execute_search",
         "multi_search",
         "caption_vector_search",
         "caption_fulltext_search",
@@ -339,12 +439,15 @@ class ReactAgenticRAGPipeline:
         max_selected_evidence: int = 4,
         controller_llm_text_generator: LLMTextGenerator | None = None,
         controller_model_name: str = "",
+        search_planner_llm_text_generator: LLMTextGenerator | None = None,
+        search_planner_model_name: str = "",
         max_consecutive_parse_errors: int = 2,
         max_stale_steps: int = 2,
         finalize_verifier_llm_text_generator: LLMTextGenerator | None = None,
         max_verifier_retries: int = 2,
     ):
         self.search_service = search_service
+        self.search_query_generator = SearchQueryGenerator()
         self.top_k = self._normalize_int(top_k, 8, 1, 24)
         self.max_steps = self._normalize_int(max_steps, 8, 1, 12)
         self.vector_threshold = vector_threshold
@@ -352,6 +455,13 @@ class ReactAgenticRAGPipeline:
         self.max_selected_evidence = self._normalize_int(max_selected_evidence, 4, 1, 24)
         self.controller_llm_text_generator = controller_llm_text_generator
         self.controller_model_name = controller_model_name
+        self.search_planner_model_name = search_planner_model_name
+        self.search_planner = (
+            SearchPlanner(search_planner_llm_text_generator)
+            if search_planner_llm_text_generator is not None
+            else None
+        )
+        self.current_question = ""
         self.max_consecutive_parse_errors = self._normalize_int(max_consecutive_parse_errors, 2, 1, 5)
         self.max_stale_steps = self._normalize_int(max_stale_steps, 2, 1, self.max_steps)
         self.finalize_verifier_llm_text_generator = finalize_verifier_llm_text_generator
@@ -431,20 +541,24 @@ class ReactAgenticRAGPipeline:
             yield self._build_result("❌ ReAct Controllerモデルが設定されていません。", [], trace, "", decision, pool.all(), steps)
             return
 
+        self.current_question = question
         registry = ReactToolRegistry(self, uploaded_image)
         if self.controller_model_name:
             trace.append(f"Controllerモデル: {self.controller_model_name}")
+            yield build_result()
+        if self.search_planner_model_name:
+            trace.append(f"Search Plannerモデル: {self.search_planner_model_name}")
             yield build_result()
         consecutive_controller_errors = 0
         prev_evidence_count = 0
         stale_steps = 0
         forced_verifications = 0
         search_actions = self.ALLOWED_ACTIONS - {"select_evidence", "generate_final_answer"}
+        regex_entity_count = count_regex_detected_entities(question)
+        trace.append(f"正規表現検出エンティティ: {regex_entity_count} 件（Planner 参考）")
         strategy_hint = classify_question_strategy(question)
-        trace.append(
-            "検索戦略ヒント: "
-            + (strategy_hint.strategy if strategy_hint.strategy != "none" else "なし")
-        )
+        if strategy_hint.strategy != "none":
+            trace.append(f"ルール参考ヒント: {strategy_hint.strategy}")
         yield build_result()
         for step_index in range(1, self.max_steps + 1):
             started_at = time.perf_counter()
@@ -683,6 +797,10 @@ class ReactAgenticRAGPipeline:
             queries = [str(query or "").strip() for query in raw_queries] if isinstance(raw_queries, list) else []
             if "image_vector_image_search" not in tools and not [query for query in queries if query]:
                 return "multi_search には action_input.query_variants の非空配列が必要です。"
+        elif action == "plan_and_execute_search":
+            phase = str(action_input.get("phase") or "").strip().lower()
+            if phase and phase not in {"initial", "followup"}:
+                return "plan_and_execute_search の phase は initial または followup です。"
         elif action == "select_evidence":
             evidence_ids = action_input.get("evidence_ids") or action_input.get("selected_evidence_ids")
             if not isinstance(evidence_ids, list) or not [str(evidence_id or "").strip() for evidence_id in evidence_ids]:

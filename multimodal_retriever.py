@@ -167,6 +167,10 @@ def main():
                     react_agentic_controller_temperature,
                     react_agentic_controller_max_tokens,
                     react_agentic_controller_oci_region,
+                    react_agentic_planner_model,
+                    react_agentic_planner_temperature,
+                    react_agentic_planner_max_tokens,
+                    react_agentic_planner_oci_region,
                 ) = ui_components.create_react_agentic_vlm_settings()
 
                 react_agentic_events.register_vlm_settings_events(
@@ -179,6 +183,10 @@ def main():
                     react_agentic_controller_temperature,
                     react_agentic_controller_max_tokens,
                     react_agentic_controller_oci_region,
+                    react_agentic_planner_model,
+                    react_agentic_planner_temperature,
+                    react_agentic_planner_max_tokens,
+                    react_agentic_planner_oci_region,
                 )
 
                 react_agentic_events.register_react_agentic_rag_events(
@@ -200,6 +208,10 @@ def main():
                     react_agentic_controller_temperature,
                     react_agentic_controller_max_tokens,
                     react_agentic_controller_oci_region,
+                    react_agentic_planner_model,
+                    react_agentic_planner_temperature,
+                    react_agentic_planner_max_tokens,
+                    react_agentic_planner_oci_region,
                     react_agentic_answer_text,
                     react_agentic_referenced_images_gallery,
                     react_agentic_trace_text,

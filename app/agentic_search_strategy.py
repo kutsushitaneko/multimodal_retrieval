@@ -6,19 +6,15 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
+from app.entity_patterns import extract_entities_from_text
 from app.search_query_generator import SearchQueryGenerator
 
-SearchStrategyKind = Literal["identifier", "transitive", "none"]
+SearchStrategyKind = Literal["identifier", "none"]
 
 _IDENTIFIER_HINT = (
-    "【初回検索ヒント: 識別子・完全一致】識別子トークン（エラーコード、URL、論文 ID、製品名など）は "
-    "caption_fulltext_search で識別子のみを query にしてください。"
-    "1 つの fulltext query に識別子と一般語を混ぜないでください。"
-    "質問のそれ以外の語（機能・属性・説明が欲しい部分）は caption_vector_search "
-    "（必要なら image_vector_text_search）。vector の query に識別子を含めても構いません。"
-    "初回は識別子の fulltext と、残りの vector を組み合わせてよい（multi_search 可）。"
-    "2ホップ目以降、evidence や Verifier から得た長い自然文（タイトル・本文・要約）の再検索は "
-    "caption_vector_search を使い、caption_fulltext_search は再検索クエリーに識別子トークンのみを含む場合に限る。"
+    "【参考: 識別子が検出されました】検索の詳細は plan_and_execute_search が担当します。"
+    "識別子は caption_fulltext_search（識別子トークンのみ）、"
+    "それ以外の語は caption_vector_search / image_vector_text_search に分ける方針です。"
 )
 
 _FULLTEXT_NATURAL_LANGUAGE_WARNING = (
@@ -30,27 +26,6 @@ _FULLTEXT_MIXED_QUERY_WARNING = (
     "識別子と識別子以外の語が混在しています。"
     "fulltext には識別子のみ、それ以外は caption_vector_search で検索してください"
     "（vector には識別子を含めても構いません）。"
-)
-
-_TRANSITIVE_HINT = (
-    "【初回検索ヒント: 推移的 A→X】初回は参照対象 A の特定（第1ホップ）のみ行ってください。"
-    "属性 X（座標・日付・数値・定義など）を query_variants に含めないでください。"
-    "multi_search を使う場合も第1ホップ用クエリーは1〜2件に絞り、"
-    "caption_vector_search と image_vector_text_search を含めてください。"
-)
-
-# 推移的質問で「求めている属性」らしき語（抽象パターン）
-_ATTRIBUTE_PATTERN = re.compile(
-    r"(?:"
-    r"座標|緯度|経度|位置|場所|所在地|"
-    r"日付|年度|年|月|日|時刻|"
-    r"発掘|設立|創業|発売|"
-    r"数値|値|金額|料金|価格|人口|面積|"
-    r"定義|意味|原因|理由|方法|手順|"
-    r"氏名|名前|名称|タイトル|"
-    r"出口|番号|コード|ID"
-    r")",
-    re.IGNORECASE,
 )
 
 _query_generator: SearchQueryGenerator | None = None
@@ -70,22 +45,11 @@ class SearchStrategyHint:
 
 
 def _has_identifier_entities(question: str) -> bool:
-    entities = _get_query_generator().extract_rule_entities(question)
-    return bool(entities)
-
-
-def _looks_transitive(question: str) -> bool:
-    text = (question or "").strip()
-    if not text:
-        return False
-    # 「の」が2回以上かつ、属性らしい語を質問が求めている
-    if text.count("の") < 2:
-        return False
-    return bool(_ATTRIBUTE_PATTERN.search(text))
+    return bool(extract_entities_from_text(question))
 
 
 def classify_question_strategy(question: str) -> SearchStrategyHint:
-    """識別子 lookup / 推移的 A→X / その他（ヒントなし）をルールで判定する。"""
+    """識別子 lookup / その他（ヒントなし）をルールで判定する。推移性は Planner LLM に委譲。"""
     text = (question or "").strip()
     if not text:
         return SearchStrategyHint(strategy="none", hint_text="")
@@ -93,16 +57,20 @@ def classify_question_strategy(question: str) -> SearchStrategyHint:
     if _has_identifier_entities(text):
         return SearchStrategyHint(strategy="identifier", hint_text=_IDENTIFIER_HINT)
 
-    if _looks_transitive(text):
-        return SearchStrategyHint(strategy="transitive", hint_text=_TRANSITIVE_HINT)
-
     return SearchStrategyHint(strategy="none", hint_text="")
 
 
 def format_first_step_hint_for_prompt(hint: SearchStrategyHint) -> str:
     if hint.hint_text:
         return hint.hint_text
-    return "（特になし。下記「初回検索の戦略」に従い、質問タイプを判断してください。）"
+    return (
+        "（特になし。検索は plan_and_execute_search を優先してください。"
+        "分解・ツール選択・クエリーは Search Planner が担当します。）"
+    )
+
+
+def count_regex_detected_entities(question: str) -> int:
+    return len(extract_entities_from_text(question or ""))
 
 
 def query_has_fulltext_friendly_tokens(query: str) -> bool:

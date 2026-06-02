@@ -961,6 +961,26 @@ class UIComponents:
                     model_label="ReAct Controllerモデル",
                 )
 
+            with gr.Accordion("Search Planner モデル", open=False):
+                (
+                    planner_model,
+                    planner_temperature,
+                    planner_max_tokens,
+                    planner_oci_region,
+                ) = _vlm_service.create_model_setting_components(
+                    self._resolve_agentic_model_default(
+                        all_models,
+                        os.getenv("REACT_AGENTIC_PLANNER_MODEL_ID"),
+                        self._resolve_agentic_model_default(
+                            all_models,
+                            os.getenv("REACT_AGENTIC_CONTROLLER_MODEL_ID"),
+                            react_default_vlm,
+                        ),
+                    ),
+                    model_choices=agentic_model_choices,
+                    model_label="Search Plannerモデル",
+                )
+
         return (
             vlm_service_provider,
             vlm_model,
@@ -971,6 +991,10 @@ class UIComponents:
             controller_temperature,
             controller_max_tokens,
             controller_oci_region,
+            planner_model,
+            planner_temperature,
+            planner_max_tokens,
+            planner_oci_region,
         )
 
     @staticmethod

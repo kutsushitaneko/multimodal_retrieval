@@ -1,6 +1,7 @@
 import re
 import spacy
 import ginza
+from .entity_patterns import extract_entities_from_text
 from .fulltext_entity_extractor import FulltextEntityExtractor
 from .global_nlp_service import get_global_nlp_service
 
@@ -135,26 +136,8 @@ class SearchQueryGenerator:
         self.email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
 
     def extract_rule_entities(self, query):
-        """ベクトル検索が苦手な固有表現をルールで抽出する。"""
-        query = query or ""
-        patterns = [
-            ("url", r'https?://[a-zA-Z0-9\-._~:/?#\[\]@!$&\'()*+,;=]+'),
-            ("paper_id", r'(?<!\d)\d{4}\.\d{4,5}(?!\d)'),
-            ("ip_address", r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
-            ("error_code", r'\b(?:ORA|PLS|SP2|TNS|HTTP|OCI)-?\d{3,6}\b'),
-            ("version", r'\bv?[0-9]+\.[0-9]+(?:\.[0-9]+)*\b'),
-            ("file_name", r'\b[a-zA-Z][a-zA-Z0-9_-]*\.[a-zA-Z0-9]{1,8}\b'),
-            ("api_name", r'\b[a-zA-Z][a-zA-Z0-9_]*\(\)\b'),
-            ("identifier", r'\b[a-zA-Z][a-zA-Z0-9]*_[a-zA-Z0-9_]+\b'),
-            ("identifier", r'\b[a-zA-Z][a-zA-Z0-9]*=[a-zA-Z0-9_.-]+\b'),
-            ("identifier", r'\b[a-zA-Z0-9.-]+:\d+\b'),
-            ("identifier", r'\b[A-Z][A-Z0-9]{2,}(?:[-_][A-Z0-9]+)*\b'),
-        ]
-        entities = []
-        for entity_type, pattern in patterns:
-            for match in re.finditer(pattern, query):
-                entities.append({"text": match.group(), "type": entity_type})
-        return FulltextEntityExtractor.normalize_entities(entities)
+        """ベクトル検索が苦手な固有表現を設定ファイルのルールで抽出する。"""
+        return extract_entities_from_text(query or "")
 
     def extract_fulltext_entities(self, query):
         """ルール抽出を先に行い、LLM抽出を補完として統合する。"""

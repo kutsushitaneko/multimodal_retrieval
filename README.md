@@ -164,7 +164,7 @@ REACT_AGENTIC_VLM_MODEL_ID=meta.llama-4-maverick-17b-128e-instruct-fp8
 REACT_AGENTIC_CONTROLLER_MODEL_ID=google.gemini-2.5-flash-lite
 ```
 
-`REACT_AGENTIC_VLM_MODEL_ID` は ReAct Agentic RAG タブの回答生成 VLM 初期値です。未設定の場合は `MLLM_MODEL_ID` 由来の通常 VLM 初期値を使用します。`REACT_AGENTIC_CONTROLLER_MODEL_ID` は Thought / Action / Observation の次の Action を決める Controller 初期値です。どちらも `config/model_settings.json` の表示名、または `model_name` と一致する値を設定してください。
+`REACT_AGENTIC_VLM_MODEL_ID` は ReAct Agentic RAG タブの回答生成 VLM 初期値です。未設定の場合は `MLLM_MODEL_ID` 由来の通常 VLM 初期値を使用します。`REACT_AGENTIC_CONTROLLER_MODEL_ID` は Thought / Action / Observation の次の Action を決める Controller 初期値です。`REACT_AGENTIC_PLANNER_MODEL_ID` は `plan_and_execute_search` 内の Search Planner 初期値です（未設定時は Controller と同じ表示名解決のフォールバックを UI で使用）。いずれも `config/model_settings.json` の表示名、または `model_name` と一致する値を設定してください。
 
 #### 全文検索の LLM 固有表現抽出（オプション）
 
@@ -412,7 +412,8 @@ sequenceDiagram
 
 Controller が使用できる主な Action は以下です。
 
-- `multi_search`: 複数のクエリー候補と複数の検索 Tool を組み合わせて一括検索します。`image_vector_image_search` を tools に含める場合、その Tool は query ごとではなくアップロード画像で 1 回だけ実行されます。
+- `plan_and_execute_search`: **推奨**。Search Planner モデルが質問分解・ツール選択・ツール別クエリーを計画し、計画どおりに検索を実行します。`action_input` は `{"phase": "initial" | "followup", "notes": "任意"}`。推移的質問の多段推論は Planner がホップ単位で計画し、Controller は evidence を見て再実行を判断します。
+- `multi_search`: （レガシー）複数のクエリー候補と複数の検索 Tool の**直積**で一括検索します。ツールごとに異なるクエリーが必要な場合は `plan_and_execute_search` を使います。
 - `caption_vector_search`: キャプションのテキストベクトル検索を実行します。
 - `caption_fulltext_search`: キャプションの全文検索を実行します。固有表現や完全一致が重要な質問を補完します。
 - `image_vector_text_search`: テキストクエリーから画像ベクトル検索を実行します。
@@ -422,7 +423,7 @@ Controller が使用できる主な Action は以下です。
 
 ReAct の制御機構:
 
-- **初回検索戦略の分離**: Step 1（evidence が空）では、プロンプト内の「初回検索の戦略」に従い質問タイプを判断します。探索・複合・一般は `multi_search` を推奨。推移的（A→X）は参照対象の特定のみ。識別子・完全一致は `caption_fulltext_search` に**識別子トークンのみ**を渡し、質問のそれ以外の語は `caption_vector_search`（vector query に識別子を含めても可）。ORA コードや URL などはルールで検出した場合、`進捗状況` に `検索戦略ヒント: identifier` / `transitive` と表示し、Controller プロンプトへ短いヒントを注入します（曖昧な質問はヒントなし）。
+- **Search Planner 分離**: `モデル設定` で Search Planner モデルを指定します（未設定時は Planner 未使用で `plan_and_execute_search` はエラー）。分解・ツール選択・パラメータは Planner 専用プロンプト（`prompt/agent/react/search_plan.txt`）で行います。`config/entity_patterns.json` の正規表現で検出した固有表現は Planner への**参考ヒント**として渡します（推移性の断定は行いません）。識別子のみ検出時は Controller プロンプトに弱い参考文を付与します。
 - **重複排除（2層）**: (1) **検索クエリー** — Workflow では質問分解・追加クエリー生成後に `_dedupe_queries` でサブクエリーを正規化・重複排除。ReAct では `multi_search` の `query_variants` を重複排除し、同一 `(tool, query)` の検索は自動スキップ（Controller プロンプトには実行済み検索一覧を毎回提示）。(2) **evidence** — いずれも各検索のたびに `EvidencePool.add_many` で結果をマージし、`image_id` 単位で重複排除（サブクエリー・Tool・再検索を跨いでも同一画像は1件）。
 - **自動打切**: 新規 evidence が増えない検索が連続した場合（デフォルト 2 回）、情報不足として終了します。
 - **マルチホップ対応**: 2 回目以降の Step では、質問をサブ質問に分解し、中間結果（名称・タイトル等）を次ホップのクエリに使うよう指示します。
