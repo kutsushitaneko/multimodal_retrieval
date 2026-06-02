@@ -23,6 +23,7 @@ from app.agentic_search_strategy import (
     classify_question_strategy,
     format_first_step_hint_for_prompt,
     format_leads_tool_recommendations,
+    fulltext_mixed_query_warning,
     fulltext_natural_language_warning,
 )
 from app.paths import PROMPT_AGENT_REACT_DIR, PROMPT_SNIPPETS_DIR
@@ -186,7 +187,7 @@ class ReactToolRegistry:
             and self.completed_steps_before_action >= 1
             and query
         ):
-            warning = fulltext_natural_language_warning(query)
+            warning = fulltext_mixed_query_warning(query) or fulltext_natural_language_warning(query)
             if warning:
                 observation = f"{observation}\n{warning}"
         return observation, selected_evidence, "", False, ""

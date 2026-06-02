@@ -9,7 +9,6 @@ from app.ui.workflow_agentic_events import (
     WorkflowAgenticRAGEvents,
 )
 
-
 class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
     """ReAct Agentic RAGタブ専用のイベントハンドラー。"""
 
@@ -58,6 +57,7 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
         top_k_input,
         max_steps_input,
         max_selected_evidence_input,
+        cot_setting_radio,
         answer_prompt_dropdown,
         vlm_model,
         vlm_temperature,
@@ -86,6 +86,7 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
                 max_steps_input,
                 reference_type_radio,
                 max_selected_evidence_input,
+                cot_setting_radio,
                 answer_prompt_dropdown,
                 vlm_model,
                 vlm_temperature,
@@ -129,10 +130,11 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
         self,
         question,
         uploaded_image,
-        reference_type,
         top_k,
         max_steps,
+        reference_type,
         max_selected_evidence,
+        cot_setting,
         answer_prompt_template,
         vlm_model,
         vlm_temperature,
@@ -176,6 +178,7 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
                 vlm_max_tokens,
                 vlm_oci_region,
                 uploaded_image=uploaded_image,
+                cot_setting=cot_setting,
             )
 
         effective_reference_type = REFERENCE_TYPE_ALL if not (question or "").strip() and uploaded_image is not None else reference_type

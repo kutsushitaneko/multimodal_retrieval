@@ -7,7 +7,7 @@ Thoughtで次に必要な判断を書き、Actionで許可されたToolを1つ�
 許可Action:
 - multi_search: {{"query_variants": ["元質問", "分解クエリー", "言い換え", "固有語"], "tools": ["caption_vector_search", "caption_fulltext_search", "image_vector_text_search"]}}。image_vector_image_search を tools に含める場合、そのToolは query_variants ごとではなくアップロード画像で1回だけ実行される。
 - caption_vector_search: {{"query": "検索クエリー"}}。意味的類似、言い換え、抽象的質問、関連概念の発見に強い。
-- caption_fulltext_search: {{"query": "検索クエリー"}}。質問中の固有表現をOR完全一致検索に変換し、URL、論文ID、エラーコード、IPアドレス、製品名、固有名詞、文書内テキストなど、ベクトル検索が苦手な語を補完する。
+- caption_fulltext_search: {{"query": "検索クエリー"}}。識別子・完全一致向けトークンのみを query に渡す（エラーコード、URL、論文 ID、製品名など）。一般語・機能・属性の探索には使わない。
 - image_vector_text_search: {{"query": "検索クエリー"}}。画像内容だけでなく、画像中のテキスト、スライド、スクリーンショット、図表の情報発見にも有効。
 - image_vector_image_search: {{}}。アップロード画像がある場合のみ使用できる。テキストクエリーや reason は検索条件に使わず、アップロード画像そのものから視覚的に類似する画像を探す。
 - select_evidence: {{"evidence_ids": ["188", "544"], "reason": "選別理由", "answerable": true}}。既に取得済みの evidence から、最終回答に使う候補を選択して selected_evidence を更新するAction。新しい情報は取得しない。検索不足や未カバーのサブ質問を解消しない。追加情報が必要な場合は select_evidence ではなく検索Actionまたは multi_search を使う。最大 {max_selected_evidence} 件まで選択する。選択候補だけで完全回答できるなら answerable は true、情報不足・部分回答の場合は false を指定する。
@@ -20,12 +20,12 @@ Thoughtで次に必要な判断を書き、Actionで許可されたToolを1つ�
 質問タイプ別の初回方針:
 - 探索・複合・一般: multi_search を推奨。tools には caption_vector_search と image_vector_text_search を必ず含める。固有名詞、URL、論文ID、エラーコード、IPアドレス、製品名、文書内テキストが重要なら caption_fulltext_search も含める。query_variants には分解・言い換え・専門語を含めてよい。
 - 推移的（A→X・多段）: 第1ホップは参照対象 A の特定のみ。属性 X（座標・日付・数値・定義など）は初回の query_variants に含めない。multi_search を使う場合も第1ホップ用クエリーは1〜2件に絞る。中間値が得られたら次の Step で属性 X を検索する。
-- 識別子・完全一致: 初回は caption_fulltext_search を優先。識別子はクエリーにそのまま含める。狭い query で足りる場合は単一 Tool でもよい。
+- 識別子・完全一致: 識別子トークンのみ caption_fulltext_search。質問のそれ以外の語（機能・属性・説明）は caption_vector_search（vector query に識別子を含めてもよい）。1 つの fulltext query に識別子と一般語を混ぜない。初回は fulltext と vector の組み合わせ（multi_search 可）でよい。
 
 2回目以降（evidence が1件以上ある場合）:
 1. 複合質問では query_variants に、質問の分解、言い換え、専門語、固有語、エラーコードなどを含め、検索の幅を広げる。
 2. caption_fulltext_search だけに偏らず、テキストベクトル検索と画像ベクトル検索の相補性を使う。
-2-1. [CRITICAL]caption_fulltext_search は、クエリーに中カッコ完全一致向けの短い識別子（エラーコード、URL、IP、数字.数字形式の ID 等）が含まれる場合に使う。中間値・lead が文・タイトル・段落・要約のときは caption_vector_search を使う。長い自然文や「タイトル + abstract」のみを caption_fulltext_search に渡さない。
+2-1. [CRITICAL]caption_fulltext_search の query には識別子・完全一致向けトークンのみ（エラーコード、URL、IP、数字.数字形式の ID 等）。識別子以外の語・中間値・lead が文・タイトル・段落・要約のときは caption_vector_search を使う（vector には識別子を含めてもよい）。識別子と一般語を 1 つの fulltext query に混ぜない。
 3. [CRITICAL]まず質問を、回答に必要なサブ質問（求める属性・条件）に分解する。「Aの属性X」のような推移的（多段・マルチホップ）質問では、ホップごとに順番に検索する。
 4. [CRITICAL]あるホップで中間結果（場所名・固有名詞・エンティティ）が判明したら、その中間結果をクエリーに使って、まだ取得できていない次ホップの属性（緯度経度・座標・日付・数値・定義・関連情報など）を検索する。中間結果が分かった時点で満足して終了してはいけない。
 4-1. [CRITICAL]検索結果は毎回見直して計画を更新する。推移的（多段）かどうかは最初の検索結果を見て初めて判明することがある。取得した evidence のキャプションに、答えへ近づく中間値（質問中の識別子に対応する名称・タイトル・用語など）が含まれていないか必ず確認し、含まれていればその値そのものを次の検索クエリーに使う。識別子での検索は対象の名称やタイトルだけを返すことが多いので、得られた名称・タイトルは caption_vector_search で再検索し、本文・詳細・属性を取得する。本文が直接得られないからといって、得られた中間値を無関係と決めつけて断念してはいけない。

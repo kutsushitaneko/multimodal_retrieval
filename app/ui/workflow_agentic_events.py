@@ -8,6 +8,7 @@ from app.agentic_rag_common import REFERENCED_GALLERY_ELEM_CLASS
 from app.paths import PROMPT_SNIPPETS_DIR
 from app.prompt_loader import load_prompt
 from app.prompt_service import PromptService
+from app.ui.components import COT_ON
 from app.workflow_agentic_rag import WorkflowAgenticRAGPipeline
 from app.nlp_service import NLPService
 from app.vlm_service_factory import VLMServiceFactory
@@ -37,6 +38,7 @@ class WorkflowAgenticRAGEvents:
         top_k_input,
         max_iterations_input,
         max_selected_evidence_input,
+        cot_setting_radio,
         answer_prompt_dropdown,
         vlm_model,
         vlm_temperature,
@@ -73,6 +75,7 @@ class WorkflowAgenticRAGEvents:
                 max_iterations_input,
                 reference_type_radio,
                 max_selected_evidence_input,
+                cot_setting_radio,
                 answer_prompt_dropdown,
                 vlm_model,
                 vlm_temperature,
@@ -197,10 +200,11 @@ class WorkflowAgenticRAGEvents:
         self,
         question,
         uploaded_image,
-        reference_type,
         top_k,
         max_iterations,
+        reference_type,
         max_selected_evidence,
+        cot_setting,
         answer_prompt_template,
         vlm_model,
         vlm_temperature,
@@ -280,6 +284,7 @@ class WorkflowAgenticRAGEvents:
                 vlm_max_tokens,
                 vlm_oci_region,
                 uploaded_image=uploaded_image,
+                cot_setting=cot_setting,
             )
 
         effective_reference_type = REFERENCE_TYPE_ALL if not (question or "").strip() and uploaded_image is not None else reference_type
@@ -390,6 +395,7 @@ class WorkflowAgenticRAGEvents:
         vlm_max_tokens,
         vlm_oci_region,
         uploaded_image=None,
+        cot_setting=COT_ON,
     ):
         has_uploaded_image = isinstance(uploaded_image, Image.Image)
         if not selected_evidence and not has_uploaded_image:
@@ -401,6 +407,10 @@ class WorkflowAgenticRAGEvents:
         if has_uploaded_image:
             image_order_prefix = load_prompt(os.path.join(PROMPT_SNIPPETS_DIR, "answer_image_order_prefix.txt"))
             final_prompt = f"{image_order_prefix}\n{final_prompt}"
+
+        if str(cot_setting or "").strip() == COT_ON:
+            cot_suffix = load_prompt(os.path.join(PROMPT_SNIPPETS_DIR, "answer_cot_suffix.txt"))
+            final_prompt = f"{final_prompt}{cot_suffix}"
 
         image_paths = []
         try:

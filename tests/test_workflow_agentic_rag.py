@@ -389,6 +389,7 @@ def test_workflow_agentic_rag_event_returns_expected_outputs_without_external_vl
         0,
         REFERENCE_TYPE_ALL,
         8,
+        "オン",
         "デフォルト（回答生成）",
         "model",
         0.0,
@@ -510,6 +511,7 @@ def test_workflow_agentic_rag_event_image_only_shows_gallery_without_llm_calls()
         2,
         REFERENCE_TYPE_CAPTION_ONLY,
         8,
+        "オン",
         "デフォルト（回答生成）",
         "model",
         0.0,
@@ -557,6 +559,7 @@ def test_workflow_agentic_rag_event_gallery_keeps_six_referenced_images_visible(
         0,
         REFERENCE_TYPE_ALL,
         8,
+        "オン",
         "デフォルト（回答生成）",
         "model",
         0.0,
@@ -608,6 +611,7 @@ def test_workflow_event_passes_uploaded_image_to_vlm_when_evidence_found():
         0,
         REFERENCE_TYPE_ALL,
         8,
+        "オン",
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -651,6 +655,7 @@ def test_workflow_agentic_rag_event_uses_step_specific_models():
         1,
         REFERENCE_TYPE_ALL,
         8,
+        "オン",
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -802,8 +807,69 @@ def test_agentic_rag_settings_include_max_selected_evidence_input():
     source = inspect.getsource(UIComponents._create_agentic_rag_section_variant)
     assert 'label="参照ドキュメント数"' in source
     assert "max_selected_evidence_input" in source
+    assert "COT_SETTING_LABEL" in source
+    assert "cot_setting_radio" in source
+    assert "value=COT_ON" in source
     top_k_pos = source.index('label="検索件数"')
     iteration_pos = source.index("label=iteration_label")
     reference_pos = source.index("label=REFERENCE_TYPE_LABEL_TEXT")
     max_selected_pos = source.index('label="参照ドキュメント数"')
-    assert top_k_pos < iteration_pos < reference_pos < max_selected_pos
+    cot_pos = source.index("cot_setting_radio")
+    assert top_k_pos < iteration_pos < reference_pos < max_selected_pos < cot_pos
+
+
+def test_workflow_answer_prompt_includes_cot_suffix_when_enabled():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = WorkflowAgenticRAGEvents(FakeSearchService())
+    selected_evidence = [EvidencePool._from_result(make_result(1, "slide.png", "猫"), "猫", "caption_vector_search")]
+
+    with patch("app.ui.workflow_agentic_events.NLPService") as mock_nlp_service:
+        mock_nlp_service.return_value.generate_caption_with_vlm.return_value = "生成回答"
+        events._generate_answer_with_vlm(
+            "猫",
+            selected_evidence,
+            "参照情報",
+            REFERENCE_TYPE_CAPTION_ONLY,
+            "デフォルト（回答生成）",
+            "model",
+            0.0,
+            1024,
+            "Japan Central (Osaka)",
+            cot_setting="オン",
+        )
+
+    prompt_text = mock_nlp_service.return_value.generate_caption_with_vlm.call_args.kwargs["prompt_text"]
+    assert "ステップバイステップで考えてから答えてください。" in prompt_text
+
+
+def test_workflow_answer_prompt_omits_cot_suffix_when_disabled():
+    with patch("app.ui.workflow_agentic_events.VLMServiceFactory.create_answer_vlm_service", return_value=MagicMock()):
+        events = WorkflowAgenticRAGEvents(FakeSearchService())
+    selected_evidence = [EvidencePool._from_result(make_result(1, "slide.png", "猫"), "猫", "caption_vector_search")]
+
+    with patch("app.ui.workflow_agentic_events.NLPService") as mock_nlp_service:
+        mock_nlp_service.return_value.generate_caption_with_vlm.return_value = "生成回答"
+        events._generate_answer_with_vlm(
+            "猫",
+            selected_evidence,
+            "参照情報",
+            REFERENCE_TYPE_CAPTION_ONLY,
+            "デフォルト（回答生成）",
+            "model",
+            0.0,
+            1024,
+            "Japan Central (Osaka)",
+            cot_setting="オフ",
+        )
+
+    prompt_text = mock_nlp_service.return_value.generate_caption_with_vlm.call_args.kwargs["prompt_text"]
+    assert "ステップバイステップで考えてから答えてください。" not in prompt_text
+
+
+def test_react_agentic_rag_events_include_cot_setting_input():
+    import inspect
+
+    from app.ui.react_agentic_events import ReactAgenticRAGEvents
+
+    source = inspect.getsource(ReactAgenticRAGEvents.register_react_agentic_rag_events)
+    assert "cot_setting_radio" in source

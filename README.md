@@ -18,7 +18,7 @@
     - キャプションベクトル検索、キャプション全文検索、画像ベクトル検索を統合して evidence を重複排除（`EvidencePool` が `image_id` 単位で都度マージ）
     - Workflow / ReAct 共通: アップロード画像を VLM 回答生成に渡す（検索 evidence がなくても回答を試行。検索結果がある場合は 1 枚目にアップロード画像、2 枚目以降に参照画像）
     - Workflow 専用: 参照対象の特定→属性検索の逐次フロー（Referent-before-attribute / A→X）、初回分解では第1ホップのみ検索、サブクエリー・追加クエリーの文字列重複排除、各検索後に evidence プールへ都度マージ、追加検索では evidence 由来の中間値をクエリーに連鎖、十分性 `sufficient` 以外は回答停止（fail closed）、evidence 選別もテキスト LLM（キャプションのみ参照）
-    - ReAct 専用: 質問タイプ別の初回検索戦略（探索型は multi_search、推移的 A→X は第1ホップのみ、識別子は全文優先）。識別子・明確な推移的質問にはルールヒントを Controller プロンプトに注入（LLM 呼び出しは増やさない）。`multi_search` の query 重複排除、同一 (tool, query) の重複検索スキップ、各検索後の evidence プール都度マージ、新規 evidence が増えない連続検索の自動打切、マルチホップ向け Controller 指示、Finalize Verifier による早期終了防止（`answerable: false` 時）
+    - ReAct 専用: 質問タイプ別の初回検索戦略（探索型は multi_search、推移的 A→X は第1ホップのみ、識別子は fulltext は識別子トークンのみ・その他は vector）。識別子・明確な推移的質問にはルールヒントを Controller プロンプトに注入（LLM 呼び出しは増やさない）。`multi_search` の query 重複排除、同一 (tool, query) の重複検索スキップ、各検索後の evidence プール都度マージ、新規 evidence が増えない連続検索の自動打切、マルチホップ向け Controller 指示、Finalize Verifier による早期終了防止（`answerable: false` 時）
     - 処理ステップ、所要時間、LLM 入力規模を進捗状況として逐次表示
 - 通常 RAG
     - 検索結果の先頭画像、または選択した1画像を元にした回答生成
@@ -282,6 +282,7 @@ or
 - `再検索回数上限`: 0〜12（デフォルト 4）
 - `参照する情報の種類`: `すべて` / `キャプションのみ` / `画像のみ`
 - `参照ドキュメント数`: 回答に使う evidence の最大件数（1〜24、デフォルト 4）
+- `CoT設定`: オン / オフ（デフォルト オン）。オン時は回答生成プロンプト末尾に CoT 指示（`prompt/snippets/answer_cot_suffix.txt`）を追記します。
 
 主な処理の流れは以下です。
 
@@ -407,7 +408,7 @@ sequenceDiagram
 
 `ReAct Agentic RAG` タブは、Controller モデルが Thought / Action / Observation を繰り返しながら、必要な検索 Tool （画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選択して回答生成まで進めるタブです。質問と任意の入力画像を指定し、`Agentic RAG設定`（検索件数、最大ステップ数、参照する情報の種類、参照ドキュメント数）を設定して `ReAct Agentic RAG 実行` を押します。
 
-`Agentic RAG設定` の項目は Workflow と同様に、検索件数 → 最大ステップ数 → 参照する情報の種類 → 参照ドキュメント数（1〜24、デフォルト 4）の順で並びます。`select_evidence` で選べる evidence 件数は `参照ドキュメント数` で制限されます。
+`Agentic RAG設定` の項目は Workflow と同様に、検索件数 → 最大ステップ数 → 参照する情報の種類 → 参照ドキュメント数（1〜24、デフォルト 4）→ CoT設定（オン / オフ、デフォルト オン）の順で並びます。`select_evidence` で選べる evidence 件数は `参照ドキュメント数` で制限されます。
 
 Controller が使用できる主な Action は以下です。
 
@@ -421,12 +422,12 @@ Controller が使用できる主な Action は以下です。
 
 ReAct の制御機構:
 
-- **初回検索戦略の分離**: Step 1（evidence が空）では、プロンプト内の「初回検索の戦略」に従い質問タイプを判断します。探索・複合・一般は `multi_search` を推奨。推移的（A→X）は参照対象の特定のみ。識別子・完全一致は `caption_fulltext_search` 優先。ORA コードや URL などはルールで検出した場合、`進捗状況` に `検索戦略ヒント: identifier` / `transitive` と表示し、Controller プロンプトへ短いヒントを注入します（曖昧な質問はヒントなし）。
+- **初回検索戦略の分離**: Step 1（evidence が空）では、プロンプト内の「初回検索の戦略」に従い質問タイプを判断します。探索・複合・一般は `multi_search` を推奨。推移的（A→X）は参照対象の特定のみ。識別子・完全一致は `caption_fulltext_search` に**識別子トークンのみ**を渡し、質問のそれ以外の語は `caption_vector_search`（vector query に識別子を含めても可）。ORA コードや URL などはルールで検出した場合、`進捗状況` に `検索戦略ヒント: identifier` / `transitive` と表示し、Controller プロンプトへ短いヒントを注入します（曖昧な質問はヒントなし）。
 - **重複排除（2層）**: (1) **検索クエリー** — Workflow では質問分解・追加クエリー生成後に `_dedupe_queries` でサブクエリーを正規化・重複排除。ReAct では `multi_search` の `query_variants` を重複排除し、同一 `(tool, query)` の検索は自動スキップ（Controller プロンプトには実行済み検索一覧を毎回提示）。(2) **evidence** — いずれも各検索のたびに `EvidencePool.add_many` で結果をマージし、`image_id` 単位で重複排除（サブクエリー・Tool・再検索を跨いでも同一画像は1件）。
 - **自動打切**: 新規 evidence が増えない検索が連続した場合（デフォルト 2 回）、情報不足として終了します。
 - **マルチホップ対応**: 2 回目以降の Step では、質問をサブ質問に分解し、中間結果（名称・タイトル等）を次ホップのクエリに使うよう指示します。
 - **Finalize Verifier Gate**: `select_evidence` または `generate_final_answer` で `answerable: false` のとき、evidence キャプションから未検索の lead を抽出します。未検索 lead が残っていれば **確定保留** として再検索を強制します（Controller モデルを Verifier として共用）。確定保留時は lead が自然文か識別子かをルール判定し、推奨 Tool（全文 / ベクトル）を Observation に追記します。
-- **全文とベクトルの使い分け**: 初回 Step で質問中の短い識別子（エラーコード、URL、論文 ID 形式など）を `caption_fulltext_search` するのは推奨どおり。2 ホップ目以降、evidence や Verifier 由来の**長い自然文**（タイトル・要約文など）には `caption_vector_search` を使い、自然文のみを全文検索した場合は Observation にベクトル検索を促す警告を出します（Action は拒否しません）。
+- **全文とベクトルの使い分け**: 識別子トークンは `caption_fulltext_search`（query には識別子のみ。一般語を混ぜない）。機能・属性・説明が欲しい部分は `caption_vector_search`（識別子を vector query に含めても可）。2 ホップ目以降、evidence や Verifier 由来の**長い自然文**（タイトル・要約文など）にも `caption_vector_search` を使い、識別子と一般語が混在した fulltext や自然文のみの fulltext には Observation 警告を出します（Action は拒否しません）。
 
 アップロード画像の扱い:
 
