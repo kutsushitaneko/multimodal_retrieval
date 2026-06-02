@@ -591,7 +591,7 @@ class UIComponents:
             description="自然文質問から質問分解、複数検索、十分性判定、再検索、選別・並べ替え、回答生成までを固定ワークフローで自動実行します。",
             run_label="Workflow Agentic RAG 実行",
             iteration_label="再検索回数上限",
-            iteration_value=2,
+            iteration_value=4,
         )
 
     def create_react_agentic_rag_section(self):

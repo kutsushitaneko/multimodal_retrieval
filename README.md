@@ -15,10 +15,10 @@
 - Agentic RAG
     - `Workflow Agentic RAG`: 質問分解、複数検索、十分性判定、追加検索、evidence 選別・並べ替え、回答生成を固定ワークフローで自動実行
     - `ReAct Agentic RAG`: LLM が Thought / Action / Observation を繰り返し、必要な検索 Tool （画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選びながら回答生成
-    - キャプションベクトル検索、キャプション全文検索、画像ベクトル検索を統合して evidence を重複排除
+    - キャプションベクトル検索、キャプション全文検索、画像ベクトル検索を統合して evidence を重複排除（`EvidencePool` が `image_id` 単位で都度マージ）
     - Workflow / ReAct 共通: アップロード画像を VLM 回答生成に渡す（検索 evidence がなくても回答を試行。検索結果がある場合は 1 枚目にアップロード画像、2 枚目以降に参照画像）
-    - Workflow 専用: 参照対象の特定→属性検索の逐次フロー（Referent-before-attribute / A→X）、初回分解では第1ホップのみ検索、追加検索では evidence 由来の中間値をクエリーに連鎖、十分性 `sufficient` 以外は回答停止（fail closed）、evidence 選別もテキスト LLM（キャプションのみ参照）
-    - ReAct 専用: 質問タイプ別の初回検索戦略（探索型は multi_search、推移的 A→X は第1ホップのみ、識別子は全文優先）。識別子・明確な推移的質問にはルールヒントを Controller プロンプトに注入（LLM 呼び出しは増やさない）。同一 (tool, query) の重複検索排除、新規 evidence が増えない連続検索の自動打切、マルチホップ向け Controller 指示、Finalize Verifier による早期終了防止（`answerable: false` 時）
+    - Workflow 専用: 参照対象の特定→属性検索の逐次フロー（Referent-before-attribute / A→X）、初回分解では第1ホップのみ検索、サブクエリー・追加クエリーの文字列重複排除、各検索後に evidence プールへ都度マージ、追加検索では evidence 由来の中間値をクエリーに連鎖、十分性 `sufficient` 以外は回答停止（fail closed）、evidence 選別もテキスト LLM（キャプションのみ参照）
+    - ReAct 専用: 質問タイプ別の初回検索戦略（探索型は multi_search、推移的 A→X は第1ホップのみ、識別子は全文優先）。識別子・明確な推移的質問にはルールヒントを Controller プロンプトに注入（LLM 呼び出しは増やさない）。`multi_search` の query 重複排除、同一 (tool, query) の重複検索スキップ、各検索後の evidence プール都度マージ、新規 evidence が増えない連続検索の自動打切、マルチホップ向け Controller 指示、Finalize Verifier による早期終了防止（`answerable: false` 時）
     - 処理ステップ、所要時間、LLM 入力規模を進捗状況として逐次表示
 - 通常 RAG
     - 検索結果の先頭画像、または選択した1画像を元にした回答生成
@@ -279,17 +279,17 @@ or
 `Agentic RAG設定` の項目は次の順で並びます。
 
 - `検索件数`: 1〜24件（デフォルト 8）
-- `再検索回数上限`: 0〜12（デフォルト 2）
+- `再検索回数上限`: 0〜12（デフォルト 4）
 - `参照する情報の種類`: `すべて` / `キャプションのみ` / `画像のみ`
 - `参照ドキュメント数`: 回答に使う evidence の最大件数（1〜24、デフォルト 4）
 
 主な処理の流れは以下です。
 
-- 質問を最大5件のサブクエリーへ分解します。マルチホップ質問（「対象 A の属性 X」型）では、初回は参照対象・エンティティの特定（第1ホップ）のみを検索し、属性 X は追加検索フェーズで扱います。
-- 初回サブクエリーに対して、キャプションベクトル検索、キャプション全文検索、テキストによる画像ベクトル検索を実行します。
-- 入力画像がある場合は、画像による類似画像ベクトル検索も実行します。
-- 検索結果を evidence として重複排除し、十分性判定を行います（同一対象について全観点がカバーされているか、`supporting_evidence_ids` で根拠を明示）。
-- evidence が不足している場合は、取得済み evidence を参照して追加検索クエリーを生成し（中間値 + 不足属性の chained query を優先）、上限回数まで再検索・再判定します。
+- 質問を最大5件のサブクエリーへ分解します（分解結果は `_dedupe_queries` で正規化・重複排除）。マルチホップ質問（「対象 A の属性 X」型）では、初回は参照対象・エンティティの特定（第1ホップ）のみを検索し、属性 X は追加検索フェーズで扱います。
+- 初回サブクエリーに対して、キャプションベクトル検索、キャプション全文検索、テキストによる画像ベクトル検索を実行します。**各検索のたびに** `EvidencePool.add_many` で結果をプールへマージし、`image_id`（同一画像）単位で evidence を重複排除します。
+- 入力画像がある場合は、画像による類似画像ベクトル検索も実行します（結果も同プールへマージ・重複排除）。
+- 十分性判定は、重複排除済みの evidence プールに対して行います（同一対象について全観点がカバーされているか、`supporting_evidence_ids` で根拠を明示）。
+- evidence が不足している場合は、取得済み evidence を参照して追加検索クエリーを生成し（生成結果も `_dedupe_queries` で重複排除。中間値 + 不足属性の chained query を優先）、上限回数まで再検索・再判定します。再検索結果も **都度** プールへマージし、既存 evidence との重複は排除されます。
 - 十分性が `sufficient` のときのみ、回答に使う evidence をテキスト LLM で選別・並べ替え、選択された画像とキャプションを元に回答を生成します。
 
 補足:
@@ -314,11 +314,14 @@ flowchart TD
     ImgSearch --> Gallery[ギャラリー表示のみ]
     Gallery --> End[UI出力]
     Gate -->|質問あり| Decompose["質問分解\n(初回=第1ホップのみ)"]
-    Decompose --> InitSearch["各subquery: 3種検索"]
-    InitSearch --> Pool[(EvidencePool)]
+    Decompose --> QueryDedup["サブクエリー重複排除\n(_dedupe_queries)"]
+    QueryDedup --> InitSearch["各subquery: 3種検索"]
+    InitSearch --> EvMerge["EvidencePool.add_many\n(image_id重複排除)"]
+    EvMerge --> Pool[(EvidencePool)]
     Pool --> HasImg{uploaded_image?}
     HasImg -->|Yes| ImgVec[画像類似検索]
-    ImgVec --> Pool
+    ImgVec --> EvMergeImg["EvidencePool.add_many\n(image_id重複排除)"]
+    EvMergeImg --> Pool
     HasImg -->|No| Suff
     Pool --> Suff[十分性判定]
     Suff --> Loop{sufficient?}
@@ -326,10 +329,12 @@ flowchart TD
     Loop -->|No| IterCheck{iteration上限?}
     IterCheck -->|Yes| Stop[情報不足で終了]
     IterCheck -->|No| Followup["追加クエリ生成\n(evidence参照)"]
-    Followup --> FollowupEmpty{queries空?}
+    Followup --> FollowupDedup["追加クエリー重複排除\n(_dedupe_queries)"]
+    FollowupDedup --> FollowupEmpty{queries空?}
     FollowupEmpty -->|Yes| Stop
     FollowupEmpty -->|No| ReSearch["各followup: 3種再検索"]
-    ReSearch --> Pool
+    ReSearch --> EvMergeRe["EvidencePool.add_many\n(image_id重複排除)"]
+    EvMergeRe --> Pool
     ReSearch --> ReSuff[再判定]
     ReSuff --> Loop
     Select --> SelectOK{選別成功?}
@@ -354,20 +359,30 @@ sequenceDiagram
     UI->>EV: run_workflow_agentic_rag
     EV->>PL: run_stream(answer_generator)
     PL->>LLM: decompose_question
+    PL->>PL: _dedupe_queries(subqueries)
     loop each subquery
         PL->>SS: caption_vector/fulltext/image_text
+        SS-->>PL: results
+        PL->>PL: EvidencePool.add_many (image_id重複排除)
         PL-->>EV: yield中間結果
     end
     opt uploaded_image
         PL->>SS: search_by_image_embedding
+        SS-->>PL: results
+        PL->>PL: EvidencePool.add_many (image_id重複排除)
     end
     PL->>LLM: judge_evidence_sufficiency
     loop until sufficient or max_iterations
         PL->>LLM: generate_followup_queries
+        PL->>PL: _dedupe_queries(followup)
         alt followup queries 空
             PL->>PL: 再検索ループ終了
         else followup あり
-            PL->>SS: 各followupで3種再検索
+            loop each followup
+                PL->>SS: 各followupで3種再検索
+                SS-->>PL: results
+                PL->>PL: EvidencePool.add_many (image_id重複排除)
+            end
             PL->>LLM: re-judge_sufficiency
         end
         PL-->>EV: yield中間結果
@@ -407,7 +422,7 @@ Controller が使用できる主な Action は以下です。
 ReAct の制御機構:
 
 - **初回検索戦略の分離**: Step 1（evidence が空）では、プロンプト内の「初回検索の戦略」に従い質問タイプを判断します。探索・複合・一般は `multi_search` を推奨。推移的（A→X）は参照対象の特定のみ。識別子・完全一致は `caption_fulltext_search` 優先。ORA コードや URL などはルールで検出した場合、`進捗状況` に `検索戦略ヒント: identifier` / `transitive` と表示し、Controller プロンプトへ短いヒントを注入します（曖昧な質問はヒントなし）。
-- **重複検索排除**: 同一 (tool, query) は自動スキップされます。Controller プロンプトには実行済み検索一覧が毎回提示されます。
+- **重複排除（2層）**: (1) **検索クエリー** — Workflow では質問分解・追加クエリー生成後に `_dedupe_queries` でサブクエリーを正規化・重複排除。ReAct では `multi_search` の `query_variants` を重複排除し、同一 `(tool, query)` の検索は自動スキップ（Controller プロンプトには実行済み検索一覧を毎回提示）。(2) **evidence** — いずれも各検索のたびに `EvidencePool.add_many` で結果をマージし、`image_id` 単位で重複排除（サブクエリー・Tool・再検索を跨いでも同一画像は1件）。
 - **自動打切**: 新規 evidence が増えない検索が連続した場合（デフォルト 2 回）、情報不足として終了します。
 - **マルチホップ対応**: 2 回目以降の Step では、質問をサブ質問に分解し、中間結果（名称・タイトル等）を次ホップのクエリに使うよう指示します。
 - **Finalize Verifier Gate**: `select_evidence` または `generate_final_answer` で `answerable: false` のとき、evidence キャプションから未検索の lead を抽出します。未検索 lead が残っていれば **確定保留** として再検索を強制します（Controller モデルを Verifier として共用）。確定保留時は lead が自然文か識別子かをルール判定し、推奨 Tool（全文 / ベクトル）を Observation に追記します。
@@ -434,7 +449,7 @@ flowchart TD
     Gate -->|画像のみ| ImgOnly[画像ベクトル検索]
     ImgOnly --> Gallery[ギャラリー表示]
     Gallery --> End[完了]
-    Gate -->|質問あり| CtrlCheck{Controller設定?}
+    Gate -->|質問あり| CtrlCheck{Controllerモデル選択済み?}
     CtrlCheck -->|No| Err
     CtrlCheck -->|Yes| Loop[ReActループ step 1..max_steps]
     Loop --> Ctrl[Controller LLM]
@@ -444,10 +459,12 @@ flowchart TD
     ParseErr -->|No| Loop
     ParseOK -->|Yes| Action{action}
     Action -->|search| Search[ReactToolRegistry]
-    Search --> Dedup{重複?}
-    Dedup -->|Yes| Skip[スキップ]
-    Dedup -->|No| SS[SearchService]
-    SS --> Pool[(EvidencePool)]
+    Search --> QueryDedup{"query重複? multi_search時"}
+    QueryDedup --> SearchDedup{"同一 tool+query?"}
+    SearchDedup -->|Yes| Skip[スキップ]
+    SearchDedup -->|No| SS[SearchService]
+    SS --> EvMerge["EvidencePool.add_many\n(image_id重複排除)"]
+    EvMerge --> Pool[(EvidencePool)]
     Skip --> Stale
     Pool --> Stale{stale_steps上限?}
     Stale -->|Yes| Insufficient[情報不足終了]
@@ -498,8 +515,13 @@ sequenceDiagram
         else search action
             Ctrl-->>PL: thought, action, action_input
             PL->>Reg: iter_execute
-            Reg->>Reg: dedup check
+            opt multi_search
+                Reg->>Reg: query_variants重複排除
+            end
+            Reg->>Reg: 同一(tool,query)チェック
             Reg->>SS: search
+            SS-->>Reg: results
+            Reg->>Reg: EvidencePool.add_many (image_id重複排除)
             Reg-->>PL: observation
             PL->>PL: stale_steps check
             alt stale_steps上限
