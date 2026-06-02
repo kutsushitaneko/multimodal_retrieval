@@ -25,6 +25,10 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
         controller_temperature=None,
         controller_max_tokens=None,
         controller_oci_region=None,
+        planner_model=None,
+        planner_temperature=None,
+        planner_max_tokens=None,
+        planner_oci_region=None,
     ):
         super().register_vlm_settings_events(
             vlm_service_provider,
@@ -33,19 +37,18 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
             vlm_max_tokens,
             vlm_oci_region,
         )
-        if (
-            controller_model is None
-            or controller_temperature is None
-            or controller_max_tokens is None
-            or controller_oci_region is None
-        ):
-            return
-        controller_model.change(
-            fn=self.agentic_model_changed,
-            inputs=[controller_model],
-            outputs=[controller_temperature, controller_max_tokens, controller_oci_region],
-            queue=False,
-        )
+        for model, temperature, max_tokens, oci_region in [
+            (controller_model, controller_temperature, controller_max_tokens, controller_oci_region),
+            (planner_model, planner_temperature, planner_max_tokens, planner_oci_region),
+        ]:
+            if model is None or temperature is None or max_tokens is None or oci_region is None:
+                continue
+            model.change(
+                fn=self.agentic_model_changed,
+                inputs=[model],
+                outputs=[temperature, max_tokens, oci_region],
+                queue=False,
+            )
 
     def register_react_agentic_rag_events(
         self,
@@ -67,6 +70,10 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
         controller_temperature,
         controller_max_tokens,
         controller_oci_region,
+        planner_model,
+        planner_temperature,
+        planner_max_tokens,
+        planner_oci_region,
         answer_text,
         referenced_images_gallery,
         trace_text,
@@ -96,6 +103,10 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
                 controller_temperature,
                 controller_max_tokens,
                 controller_oci_region,
+                planner_model,
+                planner_temperature,
+                planner_max_tokens,
+                planner_oci_region,
             ],
             outputs=[answer_text, referenced_images_gallery, trace_text, selection_reason_text, referenced_details_state],
         )
@@ -144,8 +155,13 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
         controller_temperature,
         controller_max_tokens,
         controller_oci_region,
+        planner_model,
+        planner_temperature,
+        planner_max_tokens,
+        planner_oci_region,
     ):
         effective_controller_model = str(controller_model or "").strip()
+        effective_planner_model = str(planner_model or "").strip()
 
         def call_controller(prompt_text):
             return self._call_text_model(
@@ -156,6 +172,15 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
                 controller_oci_region,
             )
 
+        def call_planner(prompt_text):
+            return self._call_text_model(
+                prompt_text,
+                effective_planner_model,
+                planner_temperature,
+                planner_max_tokens,
+                planner_oci_region,
+            )
+
         pipeline = ReactAgenticRAGPipeline(
             self.search_service,
             top_k=top_k,
@@ -163,6 +188,8 @@ class ReactAgenticRAGEvents(WorkflowAgenticRAGEvents):
             max_selected_evidence=max_selected_evidence,
             controller_llm_text_generator=call_controller if effective_controller_model else None,
             controller_model_name=effective_controller_model,
+            search_planner_llm_text_generator=call_planner if effective_planner_model else None,
+            search_planner_model_name=effective_planner_model,
             finalize_verifier_llm_text_generator=call_controller if effective_controller_model else None,
         )
 

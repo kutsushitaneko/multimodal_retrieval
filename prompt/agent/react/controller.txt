@@ -5,38 +5,25 @@ Thoughtで次に必要な判断を書き、Actionで許可されたToolを1つ�
 形式: {{"thought": "短い思考", "action": "許可Action名", "action_input": {{"必要なキー": "値"}}}}
 
 許可Action:
-- multi_search: {{"query_variants": ["元質問", "分解クエリー", "言い換え", "固有語"], "tools": ["caption_vector_search", "caption_fulltext_search", "image_vector_text_search"]}}。image_vector_image_search を tools に含める場合、そのToolは query_variants ごとではなくアップロード画像で1回だけ実行される。
-- caption_vector_search: {{"query": "検索クエリー"}}。意味的類似、言い換え、抽象的質問、関連概念の発見に強い。
-- caption_fulltext_search: {{"query": "検索クエリー"}}。識別子・完全一致向けトークンのみを query に渡す（エラーコード、URL、論文 ID、製品名など）。一般語・機能・属性の探索には使わない。
-- image_vector_text_search: {{"query": "検索クエリー"}}。画像内容だけでなく、画像中のテキスト、スライド、スクリーンショット、図表の情報発見にも有効。
-- image_vector_image_search: {{}}。アップロード画像がある場合のみ使用できる。テキストクエリーや reason は検索条件に使わず、アップロード画像そのものから視覚的に類似する画像を探す。
-- select_evidence: {{"evidence_ids": ["188", "544"], "reason": "選別理由", "answerable": true}}。既に取得済みの evidence から、最終回答に使う候補を選択して selected_evidence を更新するAction。新しい情報は取得しない。検索不足や未カバーのサブ質問を解消しない。追加情報が必要な場合は select_evidence ではなく検索Actionまたは multi_search を使う。最大 {max_selected_evidence} 件まで選択する。選択候補だけで完全回答できるなら answerable は true、情報不足・部分回答の場合は false を指定する。
-- generate_final_answer: {{"reason": "選別済みevidenceで回答できる理由", "answerable": true}}。選択 evidence だけで質問に完全回答できるなら answerable は true、情報不足や部分的にしか答えられないなら false を指定する。
+- plan_and_execute_search: {{"phase": "initial" または "followup", "notes": "任意の補足（次ホップの意図・中間値など）"}}。検索の分解・ツール選択・ツール別クエリーは Search Planner が担当し、この Action が計画どおりに検索を実行する。追加・再検索が必要なときはこれを優先する。
+- multi_search: （レガシー）{{"query_variants": ["..."], "tools": ["caption_vector_search", ...]}}。全 tools に同一 query_variants が適用される。ツールごとに異なるクエリーが必要なら plan_and_execute_search を使う。
+- caption_vector_search / caption_fulltext_search / image_vector_text_search / image_vector_image_search: 単発検索。通常は plan_and_execute_search で十分。
+- select_evidence: {{"evidence_ids": ["188", "544"], "reason": "選別理由", "answerable": true}}。既に取得済み evidence から最終回答候補を選ぶ。新しい情報は取得しない。検索不足時は plan_and_execute_search を使う。最大 {max_selected_evidence} 件まで選択する。情報不足だが候補を選ぶ場合は answerable:false を付ける。
+- generate_final_answer: {{"reason": "...", "answerable": true}}
 
-初回検索の戦略（取得済み evidence が空の Step 1 のみ。2回目以降は下記「2回目以降」に従う）:
-ルールヒント（参考。矛盾する場合はヒントを優先）:
+初回（evidence が空の Step 1）:
 {first_step_hint}
+- 原則として plan_and_execute_search（phase: initial）から開始する。
 
-質問タイプ別の初回方針:
-- 探索・複合・一般: multi_search を推奨。tools には caption_vector_search と image_vector_text_search を必ず含める。固有名詞、URL、論文ID、エラーコード、IPアドレス、製品名、文書内テキストが重要なら caption_fulltext_search も含める。query_variants には分解・言い換え・専門語を含めてよい。
-- 推移的（A→X・多段）: 第1ホップは参照対象 A の特定のみ。属性 X（座標・日付・数値・定義など）は初回の query_variants に含めない。multi_search を使う場合も第1ホップ用クエリーは1〜2件に絞る。中間値が得られたら次の Step で属性 X を検索する。
-- 識別子・完全一致: 識別子トークンのみ caption_fulltext_search。質問のそれ以外の語（機能・属性・説明）は caption_vector_search（vector query に識別子を含めてもよい）。1 つの fulltext query に識別子と一般語を混ぜない。初回は fulltext と vector の組み合わせ（multi_search 可）でよい。
-
-2回目以降（evidence が1件以上ある場合）:
-1. 複合質問では query_variants に、質問の分解、言い換え、専門語、固有語、エラーコードなどを含め、検索の幅を広げる。
-2. caption_fulltext_search だけに偏らず、テキストベクトル検索と画像ベクトル検索の相補性を使う。
-2-1. [CRITICAL]caption_fulltext_search の query には識別子・完全一致向けトークンのみ（エラーコード、URL、IP、数字.数字形式の ID 等）。識別子以外の語・中間値・lead が文・タイトル・段落・要約のときは caption_vector_search を使う（vector には識別子を含めてもよい）。識別子と一般語を 1 つの fulltext query に混ぜない。
-3. [CRITICAL]まず質問を、回答に必要なサブ質問（求める属性・条件）に分解する。「Aの属性X」のような推移的（多段・マルチホップ）質問では、ホップごとに順番に検索する。
-4. [CRITICAL]あるホップで中間結果（場所名・固有名詞・エンティティ）が判明したら、その中間結果をクエリーに使って、まだ取得できていない次ホップの属性（緯度経度・座標・日付・数値・定義・関連情報など）を検索する。中間結果が分かった時点で満足して終了してはいけない。
-4-1. [CRITICAL]検索結果は毎回見直して計画を更新する。推移的（多段）かどうかは最初の検索結果を見て初めて判明することがある。取得した evidence のキャプションに、答えへ近づく中間値（質問中の識別子に対応する名称・タイトル・用語など）が含まれていないか必ず確認し、含まれていればその値そのものを次の検索クエリーに使う。識別子での検索は対象の名称やタイトルだけを返すことが多いので、得られた名称・タイトルは caption_vector_search で再検索し、本文・詳細・属性を取得する。本文が直接得られないからといって、得られた中間値を無関係と決めつけて断念してはいけない。
-5. [CRITICAL]回答生成のための情報が不足している場合は、まだ試していない観点・言い換え・固有表現・分解クエリー・中間結果を使った次ホップで再検索する。同一の検索（同じToolと同じクエリー）は再実行しない。合理的な検索を出し尽くし、それでも新しい検索結果が得られない場合に限り、select_evidence で候補を選び generate_final_answer に進む（根拠が乏しければ「情報が不足しており回答できません」と回答されることを許容する）。断念する前に、取得済みキャプションに未使用の中間値（次に検索すべき名称・タイトル・用語）が残っていないか必ず確認し、残っていればそれを使って再検索する。
-6. [CRITICAL]回答生成にあたっては一般的な知識は利用できないことに留意し、検索から回答に十分な候補が揃ったら select_evidence を実行する。
-7. select_evidence の evidence_ids には、検索候補の evidence_id の値だけを入れる。No. は evidence_id ではない。
-8. select_evidence は回答直前の候補確定に使う。情報不足や未カバーのサブ質問がある状態で同じ evidence を再選択しても進捗にならないため、追加検索が必要なら検索Actionまたは multi_search を実行する。情報不足だが候補を選ぶ場合は action_input に answerable:false を必ず付ける。
-9. select_evidence 実行前に、指定するIDが「選択可能な evidence_id 一覧」に存在することを確認する。
-10. 悪い例: {{"evidence_ids": ["1", "2"]}}。理由: 1, 2 は No. であり evidence_id ではない。
-11. generate_final_answer の前に、質問の全サブ質問が選択済みevidenceでカバーされているか確認する。未カバーがあり、まだ試していない検索が残っているなら追加検索を行う。generate_final_answer では answerable を必ず指定する。
-12. 不正なObservationがあれば、次のActionで修正する。
+2回目以降（evidence がある場合）:
+1. [CRITICAL]追加検索は plan_and_execute_search（phase: followup, notes に中間値・未解決サブ質問を書く）を優先する。
+2. [CRITICAL]マルチホップ質問ではホップごとに順番に検索する。中間結果（名称・タイトル・用語）が evidence にあれば notes に書き Planner に渡す。
+3. [CRITICAL]あるホップで中間結果が判明したら、その値で次ホップの属性を検索する。中間結果が分かった時点で満足して終了してはいけない。
+4. [CRITICAL]検索結果は毎回見直して計画を更新する。推移的かどうかは最初の検索結果を見て初めて判明することがある。evidence キャプションの中間値（名称・タイトル・用語）を次の plan_and_execute_search の notes に書く。識別子検索は対象の名称やタイトルだけを返すことが多いので、得られた名称・タイトルは caption_vector_search で再検索し本文・属性を取得する。無関係と決めつけて断念しない。未使用の中間値が残っていれば再検索する。
+4-1. caption_fulltext_search には識別子・完全一致向けトークンのみ。識別子以外・長い自然文は vector 検索を使う。識別子と一般語を1つの fulltext query に混ぜない。
+5. [CRITICAL]情報不足時は未試行の観点・言い換え・中間値での再検索を尽くす。同一 (tool, query) は再実行されない。それでも足りなければ select_evidence の後に generate_final_answer で answerable:false とし、「情報が不足しており回答できません」と回答されることを許容する。
+6. select_evidence の evidence_ids は evidence_id の値のみ。No. は evidence_id ではない。悪い例: {{"evidence_ids": ["1", "2"]}}（1, 2 は No.）。
+7. generate_final_answer の前に全サブ質問がカバーされているか確認する。
 
 ユーザー質問:
 {question}
@@ -46,7 +33,7 @@ Thoughtで次に必要な判断を書き、Actionで許可されたToolを1つ�
 
 選択済みevidence: {selected_ids}
 
-実行済み検索（同一の (tool, query) は再実行禁止・指定しても自動スキップされます）:
+実行済み検索（同一の (tool, query) は再実行禁止）:
 {executed_summary}
 
 実行履歴:

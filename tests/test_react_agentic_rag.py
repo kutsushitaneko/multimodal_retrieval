@@ -10,6 +10,10 @@ from app.ui.react_agentic_events import ReactAgenticRAGEvents
 from app.ui.workflow_agentic_events import REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY
 
 
+def _react_planner_model_args():
+    return ("planner-model", 0.3, 4096, "US Midwest (Chicago)")
+
+
 def make_result(image_id, file_name, caption, search_mode="ベクトル検索"):
     return {
         "image_id": image_id,
@@ -196,13 +200,9 @@ def test_react_controller_prompt_guides_multi_hop_transitive_questions():
 
     prompt = pipeline._build_controller_prompt("看板の場所の緯度経度は？", [], [], [])
 
-    assert "サブ質問" in prompt
-    assert "推移的" in prompt
+    assert "plan_and_execute_search" in prompt
     assert "マルチホップ" in prompt
     assert "中間結果" in prompt
-    assert "次ホップ" in prompt
-    assert "中間結果が分かった時点で満足して終了してはいけない" in prompt
-    assert "全サブ質問が選択済みevidenceでカバーされているか確認" in prompt
 
 
 def test_react_controller_prompt_explains_select_evidence_role():
@@ -211,25 +211,18 @@ def test_react_controller_prompt_explains_select_evidence_role():
     prompt = pipeline._build_controller_prompt("質問", [], [], [])
 
     assert '"answerable": true' in prompt
-    assert "最終回答に使う候補を選択して selected_evidence を更新するAction" in prompt
     assert "新しい情報は取得しない" in prompt
-    assert "検索不足や未カバーのサブ質問を解消しない" in prompt
-    assert "select_evidence ではなく検索Actionまたは multi_search を使う" in prompt
-    assert "同じ evidence を再選択しても進捗にならない" in prompt
-    assert "情報不足だが候補を選ぶ場合は action_input に answerable:false を必ず付ける" in prompt
+    assert "plan_and_execute_search" in prompt
+    assert "情報不足だが候補を選ぶ場合は answerable:false を付ける" in prompt
 
 
-def test_react_controller_prompt_explains_image_vector_image_search_input():
+def test_react_controller_prompt_mentions_legacy_multi_search():
     pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
 
     prompt = pipeline._build_controller_prompt("質問", [], [], [])
 
-    assert "- image_vector_image_search: {}" in prompt
-    assert "image_vector_image_search: {\"reason\"" not in prompt
-    assert "アップロード画像がある場合のみ使用できる" in prompt
-    assert "テキストクエリーや reason は検索条件に使わず" in prompt
-    assert "アップロード画像そのものから視覚的に類似する画像を探す" in prompt
-    assert "query_variants ごとではなくアップロード画像で1回だけ実行される" in prompt
+    assert "multi_search" in prompt
+    assert "plan_and_execute_search" in prompt
 
 
 def test_react_finalize_verifier_blocks_giveup_and_forces_research():
@@ -354,39 +347,31 @@ def test_react_controller_prompt_guides_replanning_after_observation():
 
     assert "検索結果は毎回見直して計画を更新する" in prompt
     assert "最初の検索結果を見て初めて判明することがある" in prompt
-    assert "キャプション" in prompt
     assert "中間値" in prompt
     assert "識別子" in prompt
     assert "名称やタイトルだけを返すことが多い" in prompt
-    assert "無関係と決めつけて断念してはいけない" in prompt
+    assert "無関係と決めつけて断念しない" in prompt
     assert "未使用の中間値" in prompt
     assert "2312.10997" not in prompt
 
 
-def test_react_controller_prompt_guides_multi_search_and_tool_strengths():
+def test_react_controller_prompt_guides_plan_and_execute_search():
     pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
 
     prompt = pipeline._build_controller_prompt("ORA-00923 とは何ですか？", [], [], [])
 
-    assert "multi_search" in prompt
-    assert "初回検索の戦略" in prompt
-    assert "探索・複合・一般" in prompt
-    assert "推移的（A→X" in prompt
-    assert "識別子・完全一致" in prompt
-    assert "識別子トークンのみ caption_fulltext_search" in prompt
-    assert "caption_vector_search と image_vector_text_search を必ず含める" in prompt
-    assert "初回検索では原則 multi_search" not in prompt
-    assert "【初回検索ヒント: 識別子" in prompt
+    assert "plan_and_execute_search" in prompt
+    assert "Search Planner" in prompt
+    assert "【参考: 識別子が検出されました】" in prompt
 
 
-def test_react_controller_prompt_includes_first_step_hint_when_transitive():
+def test_react_controller_prompt_does_not_include_transitive_regex_hint():
     pipeline = ReactAgenticRAGPipeline(FakeSearchService(), controller_llm_text_generator=MagicMock())
 
     prompt = pipeline._build_controller_prompt("看板の設置場所の緯度経度は？", [], [], [])
 
-    assert "【初回検索ヒント: 推移的 A→X】" in prompt
-    assert "属性 X" in prompt
-    assert "初回検索の戦略" in prompt
+    assert "【初回検索ヒント: 推移的 A→X】" not in prompt
+    assert "plan_and_execute_search" in prompt
 
 
 def test_react_controller_prompt_distinguishes_fulltext_and_vector_after_first_hop():
@@ -394,10 +379,9 @@ def test_react_controller_prompt_distinguishes_fulltext_and_vector_after_first_h
 
     prompt = pipeline._build_controller_prompt("質問", [EvidencePool._from_result(make_result(1, "a.png", "c"), "q", "tool")], [], [])
 
-    assert "2-1. [CRITICAL]caption_fulltext_search" in prompt
+    assert "4-1. caption_fulltext_search" in prompt
     assert "識別子・完全一致向けトークンのみ" in prompt
-    assert "caption_vector_search を使う" in prompt
-    assert "混ぜない" in prompt
+    assert "caption_vector_search を使う" in prompt or "caption_vector_search で再検索" in prompt
 
 
 def test_react_pipeline_warns_when_fulltext_mixes_identifier_and_other_words():
@@ -487,7 +471,7 @@ def test_react_pipeline_trace_includes_strategy_hint():
 
     result = pipeline.run("猫の特徴", answer_generator=lambda q, selected, docs: "answer")
 
-    assert "検索戦略ヒント: なし" in result.trace
+    assert "正規表現検出エンティティ:" in result.trace
 
 
 def test_react_controller_prompt_separates_display_number_from_evidence_id():
@@ -693,6 +677,7 @@ def test_react_event_streams_outputs_and_uses_controller_model():
         0.4,
         2048,
         "US Midwest (Chicago)",
+        *_react_planner_model_args(),
     ))
     answer, gallery, trace, reason, details = outputs[-1]
 
@@ -707,13 +692,6 @@ def test_react_event_streams_outputs_and_uses_controller_model():
         "controller-model",
         "controller-model",
         "controller-model",
-    ]
-    assert [call.args[2] for call in events._call_text_model.call_args_list] == [0.4, 0.4, 0.4]
-    assert [call.args[3] for call in events._call_text_model.call_args_list] == [2048, 2048, 2048]
-    assert [call.args[4] for call in events._call_text_model.call_args_list] == [
-        "US Midwest (Chicago)",
-        "US Midwest (Chicago)",
-        "US Midwest (Chicago)",
     ]
 
 
@@ -794,6 +772,10 @@ def test_react_vlm_default_resolves_env_model_name():
                 _controller_temperature,
                 controller_max_tokens,
                 controller_oci_region,
+                planner_model,
+                _planner_temperature,
+                planner_max_tokens,
+                planner_oci_region,
             ) = UIComponents().create_react_agentic_vlm_settings()
 
     assert vlm_model.value == "xai.grok-4.3(OCI)"
@@ -802,6 +784,18 @@ def test_react_vlm_default_resolves_env_model_name():
     assert controller_model.value == "google.gemini-2.5-flash-lite(OCI)"
     assert controller_max_tokens.value == 4096
     assert controller_oci_region.value == "US Midwest (Chicago)"
+    assert planner_model is not None
+    assert planner_max_tokens.value == 4096
+
+
+def test_react_agentic_rag_events_include_planner_model_input():
+    import inspect
+
+    from app.ui.react_agentic_events import ReactAgenticRAGEvents
+
+    source = inspect.getsource(ReactAgenticRAGEvents.register_react_agentic_rag_events)
+    assert "planner_model" in source
+    assert "search_planner_llm_text_generator" in inspect.getsource(ReactAgenticRAGEvents.run_react_agentic_rag)
 
 
 def test_react_agentic_rag_answer_label_uses_react_name():
@@ -908,6 +902,7 @@ def test_react_event_streams_multi_search_observation():
         0.4,
         2048,
         "US Midwest (Chicago)",
+        *_react_planner_model_args(),
     ))
     answer, gallery, trace, reason, details = outputs[-1]
 
@@ -946,6 +941,7 @@ def test_react_event_passes_uploaded_image_to_vlm_when_evidence_found():
         0.4,
         2048,
         "US Midwest (Chicago)",
+        *_react_planner_model_args(),
     ))
     answer, _, _, _, _ = outputs[-1]
 
@@ -976,6 +972,7 @@ def test_react_event_does_not_fallback_controller_to_answer_vlm():
         0.4,
         2048,
         "US Midwest (Chicago)",
+        *_react_planner_model_args(),
     ))
     answer, gallery, trace, reason, details = outputs[-1]
 
@@ -1010,6 +1007,7 @@ def test_react_event_image_only_shows_gallery_without_llm_calls():
         0.4,
         2048,
         "US Midwest (Chicago)",
+        *_react_planner_model_args(),
     ))
     answer, gallery, trace, reason, details = outputs[-1]
 

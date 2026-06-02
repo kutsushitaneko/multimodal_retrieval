@@ -10,3 +10,4 @@ PROMPT_SNIPPETS_DIR = "prompt/snippets"
 
 CONFIG_MODEL_SETTINGS = "config/model_settings.json"
 CONFIG_QUESTION_EXAMPLES = "config/question_examples.json"
+CONFIG_ENTITY_PATTERNS = "config/entity_patterns.json"
