@@ -40,7 +40,7 @@ class WorkflowAgenticRAGPipeline:
         search_service,
         *,
         top_k: int = 8,
-        max_iterations: int = 2,
+        max_iterations: int = 4,
         vector_threshold: float = 0.25,
         keyword_threshold: float = 0,
         max_selected_evidence: int = 4,
@@ -51,7 +51,7 @@ class WorkflowAgenticRAGPipeline:
     ):
         self.search_service = search_service
         self.top_k = self._normalize_int(top_k, 8, 1, 24)
-        self.max_iterations = self._normalize_int(max_iterations, 2, 0, 3)
+        self.max_iterations = self._normalize_int(max_iterations, 4, 0, 12)
         self.vector_threshold = vector_threshold
         self.keyword_threshold = keyword_threshold
         self.max_selected_evidence = self._normalize_int(max_selected_evidence, 4, 1, 24)
