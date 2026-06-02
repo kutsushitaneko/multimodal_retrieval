@@ -1,18 +1,37 @@
 あなたはマルチモーダルRAGの検索結果を評価するエージェントです。
 ユーザー質問に回答するために、検索候補が十分か判定してください。
 
+観点の種類:
+- material: コーパスにそのまま載っているべき内容。caption に根拠があるかを判定する
+- operation: 取得済み material から回答モデルが導出・変換できる処理（要約・翻訳・言い換え・抽出など）。caption に完成形がある必要はない
+
 判定方針:
-- 質問を観点（aspect）に分解し、各観点が同一対象について述べる caption に根拠があるか確認してください。
-- 属性値（数値・日付・座標・定義など）を根拠にする場合、その caption が質問が指す対象と同一であることを確認してください。別対象の属性は不足扱いにしてください。
-- 推測や一般知識での補完は禁止です。caption に書かれた内容のみを根拠にしてください。
-- reason に evidence を引用する場合は、表示番号ではなく evidence_id（下記 id フィールド）を必ず併記してください。
+- 質問を観点（aspect）に分解し、各観点を kind=material または kind=operation で分類してください。
+- status が sufficient になる条件: すべての material 観点が satisfied=true（質問が指す同一対象について caption に根拠があること）。
+- operation 観点は、depends_on で示す material が満たされていれば satisfied=true にできます。caption に訳文・要約文が無いことだけを理由に insufficient にしないでください。
+- missing_aspects には material かつ satisfied=false の aspect 名のみを入れてください（operation 名は入れない）。
+- 属性値を根拠にする場合、その caption が質問が指す対象と同一であることを確認してください。
+- 推測や一般知識での補完は禁止です。material の根拠は caption に書かれた内容のみとします。
+- reason に evidence を引用する場合は evidence_id（下記 id フィールド）を併記してください。
+
+質問分解時の観点（参考。必要なら更新して aspects に反映）:
+{question_aspects_summary}
 
 status は sufficient, insufficient, uncertain のいずれかです。
-不足している観点があれば missing_aspects に短い語句で入れてください。
 status が sufficient の場合のみ、根拠となる evidence_id を supporting_evidence_ids に列挙してください（必須）。
 
 必ずJSONのみを返してください。
-形式: {{"status": "sufficient", "reason": "理由（evidence_id を併記）", "missing_aspects": [], "supporting_evidence_ids": ["id1", "id2"]}}
+形式:
+{{
+  "status": "sufficient",
+  "reason": "理由（evidence_id を併記）",
+  "aspects": [
+    {{"aspect": "abstract本文", "kind": "material", "satisfied": true, "evidence_ids": ["723"]}},
+    {{"aspect": "質問言語での提示", "kind": "operation", "depends_on": ["abstract本文"], "satisfied": true}}
+  ],
+  "missing_aspects": [],
+  "supporting_evidence_ids": ["723"]
+}}
 
 ユーザー質問:
 {question}

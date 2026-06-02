@@ -11,15 +11,25 @@ from PIL import Image
 
 from app.agentic_rag_common import (
     AnswerGenerator,
+    DecomposeResult,
     Evidence,
     EvidencePool,
     LLMTextGenerator,
     MAX_EVIDENCE_FOR_LLM_PROMPT,
+    QuestionAspect,
     SufficiencyDecision,
     format_documents,
 )
 from app.paths import PROMPT_AGENT_WORKFLOW_DIR, PROMPT_SNIPPETS_DIR
 from app.prompt_loader import load_prompt
+from app.workflow_aspects import (
+    apply_sufficiency_normalization,
+    aspect_counts_summary,
+    format_aspects_for_prompt,
+    format_operation_aspects_for_followup,
+    merge_dependent_aspects,
+    parse_aspect_items,
+)
 
 
 @dataclass
@@ -139,11 +149,15 @@ class WorkflowAgenticRAGPipeline:
             return
 
         started_at = time.perf_counter()
-        subqueries = self.decompose_question(question)
+        decompose_result = self.decompose_question(question)
+        subqueries = decompose_result.subqueries
+        question_aspects = decompose_result.aspects
         trace.append(
             f"質問分解 [{self._elapsed_ms(started_at)}]: {len(subqueries)} 件のサブクエリー"
             f"{self._format_numbered_items(subqueries)}"
         )
+        if question_aspects:
+            trace.append(f"観点分解: {aspect_counts_summary(question_aspects)}")
         yield build_result(all_evidence=pool.all())
 
         started_at = time.perf_counter()
@@ -163,7 +177,7 @@ class WorkflowAgenticRAGPipeline:
             yield build_result(all_evidence=pool.all())
 
         started_at = time.perf_counter()
-        decision = self.judge_evidence_sufficiency(question, pool.all())
+        decision = self.judge_evidence_sufficiency(question, pool.all(), question_aspects=question_aspects)
         trace.append(f"十分性判定 [{self._elapsed_ms(started_at)}]: {decision.status} - {decision.reason}")
         trace.append(f"十分性判定入力: {self._format_llm_input_stats(question, pool.all(), 'sufficiency')}")
         yield build_result(sufficiency=decision, all_evidence=pool.all())
@@ -171,7 +185,9 @@ class WorkflowAgenticRAGPipeline:
         iterations = 0
         while decision.status != "sufficient" and iterations < self.max_iterations:
             started_at = time.perf_counter()
-            followup_queries = self.generate_followup_queries(question, decision, subqueries, pool.all())
+            followup_queries = self.generate_followup_queries(
+                question, decision, subqueries, pool.all(), question_aspects=question_aspects
+            )
             followup_query_lines = self._format_numbered_items(followup_queries) if followup_queries else "\n  なし"
             trace.append(
                 f"追加検索クエリー生成 [{self._elapsed_ms(started_at)}]: {len(followup_queries)} 件"
@@ -200,7 +216,9 @@ class WorkflowAgenticRAGPipeline:
             subqueries.extend(query for query in followup_queries if query not in subqueries)
             yield build_result(sufficiency=decision, all_evidence=pool.all())
             started_at = time.perf_counter()
-            decision = self.judge_evidence_sufficiency(question, pool.all())
+            decision = self.judge_evidence_sufficiency(question, pool.all(), question_aspects=question_aspects)
+            if decision.aspects:
+                question_aspects = decision.aspects
             trace.append(f"再判定 [{self._elapsed_ms(started_at)}]: {decision.status} - {decision.reason}")
             trace.append(f"再判定入力: {self._format_llm_input_stats(question, pool.all(), 'sufficiency')}")
             yield build_result(sufficiency=decision, all_evidence=pool.all())
@@ -271,20 +289,20 @@ class WorkflowAgenticRAGPipeline:
             all_evidence=pool.all(),
         )
 
-    def decompose_question(self, question: str) -> list[str]:
+    def decompose_question(self, question: str) -> DecomposeResult:
         question = (question or "").strip()
         if not question:
-            return []
+            return DecomposeResult([], [])
 
-        llm_queries = self._decompose_question_with_llm(question)
-        if llm_queries:
-            return llm_queries
+        llm_result = self._decompose_question_with_llm(question)
+        if llm_result.subqueries or llm_result.aspects:
+            return llm_result
 
         return self._decompose_question_with_rules(question)
 
-    def _decompose_question_with_llm(self, question: str) -> list[str]:
+    def _decompose_question_with_llm(self, question: str) -> DecomposeResult:
         if self.decompose_llm_text_generator is None:
-            return []
+            return DecomposeResult([], [])
 
         prompt = load_prompt(
             os.path.join(PROMPT_AGENT_WORKFLOW_DIR, "decompose.txt"),
@@ -293,25 +311,28 @@ class WorkflowAgenticRAGPipeline:
         try:
             parsed = self._parse_llm_json(self.decompose_llm_text_generator(prompt))
         except Exception:
-            return []
+            return DecomposeResult([], [])
 
-        raw_queries = []
+        raw_queries: list[Any] = []
         dependent_aspects: list[str] = []
+        aspects: list[QuestionAspect] = []
         if isinstance(parsed, dict):
             raw_queries = parsed.get("subqueries") or parsed.get("queries") or []
-            aspects = parsed.get("dependent_aspects") or []
-            if isinstance(aspects, list):
-                dependent_aspects = [str(item).strip() for item in aspects if str(item).strip()]
+            aspects = parse_aspect_items(parsed.get("aspects"))
+            dep = parsed.get("dependent_aspects") or []
+            if isinstance(dep, list):
+                dependent_aspects = [str(item).strip() for item in dep if str(item).strip()]
         elif isinstance(parsed, list):
             raw_queries = parsed
+        aspects = merge_dependent_aspects(aspects, dependent_aspects)
         if dependent_aspects:
             print(f"初回検索対象外の属性: {', '.join(dependent_aspects)}")
-        return self._dedupe_queries(raw_queries)[:5]
+        return DecomposeResult(self._dedupe_queries(raw_queries)[:5], aspects)
 
-    def _decompose_question_with_rules(self, question: str) -> list[str]:
+    def _decompose_question_with_rules(self, question: str) -> DecomposeResult:
         question = (question or "").strip()
         if not question:
-            return []
+            return DecomposeResult([], [])
 
         parts = re.split(r"[。！？\n]|(?:\s+かつ\s+)|(?:\s+and\s+)|(?:、そして)|(?:そして)", question)
         queries = [part.strip(" 、,") for part in parts if part.strip(" 、,")]
@@ -327,10 +348,18 @@ class WorkflowAgenticRAGPipeline:
                 queries.append(match)
 
         queries.insert(0, question)
-        return self._dedupe_queries(queries)[:5]
+        return DecomposeResult(self._dedupe_queries(queries)[:5], [])
 
-    def judge_evidence_sufficiency(self, question: str, evidence: list[Evidence]) -> SufficiencyDecision:
-        llm_decision = self._judge_evidence_sufficiency_with_llm(question, evidence)
+    def judge_evidence_sufficiency(
+        self,
+        question: str,
+        evidence: list[Evidence],
+        *,
+        question_aspects: list[QuestionAspect] | None = None,
+    ) -> SufficiencyDecision:
+        llm_decision = self._judge_evidence_sufficiency_with_llm(
+            question, evidence, question_aspects=question_aspects
+        )
         if llm_decision is not None:
             return llm_decision
 
@@ -342,11 +371,18 @@ class WorkflowAgenticRAGPipeline:
         self,
         question: str,
         evidence: list[Evidence],
+        *,
+        question_aspects: list[QuestionAspect] | None = None,
     ) -> SufficiencyDecision | None:
         if self.sufficiency_llm_text_generator is None:
             return None
 
-        prompt = self._build_evidence_eval_prompt(question, self._format_evidence_for_prompt(evidence), "sufficiency")
+        prompt = self._build_evidence_eval_prompt(
+            question,
+            self._format_evidence_for_prompt(evidence),
+            "sufficiency",
+            question_aspects=question_aspects,
+        )
         try:
             parsed = self._parse_llm_json(self.sufficiency_llm_text_generator(prompt))
         except Exception:
@@ -354,12 +390,10 @@ class WorkflowAgenticRAGPipeline:
         if not isinstance(parsed, dict):
             return None
 
-        status = str(parsed.get("status") or "").strip().lower()
+        evidence_ids = {str(item.id) for item in evidence}
+        aspects, status, missing_aspects = apply_sufficiency_normalization(parsed, evidence_ids)
         if status not in {"sufficient", "insufficient", "uncertain"}:
             return None
-        missing_aspects = parsed.get("missing_aspects") or []
-        if not isinstance(missing_aspects, list):
-            missing_aspects = []
         reason = str(parsed.get("reason") or "LLMが十分性を判定しました。")
         if status == "sufficient":
             supporting_ids = parsed.get("supporting_evidence_ids") or []
@@ -367,7 +401,6 @@ class WorkflowAgenticRAGPipeline:
                 status = "uncertain"
                 reason = "supporting_evidence_ids が未指定のため sufficient を確認できません。"
             else:
-                evidence_ids = {str(item.id) for item in evidence}
                 invalid_ids = [str(item_id) for item_id in supporting_ids if str(item_id) not in evidence_ids]
                 if invalid_ids:
                     status = "uncertain"
@@ -378,7 +411,8 @@ class WorkflowAgenticRAGPipeline:
         return SufficiencyDecision(
             status=status,
             reason=reason,
-            missing_aspects=[str(item).strip() for item in missing_aspects if str(item).strip()][:5],
+            missing_aspects=missing_aspects,
+            aspects=aspects,
         )
 
     def generate_followup_queries(
@@ -387,8 +421,16 @@ class WorkflowAgenticRAGPipeline:
         decision: SufficiencyDecision,
         existing_queries: list[str],
         evidence: list[Evidence] | None = None,
+        *,
+        question_aspects: list[QuestionAspect] | None = None,
     ) -> list[str]:
-        llm_queries = self._generate_followup_queries_with_llm(question, decision, existing_queries, evidence or [])
+        llm_queries = self._generate_followup_queries_with_llm(
+            question,
+            decision,
+            existing_queries,
+            evidence or [],
+            question_aspects=question_aspects or decision.aspects,
+        )
         if llm_queries:
             return llm_queries
 
@@ -410,16 +452,20 @@ class WorkflowAgenticRAGPipeline:
         decision: SufficiencyDecision,
         existing_queries: list[str],
         evidence: list[Evidence],
+        *,
+        question_aspects: list[QuestionAspect] | None = None,
     ) -> list[str]:
         if self.followup_llm_text_generator is None:
             return []
 
+        aspects_for_followup = question_aspects or decision.aspects
         prompt = load_prompt(
             os.path.join(PROMPT_AGENT_WORKFLOW_DIR, "followup.txt"),
             question=question,
             status=decision.status,
             reason=decision.reason,
-            missing_aspects=", ".join(decision.missing_aspects),
+            missing_aspects=", ".join(decision.missing_aspects) or "（なし）",
+            operation_aspects=format_operation_aspects_for_followup(aspects_for_followup),
             existing_queries=", ".join(existing_queries),
             evidence_summary=self._format_evidence_for_prompt(evidence),
         )
@@ -610,13 +656,25 @@ class WorkflowAgenticRAGPipeline:
             f"省略 {omitted_count} 件"
         )
 
-    def _build_evidence_eval_prompt(self, question: str, evidence_prompt: str, step: str) -> str:
+    def _build_evidence_eval_prompt(
+        self,
+        question: str,
+        evidence_prompt: str,
+        step: str,
+        *,
+        question_aspects: list[QuestionAspect] | None = None,
+    ) -> str:
         template_name = "evidence_selection.txt" if step == "selection" else "evidence_sufficiency.txt"
+        kwargs: dict[str, Any] = {
+            "max_selected_evidence": self.max_selected_evidence,
+            "question": question,
+            "evidence_prompt": evidence_prompt,
+        }
+        if step == "sufficiency":
+            kwargs["question_aspects_summary"] = format_aspects_for_prompt(question_aspects or [])
         return load_prompt(
             os.path.join(PROMPT_AGENT_WORKFLOW_DIR, template_name),
-            max_selected_evidence=self.max_selected_evidence,
-            question=question,
-            evidence_prompt=evidence_prompt,
+            **kwargs,
         )
 
     @staticmethod
