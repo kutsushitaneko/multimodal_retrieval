@@ -373,7 +373,7 @@ def test_react_controller_prompt_guides_multi_search_and_tool_strengths():
     assert "探索・複合・一般" in prompt
     assert "推移的（A→X" in prompt
     assert "識別子・完全一致" in prompt
-    assert "初回は caption_fulltext_search を優先" in prompt
+    assert "識別子トークンのみ caption_fulltext_search" in prompt
     assert "caption_vector_search と image_vector_text_search を必ず含める" in prompt
     assert "初回検索では原則 multi_search" not in prompt
     assert "【初回検索ヒント: 識別子" in prompt
@@ -395,9 +395,32 @@ def test_react_controller_prompt_distinguishes_fulltext_and_vector_after_first_h
     prompt = pipeline._build_controller_prompt("質問", [EvidencePool._from_result(make_result(1, "a.png", "c"), "q", "tool")], [], [])
 
     assert "2-1. [CRITICAL]caption_fulltext_search" in prompt
-    assert "中カッコ完全一致向けの短い識別子" in prompt
+    assert "識別子・完全一致向けトークンのみ" in prompt
     assert "caption_vector_search を使う" in prompt
-    assert "名称・タイトルは caption_vector_search" in prompt
+    assert "混ぜない" in prompt
+
+
+def test_react_pipeline_warns_when_fulltext_mixes_identifier_and_other_words():
+    mixed_query = "OCI Enterprise AI Agents マネージド デプロイ ストレージ"
+    controller = MagicMock(side_effect=[
+        '{"thought": "id", "action": "caption_fulltext_search", '
+        '"action_input": {"query": "OCI Enterprise AI Agents"}}',
+        '{"thought": "mixed", "action": "caption_fulltext_search", '
+        f'"action_input": {{"query": "{mixed_query}"}}}}',
+        '{"thought": "select", "action": "select_evidence", '
+        '"action_input": {"evidence_ids": ["1"], "reason": "x", "answerable": true}}',
+        '{"thought": "answer", "action": "generate_final_answer", '
+        '"action_input": {"reason": "x", "answerable": true}}',
+    ])
+    pipeline = ReactAgenticRAGPipeline(
+        FakeSearchService(),
+        max_steps=4,
+        controller_llm_text_generator=controller,
+    )
+
+    result = pipeline.run("OCI Enterprise AI Agents の機能", answer_generator=lambda q, selected, docs: "answer")
+
+    assert "識別子と識別子以外の語が混在しています" in result.trace
 
 
 def test_react_pipeline_warns_when_fulltext_used_on_natural_language_after_step1():
@@ -420,7 +443,8 @@ def test_react_pipeline_warns_when_fulltext_used_on_natural_language_after_step1
 
     result = pipeline.run("2312.10997 の概要", answer_generator=lambda q, selected, docs: "answer")
 
-    assert "caption_vector_search を検討してください" in result.trace
+    assert "caption_vector_search" in result.trace
+    assert "検討してください" in result.trace
 
 
 def test_react_finalize_hold_recommends_vector_for_natural_language_lead():
@@ -659,6 +683,7 @@ def test_react_event_streams_outputs_and_uses_controller_model():
         4,
         REFERENCE_TYPE_ALL,
         8,
+        "オン",
         "デフォルト（回答生成）",
         "answer-model",
         0.7,
@@ -873,6 +898,7 @@ def test_react_event_streams_multi_search_observation():
         4,
         REFERENCE_TYPE_ALL,
         8,
+        "オン",
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -910,6 +936,7 @@ def test_react_event_passes_uploaded_image_to_vlm_when_evidence_found():
         4,
         REFERENCE_TYPE_ALL,
         8,
+        "オン",
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -939,6 +966,7 @@ def test_react_event_does_not_fallback_controller_to_answer_vlm():
         4,
         REFERENCE_TYPE_ALL,
         8,
+        "オン",
         "デフォルト（回答生成）",
         "answer-model",
         0.0,
@@ -972,6 +1000,7 @@ def test_react_event_image_only_shows_gallery_without_llm_calls():
         4,
         REFERENCE_TYPE_CAPTION_ONLY,
         8,
+        "オン",
         "デフォルト（回答生成）",
         "answer-model",
         0.0,

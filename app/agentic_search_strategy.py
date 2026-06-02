@@ -11,16 +11,25 @@ from app.search_query_generator import SearchQueryGenerator
 SearchStrategyKind = Literal["identifier", "transitive", "none"]
 
 _IDENTIFIER_HINT = (
-    "【初回検索ヒント: 識別子・完全一致】初回は caption_fulltext_search を優先し、"
-    "識別子・固有語はクエリーにそのまま含めてください。"
-    "狭い query で足りる場合は単一 Tool でも構いません。広い multi_search は不要です。"
+    "【初回検索ヒント: 識別子・完全一致】識別子トークン（エラーコード、URL、論文 ID、製品名など）は "
+    "caption_fulltext_search で識別子のみを query にしてください。"
+    "1 つの fulltext query に識別子と一般語を混ぜないでください。"
+    "質問のそれ以外の語（機能・属性・説明が欲しい部分）は caption_vector_search "
+    "（必要なら image_vector_text_search）。vector の query に識別子を含めても構いません。"
+    "初回は識別子の fulltext と、残りの vector を組み合わせてよい（multi_search 可）。"
     "2ホップ目以降、evidence や Verifier から得た長い自然文（タイトル・本文・要約）の再検索は "
-    "caption_vector_search を使い、caption_fulltext_search は再検索クエリーに識別子トークンが含まれる場合のみ。"
+    "caption_vector_search を使い、caption_fulltext_search は再検索クエリーに識別子トークンのみを含む場合に限る。"
 )
 
 _FULLTEXT_NATURAL_LANGUAGE_WARNING = (
     "このクエリーは自然文に近く、全文（中カッコ OR）向きの識別子が検出されませんでした。"
-    "次は caption_vector_search を検討してください。"
+    "次は caption_vector_search と image_vector_text_search を検討してください。"
+)
+
+_FULLTEXT_MIXED_QUERY_WARNING = (
+    "識別子と識別子以外の語が混在しています。"
+    "fulltext には識別子のみ、それ以外は caption_vector_search で検索してください"
+    "（vector には識別子を含めても構いません）。"
 )
 
 _TRANSITIVE_HINT = (
@@ -101,6 +110,27 @@ def query_has_fulltext_friendly_tokens(query: str) -> bool:
     return bool(_get_query_generator().extract_rule_entities(query))
 
 
+def _strip_rule_entities_from_query(query: str) -> str:
+    """rule ベース識別子文字列を除去した残りを返す。"""
+    text = str(query or "")
+    entities = _get_query_generator().extract_rule_entities(text)
+    if not entities:
+        return text.strip()
+    remainder = text
+    for entity in sorted(entities, key=lambda item: len(str(item.get("text") or "")), reverse=True):
+        entity_text = str(entity.get("text") or "")
+        if entity_text:
+            remainder = remainder.replace(entity_text, " ")
+    return re.sub(r"\s+", " ", remainder).strip()
+
+
+def fulltext_query_mixes_identifier_and_natural_language(query: str) -> bool:
+    """fulltext 向け識別子と識別子以外の語が同一 query に混在するか。"""
+    if not query_has_fulltext_friendly_tokens(query):
+        return False
+    return len(_strip_rule_entities_from_query(query)) >= 2
+
+
 def format_lead_tool_recommendation(lead: str) -> str:
     """Verifier / 確定保留用の lead 1 件に対する推奨 Tool 表記。"""
     text = (lead or "").strip()
@@ -122,3 +152,10 @@ def fulltext_natural_language_warning(query: str) -> str:
     if query_has_fulltext_friendly_tokens(query):
         return ""
     return _FULLTEXT_NATURAL_LANGUAGE_WARNING
+
+
+def fulltext_mixed_query_warning(query: str) -> str:
+    """Step 2 以降で fulltext に識別子と一般語を混在させたときのソフトガード文言。"""
+    if fulltext_query_mixes_identifier_and_natural_language(query):
+        return _FULLTEXT_MIXED_QUERY_WARNING
+    return ""

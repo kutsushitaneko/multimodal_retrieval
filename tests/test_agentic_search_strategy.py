@@ -1,6 +1,7 @@
 from app.agentic_search_strategy import (
     classify_question_strategy,
     format_lead_tool_recommendation,
+    fulltext_query_mixes_identifier_and_natural_language,
     query_has_fulltext_friendly_tokens,
 )
 
@@ -65,3 +66,18 @@ def test_identifier_hint_mentions_second_hop_vector_for_natural_language():
     hint = classify_question_strategy("2312.10997 の要約は？")
     assert "2ホップ目以降" in hint.hint_text
     assert "caption_vector_search" in hint.hint_text
+
+
+def test_identifier_hint_separates_fulltext_identifier_and_vector_for_other_words():
+    hint = classify_question_strategy("ORA-00923 とは何ですか？")
+    assert hint.strategy == "identifier"
+    assert "識別子のみ" in hint.hint_text
+    assert "混ぜない" in hint.hint_text
+    assert "vector の query に識別子を含めても" in hint.hint_text
+
+
+def test_fulltext_query_mixes_identifier_and_natural_language():
+    assert fulltext_query_mixes_identifier_and_natural_language("OCI Enterprise AI Agents マネージド デプロイ")
+    assert not fulltext_query_mixes_identifier_and_natural_language("2312.10997")
+    assert not fulltext_query_mixes_identifier_and_natural_language("Retrieval-Augmented Generation Survey")
+    assert not fulltext_query_mixes_identifier_and_natural_language("ORA-00923")

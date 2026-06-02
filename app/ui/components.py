@@ -15,6 +15,9 @@ REFERENCE_TYPE_LABEL_TEXT = "参照する情報の種類"
 REFERENCE_TYPE_ALL = "すべて"
 REFERENCE_TYPE_CAPTION_ONLY = "キャプションのみ"
 REFERENCE_TYPE_IMAGE_ONLY = "画像のみ"
+COT_SETTING_LABEL = "CoT設定"
+COT_ON = "オン"
+COT_OFF = "オフ"
 ANSWER_GENERATION_MODE_LABEL_TEXT = "回答生成モード"
 ANSWER_MODE_SINGLE_IMAGE = "先頭画像あるいは選択した１つの画像"
 ANSWER_MODE_LISTWISE = "VLMによるフィルタリングと並べ替え"
@@ -670,6 +673,13 @@ class UIComponents:
                     precision=0,
                     interactive=True,
                 )
+            with gr.Row():
+                cot_setting_radio = gr.Radio(
+                    choices=[COT_ON, COT_OFF],
+                    value=COT_ON,
+                    label=COT_SETTING_LABEL,
+                    interactive=True,
+                )
 
         with gr.Row():
             run_button = gr.Button(run_label, variant="primary")
@@ -747,6 +757,7 @@ class UIComponents:
             max_iterations_input,
             reference_type_radio,
             max_selected_evidence_input,
+            cot_setting_radio,
             run_button,
             clear_button,
             answer_text,
