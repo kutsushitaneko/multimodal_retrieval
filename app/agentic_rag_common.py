@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Literal
+
+QuestionAspectKind = Literal["material", "operation"]
 
 from PIL import Image
 
@@ -27,10 +29,28 @@ class Evidence:
 
 
 @dataclass
+class QuestionAspect:
+    """質問観点: material=コーパスから取得, operation=回答モデルが材料から導出。"""
+
+    aspect: str
+    kind: QuestionAspectKind
+    depends_on: list[str] = field(default_factory=list)
+    satisfied: bool | None = None
+    evidence_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class DecomposeResult:
+    subqueries: list[str]
+    aspects: list[QuestionAspect] = field(default_factory=list)
+
+
+@dataclass
 class SufficiencyDecision:
     status: str
     reason: str
     missing_aspects: list[str] = field(default_factory=list)
+    aspects: list[QuestionAspect] = field(default_factory=list)
 
 
 class EvidencePool:

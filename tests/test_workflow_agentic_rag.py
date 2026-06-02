@@ -3,7 +3,12 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
-from app.agentic_rag_common import MAX_EVIDENCE_FOR_LLM_PROMPT, EvidencePool, SufficiencyDecision
+from app.agentic_rag_common import (
+    MAX_EVIDENCE_FOR_LLM_PROMPT,
+    EvidencePool,
+    QuestionAspect,
+    SufficiencyDecision,
+)
 from app.workflow_agentic_rag import WorkflowAgenticRAGPipeline
 from app.ui.components import UIComponents
 from app.ui.workflow_agentic_events import WorkflowAgenticRAGEvents, REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY
@@ -82,7 +87,8 @@ class SixImageSearchService(FakeSearchService):
 def test_decompose_question_extracts_compound_and_special_terms():
     pipeline = WorkflowAgenticRAGPipeline(FakeSearchService())
 
-    queries = pipeline.decompose_question("ORA-00923 とは何ですか。そして https://example.com の図を説明してください")
+    result = pipeline.decompose_question("ORA-00923 とは何ですか。そして https://example.com の図を説明してください")
+    queries = result.subqueries
 
     assert queries[0].startswith("ORA-00923")
     assert "https://example.com" in queries
@@ -92,18 +98,18 @@ def test_decompose_question_extracts_compound_and_special_terms():
 def test_decompose_question_deduplicates_single_question_with_trailing_punctuation():
     pipeline = WorkflowAgenticRAGPipeline(FakeSearchService())
 
-    queries = pipeline.decompose_question("企業がコーディング・エージェントではなく独自のエージェントを開発する意義はどこにありますか？")
+    result = pipeline.decompose_question("企業がコーディング・エージェントではなく独自のエージェントを開発する意義はどこにありますか？")
 
-    assert queries == ["企業がコーディング・エージェントではなく独自のエージェントを開発する意義はどこにありますか"]
+    assert result.subqueries == ["企業がコーディング・エージェントではなく独自のエージェントを開発する意義はどこにありますか"]
 
 
 def test_llm_decompose_question_is_used_when_available():
     llm = MagicMock(return_value='{"subqueries": ["業務特化エージェントの意義", "コーディングエージェントとの違い"]}')
     pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), llm_text_generator=llm)
 
-    queries = pipeline.decompose_question("企業が独自のエージェントを開発する意義は？")
+    result = pipeline.decompose_question("企業が独自のエージェントを開発する意義は？")
 
-    assert queries == ["業務特化エージェントの意義", "コーディングエージェントとの違い"]
+    assert result.subqueries == ["業務特化エージェントの意義", "コーディングエージェントとの違い"]
     assert llm.call_count == 1
 
 
@@ -796,9 +802,87 @@ def test_decompose_parses_dependent_aspects_without_blocking_subqueries():
     llm = MagicMock(return_value='{"subqueries": ["対象Aの特定"], "dependent_aspects": ["属性X"]}')
     pipeline = WorkflowAgenticRAGPipeline(FakeSearchService(), decompose_llm_text_generator=llm)
 
-    queries = pipeline.decompose_question("対象Aの属性Xは？")
+    result = pipeline.decompose_question("対象Aの属性Xは？")
 
-    assert queries == ["対象Aの特定"]
+    assert result.subqueries == ["対象Aの特定"]
+    assert any(item.aspect == "属性X" and item.kind == "material" for item in result.aspects)
+
+
+def make_sufficient_json_with_aspects(*evidence_ids: str) -> str:
+    primary_id = str(evidence_ids[0]) if evidence_ids else "1"
+    ids_json = ", ".join(f'"{evidence_id}"' for evidence_id in evidence_ids)
+    return (
+        '{"status": "sufficient", "reason": "material 充足", '
+        '"missing_aspects": [], '
+        '"aspects": ['
+        f'{{"aspect": "論文ID", "kind": "material", "satisfied": true, "evidence_ids": ["{primary_id}"]}},'
+        f'{{"aspect": "abstract本文", "kind": "material", "satisfied": true, "evidence_ids": ["{primary_id}"]}},'
+        '{"aspect": "和訳", "kind": "operation", "depends_on": ["abstract本文"], "satisfied": true}'
+        f'], "supporting_evidence_ids": [{ids_json}]}}'
+    )
+
+
+def test_sufficiency_parses_aspects_into_decision():
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService())
+    pool = EvidencePool()
+    pool.add_many([make_result(1, "paper.png", "English abstract text here")], "q", "caption_vector")
+    pipeline.sufficiency_llm_text_generator = MagicMock(return_value=make_sufficient_json_with_aspects("1"))
+
+    decision = pipeline.judge_evidence_sufficiency("2312.10997のアブストラクトの和訳は？", pool.all())
+
+    assert decision.status == "sufficient"
+    assert len(decision.aspects) >= 2
+    assert decision.missing_aspects == []
+
+
+def test_followup_prompt_lists_operation_aspects():
+    pipeline = WorkflowAgenticRAGPipeline(FakeSearchService())
+    pool = EvidencePool()
+    pool.add_many([make_result(421, "sign.png", "看板は上石神井駅")], "q", "caption_vector")
+    followup_llm = MagicMock(return_value='{"queries": ["上石神井駅 座標"]}')
+    pipeline.followup_llm_text_generator = followup_llm
+    aspects = [
+        QuestionAspect(aspect="座標", kind="material"),
+        QuestionAspect(aspect="和訳", kind="operation"),
+    ]
+    decision = SufficiencyDecision("insufficient", "座標不足", ["座標"], aspects=aspects)
+
+    pipeline.generate_followup_queries("看板の座標", decision, ["看板 場所"], pool.all(), question_aspects=aspects)
+
+    prompt = followup_llm.call_args.args[0]
+    assert "和訳" in prompt
+    assert "回答段階で処理" in prompt
+
+
+def test_pipeline_abstract_translation_reaches_answer():
+    responses = [
+        (
+            '{"subqueries": ["2312.10997"], "aspects": ['
+            '{"aspect": "論文2312.10997", "kind": "material"},'
+            '{"aspect": "abstract本文", "kind": "material"},'
+            '{"aspect": "日本語での提示", "kind": "operation", "depends_on": ["abstract本文"]}'
+            '], "dependent_aspects": []}'
+        ),
+        make_sufficient_json_with_aspects("1"),
+        '{"status": "sufficient", "selected_evidence_ids": ["1"], "reason": "abstract"}',
+    ]
+    llm = MagicMock(side_effect=responses)
+    pipeline = WorkflowAgenticRAGPipeline(
+        FakeSearchService(),
+        max_iterations=0,
+        llm_text_generator=llm,
+        decompose_llm_text_generator=llm,
+        sufficiency_llm_text_generator=llm,
+    )
+
+    result = pipeline.run(
+        "2312.10997のアブストラクトの和訳は？",
+        answer_generator=lambda q, selected, docs: "和訳回答",
+    )
+
+    assert result.answer == "和訳回答"
+    assert result.selected_evidence
+    assert "十分性未達" not in result.trace
 
 
 def test_agentic_rag_settings_include_max_selected_evidence_input():
