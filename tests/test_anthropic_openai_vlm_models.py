@@ -83,7 +83,13 @@ def test_removed_direct_api_models_are_not_registered():
         assert display_name not in service.model_settings
 
 
-def test_anthropic_opus_47_omits_temperature_parameter():
+def _invoke_anthropic_caption_via_public_api(display_name, temperature=0.3, max_tokens=4096):
+    """公開API generate_caption_with_vlm 経由で Anthropic キャプション生成を実行し、
+    Anthropic クライアントへ渡された create() の kwargs を返すヘルパー。
+
+    画像エンコードはファイルシステムに依存しないようスタブ化し、temperature の
+    扱い（モデル設定 -> APIパラメータ）という不変条件のみを観測対象にする。
+    """
     client = Mock()
     client.messages.create.return_value = SimpleNamespace(
         content=[SimpleNamespace(text="Anthropic response")]
@@ -91,20 +97,38 @@ def test_anthropic_opus_47_omits_temperature_parameter():
     anthropic_module = SimpleNamespace(Anthropic=Mock(return_value=client))
     service = NLPService()
 
-    with patch.dict(sys.modules, {"anthropic": anthropic_module}):
-        result = service._generate_caption_anthropic(
-            model_name="claude-opus-4-7",
-            image_data_url="data:image/png;base64,AAAA",
+    with patch.dict(sys.modules, {"anthropic": anthropic_module}), patch.object(
+        service, "_image_to_base64_data_url", return_value="data:image/png;base64,AAAA"
+    ):
+        result = service.generate_caption_with_vlm(
+            image_path="dummy.png",
+            vlm_model=display_name,
             prompt_text="画像を説明してください",
-            temperature=0.3,
-            max_tokens=4096,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
 
     assert result == "Anthropic response"
-    params = client.messages.create.call_args.kwargs
-    assert params["model"] == "claude-opus-4-7"
-    assert params["max_tokens"] == 4096
-    assert "temperature" not in params
+    return client.messages.create.call_args.kwargs
+
+
+def test_anthropic_temperature_follows_supports_temperature_setting():
+    """supports_temperature 設定に応じて Anthropic へ temperature が渡る/渡らないことの対照テスト。
+
+    内部の private メソッドのシグネチャではなく、公開API（generate_caption_with_vlm）を通した
+    「モデル設定 -> Anthropic API パラメータ」という不変条件を検証する。
+    """
+    # supports_temperature:false のモデルでは temperature を渡さない
+    params_unsupported = _invoke_anthropic_caption_via_public_api("claude-opus-4-7(Anthropic)")
+    assert params_unsupported["model"] == "claude-opus-4-7"
+    assert params_unsupported["max_tokens"] == 4096
+    assert "temperature" not in params_unsupported
+
+    # supports_temperature 未指定（=デフォルト true）のモデルでは temperature を渡す
+    params_supported = _invoke_anthropic_caption_via_public_api("claude-opus-4-6(Anthropic)")
+    assert params_supported["model"] == "claude-opus-4-6"
+    assert params_supported["max_tokens"] == 4096
+    assert params_supported["temperature"] == 0.3
 
 
 def test_openai_reasoning_models_use_responses_api():
