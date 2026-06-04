@@ -698,29 +698,29 @@ class UIEvents:
             # stateの構造を確認
             if state_data is None:
                 print("警告: state_dataがNoneです")
-                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, buttons=["copy"], value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
                 disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
                 
                 if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
                 elif answer_generate_button is not None and reference_image_text is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
                 elif answer_generate_button is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
                 elif answer_generate_button is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button
                 elif reference_image_text is not None and disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
                 elif reference_image_text is not None:
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference
                 elif disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_radio
                 else:
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None)
                 
             # state_dataから直接ベクトル検索結果を取得
             vector_results = state_data.get("vector_results", [])
@@ -729,29 +729,29 @@ class UIEvents:
             # インデックスが有効かチェック
             if len(vector_results) <= evt.index:
                 print(f"警告: 無効なインデックス - vector_results長さ={len(vector_results)}, インデックス={evt.index}")
-                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, buttons=["copy"], value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
                 disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
                 
                 if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
                 elif answer_generate_button is not None and reference_image_text is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
                 elif answer_generate_button is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
                 elif answer_generate_button is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button
                 elif reference_image_text is not None and disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
                 elif reference_image_text is not None:
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference
                 elif disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_radio
                 else:
-                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                    return "", gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None)
                 
             # ベクトル検索結果を取得
             selected_result = vector_results[evt.index]
@@ -773,7 +773,7 @@ class UIEvents:
             caption = self.search_service.normalize_newlines(selected_result['caption'])
             
             # ベクトル検索の場合はコサイン類似度のラベルで表示
-            similarity_textbox = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True, value=score_text)
+            similarity_textbox = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"], value=score_text)
             
             # 参照するドキュメント（画像）の条件判定ロジック
             reference_image_name = ""
@@ -800,7 +800,7 @@ class UIEvents:
                     show_label=True,
                     interactive=False,
                     container=True,
-                    show_copy_button=True,
+                    buttons=["copy"],
                     value=reference_image_name,
                     placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
                 )
@@ -850,29 +850,29 @@ class UIEvents:
             # state_dataの構造を確認
             if state_data is None:
                 print("警告: state_dataがNoneです")
-                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, buttons=["copy"], value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
                 disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
                 
                 if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
                 elif answer_generate_button is not None and reference_image_text is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
                 elif answer_generate_button is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
                 elif answer_generate_button is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button
                 elif reference_image_text is not None and disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
                 elif reference_image_text is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference
                 elif disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_radio
                 else:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None)
                 
             # state_dataから直接全文検索結果を取得
             keyword_results = state_data.get("keyword_results", [])
@@ -885,57 +885,57 @@ class UIEvents:
             # 全文検索結果が0件の場合
             if len(keyword_results) == 0:
                 # print("警告: 全文検索結果が0件です")
-                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, buttons=["copy"], value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
                 disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
                 
                 if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
                 elif answer_generate_button is not None and reference_image_text is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
                 elif answer_generate_button is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
                 elif answer_generate_button is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button
                 elif reference_image_text is not None and disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
                 elif reference_image_text is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference
                 elif disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_radio
                 else:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None)
                 
             # evt.indexが全文検索結果の範囲内かチェック
             if evt.index >= len(keyword_results):
                 print(f"警告: インデックスが範囲外です - インデックス={evt.index}, 結果数={len(keyword_results)}")
                 # インデックスが範囲外の場合はエラーを返す
-                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, buttons=["copy"], value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
                 disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
                 
                 if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
                 elif answer_generate_button is not None and reference_image_text is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
                 elif answer_generate_button is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
                 elif answer_generate_button is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button
                 elif reference_image_text is not None and disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
                 elif reference_image_text is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference
                 elif disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_radio
                 else:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None)
             
             try:
                 # 選択された全文検索結果を直接取得
@@ -958,7 +958,7 @@ class UIEvents:
                 caption = self.search_service.normalize_newlines(selected_result['caption'])
                 
                 # 全文検索の場合はスコアのラベルで表示
-                similarity_textbox = gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=score_text)
+                similarity_textbox = gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=score_text)
                 
                 # 参照するドキュメント（画像）の条件判定ロジック
                 reference_image_name = ""
@@ -985,7 +985,7 @@ class UIEvents:
                         show_label=True,
                         interactive=False,
                         container=True,
-                        show_copy_button=True,
+                        buttons=["copy"],
                         value=reference_image_name,
                         placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
                     )
@@ -1028,29 +1028,29 @@ class UIEvents:
             except Exception as e:
                 print(f"エラー発生: {str(e)}")
                 # エラーが発生した場合は空の値を返す
-                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, show_copy_button=True, value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
+                empty_reference = gr.Textbox(label=REFERENCE_DOCUMENT_LABEL_TEXT, show_label=True, interactive=False, container=True, buttons=["copy"], value="", placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT) if reference_image_text is not None else None
                 disabled_radio = gr.Radio(choices=[REFERENCE_TYPE_ALL, REFERENCE_TYPE_CAPTION_ONLY, REFERENCE_TYPE_IMAGE_ONLY], value=REFERENCE_TYPE_ALL, label=REFERENCE_TYPE_LABEL_TEXT, container=True, interactive=False) if reference_type_radio is not None else None
                 
                 if answer_generate_button is not None and reference_image_text is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference, disabled_radio
                 elif answer_generate_button is not None and reference_image_text is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, empty_reference
                 elif answer_generate_button is not None and disabled_radio is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button, disabled_radio
                 elif answer_generate_button is not None:
                     disabled_button = gr.Button("回答生成", variant="primary", interactive=False)
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_button
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_button
                 elif reference_image_text is not None and disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference, disabled_radio
                 elif reference_image_text is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), empty_reference
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), empty_reference
                 elif disabled_radio is not None:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None), disabled_radio
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None), disabled_radio
                 else:
-                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True, value=""), "", gr.Gallery(selected_index=None)
+                    return "", gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"], value=""), "", gr.Gallery(selected_index=None)
             
         if reference_image_text is not None and answer_generate_button is not None and reference_type_radio is not None:
             # 参照画像、回答生成ボタン、ラジオボタンも更新する場合
@@ -1222,9 +1222,9 @@ class UIEvents:
     def update_score_label(self, search_method):
         """クエリーの種類に応じてスコアラベルを更新する関数"""
         if search_method == "全文検索":
-            return gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, show_copy_button=True)
+            return gr.Textbox(show_label=True, label="スコア", interactive=False, container=True, buttons=["copy"])
         else:
-            return gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True)
+            return gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"])
             
     def update_query_text_interactivity(self, search_method):
         """クエリーの種類に応じてクエリテキストボックスの編集可能性とボタンの表示を切り替える関数"""
@@ -1278,7 +1278,7 @@ class UIEvents:
                 show_label=True,
                 interactive=False,
                 container=True,
-                show_copy_button=True,
+                buttons=["copy"],
                 value="",
                 placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
             )
@@ -1289,7 +1289,7 @@ class UIEvents:
                 show_label=True,
                 interactive=False,
                 container=True,
-                show_copy_button=True,
+                buttons=["copy"],
                 value="",
                 placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
             )
@@ -1307,7 +1307,7 @@ class UIEvents:
                 show_label=True,
                 interactive=False,
                 container=True,
-                show_copy_button=True,
+                buttons=["copy"],
                 value="",
                 placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
             )
@@ -1325,7 +1325,7 @@ class UIEvents:
                 show_label=True,
                 interactive=False,
                 container=True,
-                show_copy_button=True,
+                buttons=["copy"],
                 value="",
                 placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
             )
@@ -1449,7 +1449,7 @@ class UIEvents:
                     show_label=True,
                     interactive=False,
                     container=True,
-                    show_copy_button=True,
+                    buttons=["copy"],
                     value="",
                     placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
                 )
@@ -1469,7 +1469,7 @@ class UIEvents:
             show_label=True,
             interactive=False,
             container=True,
-            show_copy_button=True,
+            buttons=["copy"],
             value="",
             placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
         )
@@ -2747,7 +2747,7 @@ class UIEvents:
                 show_label=True,
                 interactive=False,
                 lines=16,
-                show_copy_button=True,
+                buttons=["copy"],
                 container=True
             )
         else:
@@ -2757,7 +2757,7 @@ class UIEvents:
                 show_label=True,
                 interactive=False,
                 lines=8,
-                show_copy_button=True,
+                buttons=["copy"],
                 container=True
             )
 
@@ -3731,7 +3731,7 @@ class UIEvents:
                 show_label=True,
                 interactive=False,
                 container=True,
-                show_copy_button=True,
+                buttons=["copy"],
                 value=reference_image_name,
                 placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT
             )

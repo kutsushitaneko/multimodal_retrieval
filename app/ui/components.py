@@ -169,7 +169,7 @@ class UIComponents:
                     label="画像ファイル名",
                     placeholder="画像ファイル名を入力してください（例: image001.jpg）",
                     interactive=True,
-                    show_copy_button=True
+                    buttons=["copy"]
                 )
                 
                 # ボタン群
@@ -199,7 +199,7 @@ class UIComponents:
                                 label="",
                                 lines=12,
                                 interactive=False,
-                                show_copy_button=True,
+                                buttons=["copy"],
                                 placeholder="キャプションがここに表示されます"
                             )
                             
@@ -210,7 +210,7 @@ class UIComponents:
                                 label="",
                                 lines=12,
                                 interactive=True,
-                                show_copy_button=True,
+                                buttons=["copy"],
                                 placeholder="キャプションを編集してください"
                             )
                     
@@ -268,7 +268,7 @@ class UIComponents:
                                     label="現在のプロンプト",
                                     lines=8,
                                     interactive=False,
-                                    show_copy_button=True,
+                                    buttons=["copy"],
                                     value=initial_prompt,
                                     placeholder="選択されたプロンプトがここに表示されます"
                                 )
@@ -430,9 +430,9 @@ class UIComponents:
             with gr.Row():        
                 with gr.Column():
                     with gr.Row():
-                        filename_text = gr.Textbox(show_label=True, label="ファイル名", interactive=False, container=True, show_copy_button=True)
-                        image_id_text = gr.Textbox(show_label=True, label="イメージID", interactive=False, container=True, show_copy_button=True)
-                        similarity_text = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True)
+                        filename_text = gr.Textbox(show_label=True, label="ファイル名", interactive=False, container=True, buttons=["copy"])
+                        image_id_text = gr.Textbox(show_label=True, label="イメージID", interactive=False, container=True, buttons=["copy"])
+                        similarity_text = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"])
                     with gr.Row():
                         caption_text = gr.Textbox(
                             show_label=True,
@@ -440,7 +440,7 @@ class UIComponents:
                             interactive=False,
                             lines=10,
                             container=True,
-                            show_copy_button=True,
+                            buttons=["copy"],
                             placeholder="キャプションがここに表示されます"
                         )
                 
@@ -456,7 +456,7 @@ class UIComponents:
                     show_label=True,
                     interactive=False,
                     container=True,
-                    show_copy_button=True,
+                    buttons=["copy"],
                     scale=4,
                     lines=2
                 )
@@ -467,7 +467,7 @@ class UIComponents:
                 label="全文検索：形態素解析結果",
                 show_label=True,
                 container=True,
-                show_copy_button=True,
+                buttons=["copy"],
                 visible=False,
                 elem_id="morphological_analysis"
             )
@@ -480,7 +480,7 @@ class UIComponents:
                     show_label=True,
                     interactive=False,
                     lines=8,
-                    show_copy_button=True,
+                    buttons=["copy"],
                     container=True
                 )
                 
@@ -519,7 +519,7 @@ class UIComponents:
                     show_label=True,
                     interactive=False,
                     container=True,
-                    show_copy_button=True,
+                    buttons=["copy"],
                     placeholder=REFERENCE_IMAGE_PLACEHOLDER_TEXT,
                     scale=1
                 )
@@ -539,7 +539,7 @@ class UIComponents:
                     placeholder="回答生成で使用する質問文を入力してください",
                     interactive=True,
                     lines=3,
-                    show_copy_button=True,
+                    buttons=["copy"],
                     container=True,
                     scale=3
                 )
@@ -557,7 +557,7 @@ class UIComponents:
                     interactive=False,
                     lines=10,
                     container=True,
-                    show_copy_button=True,
+                    buttons=["copy"],
                     placeholder="回答がここに表示されます"
                 )
             with gr.Row():
@@ -580,7 +580,7 @@ class UIComponents:
                     interactive=False,
                     lines=3,
                     container=True,
-                    show_copy_button=True,
+                    buttons=["copy"],
                     visible=False,
                     placeholder="VLMによるフィルタリングと並べ替えの選別理由がここに表示されます"
                 )
@@ -626,7 +626,7 @@ class UIComponents:
                     placeholder="調べたい内容を自然文で入力してください",
                     lines=4,
                     interactive=True,
-                    show_copy_button=True,
+                    buttons=["copy"],
                 )
                 self._create_question_examples(question_input)
             with gr.Column(scale=1):
@@ -690,7 +690,7 @@ class UIComponents:
                 label="進捗状況",
                 lines=10,
                 interactive=False,
-                show_copy_button=True,
+                buttons=["copy"],
                 placeholder="質問分解、検索、再検索、選別の流れがここに表示されます",
             )
 
@@ -712,9 +712,9 @@ class UIComponents:
                 with gr.Row():
                     with gr.Column():
                         with gr.Row():
-                            detail_filename_text = gr.Textbox(show_label=True, label="ファイル名", interactive=False, container=True, show_copy_button=True)
-                            detail_image_id_text = gr.Textbox(show_label=True, label="イメージID", interactive=False, container=True, show_copy_button=True)
-                            detail_similarity_text = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, show_copy_button=True)
+                            detail_filename_text = gr.Textbox(show_label=True, label="ファイル名", interactive=False, container=True, buttons=["copy"])
+                            detail_image_id_text = gr.Textbox(show_label=True, label="イメージID", interactive=False, container=True, buttons=["copy"])
+                            detail_similarity_text = gr.Textbox(show_label=True, label="コサイン類似度", interactive=False, container=True, buttons=["copy"])
                         with gr.Row():
                             detail_caption_text = gr.Textbox(
                                 show_label=True,
@@ -722,14 +722,14 @@ class UIComponents:
                                 interactive=False,
                                 lines=10,
                                 container=True,
-                                show_copy_button=True,
+                                buttons=["copy"],
                                 placeholder="参照した画像を選択すると詳細がここに表示されます",
                             )
             selection_reason_text = gr.Textbox(
                 label="選別・並べ替え理由",
                 lines=4,
                 interactive=False,
-                show_copy_button=True,
+                buttons=["copy"],
                 placeholder="回答に使用した evidence の選別理由がここに表示されます",
             )
 
@@ -738,7 +738,7 @@ class UIComponents:
                 label="回答",
                 lines=10,
                 interactive=False,
-                show_copy_button=True,
+                buttons=["copy"],
                 placeholder="回答がここに表示されます",
             )
 
@@ -1059,7 +1059,7 @@ class UIComponents:
                         label="現在の回答生成プロンプト",
                         lines=8,
                         interactive=False,
-                        show_copy_button=True,
+                        buttons=["copy"],
                         value=initial_answer_prompt,
                         placeholder="選択された回答生成プロンプトがここに表示されます"
                     )

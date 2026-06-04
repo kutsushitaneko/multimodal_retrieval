@@ -266,6 +266,8 @@ or
 
 `run.sh` は `uv run multimodal_retriever.py` をバックグラウンドで起動し、標準出力と標準エラーを `output.log` に出力します。PID は `multimodal_retriever.pid` に保存されます。既に起動中の場合、`start` はエラー終了し、`restart` を使ってください。
 
+`output.log` の先頭に `nohup: ignoring input` と出ることがあります。これは `nohup` が標準入力を切り離した際の情報メッセージであり、起動失敗の原因ではありません。
+
 アプリケーションは`.env`ファイルの設定に従って、ローカルまたはリモートモードで起動します。Gradio の一時ディレクトリはカレントディレクトリ配下の `temp/gradio` に作成されます。
 
 ## UIの主な使い方
