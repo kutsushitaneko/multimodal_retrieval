@@ -30,7 +30,7 @@ from app.agentic_search_strategy import (
 from app.paths import PROMPT_AGENT_REACT_DIR, PROMPT_SNIPPETS_DIR
 from app.prompt_loader import load_prompt
 from app.search_planner import SearchPlanner
-from app.search_query_generator import SearchQueryGenerator
+from app.search_query_generator import FULLTEXT_QUERY_MODE_AGENTIC_EXACT, SearchQueryGenerator
 
 
 @dataclass
@@ -163,6 +163,7 @@ class ReactToolRegistry:
                     self.pipeline.top_k,
                     self.pipeline.vector_threshold,
                     self.pipeline.keyword_threshold,
+                    fulltext_query_mode=FULLTEXT_QUERY_MODE_AGENTIC_EXACT,
                 )
                 pool.add_many(results, query, action)
             elif action == "image_vector_text_search":

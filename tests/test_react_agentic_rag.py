@@ -31,8 +31,18 @@ class FakeSearchService:
         self.image_text_calls = []
         self.image_embedding_calls = []
 
-    def search_by_caption(self, query, search_mode, top_k, vector_threshold, keyword_threshold):
-        self.caption_calls.append((query, search_mode, top_k, vector_threshold, keyword_threshold))
+    def search_by_caption(
+        self,
+        query,
+        search_mode,
+        top_k,
+        vector_threshold,
+        keyword_threshold,
+        fulltext_query_mode="legacy",
+    ):
+        self.caption_calls.append(
+            (query, search_mode, top_k, vector_threshold, keyword_threshold, fulltext_query_mode)
+        )
         image_id = 1 if search_mode == "ベクトル検索" else 2
         return [make_result(image_id, f"{search_mode}.png", f"{query} のキャプション", search_mode)], query, "", ""
 
@@ -1031,8 +1041,17 @@ def test_react_select_evidence_respects_max_selected_evidence():
     ])
     fake_search = FakeSearchService()
 
-    def make_many_results(query, search_mode, top_k, vector_threshold, keyword_threshold):
-        fake_search.caption_calls.append((query, search_mode, top_k, vector_threshold, keyword_threshold))
+    def make_many_results(
+        query,
+        search_mode,
+        top_k,
+        vector_threshold,
+        keyword_threshold,
+        fulltext_query_mode="legacy",
+    ):
+        fake_search.caption_calls.append(
+            (query, search_mode, top_k, vector_threshold, keyword_threshold, fulltext_query_mode)
+        )
         results = [
             make_result(index, f"file-{index}.png", f"{query} {index}", search_mode)
             for index in range(1, 6)

@@ -92,8 +92,10 @@ def test_plan_and_execute_search_runs_different_queries_per_tool():
         )
     )
 
-    fulltext_queries = [c[0] for c in search_service.caption_calls if c[1] == "全文検索"]
+    fulltext_calls = [c for c in search_service.caption_calls if c[1] == "全文検索"]
     vector_queries = [c[0] for c in search_service.caption_calls if c[1] == "ベクトル検索"]
-    assert fulltext_queries
+    assert fulltext_calls
     assert vector_queries
-    assert fulltext_queries[0] != vector_queries[0]
+    assert fulltext_calls[0][0] == "{ORA-00923}"
+    assert fulltext_calls[0][5] == "agentic_exact"
+    assert fulltext_calls[0][0] != vector_queries[0]
