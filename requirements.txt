@@ -7,7 +7,7 @@ oracledb
 pillow
 numpy
 python-dotenv
-gradio
+gradio>=6,<7
 spacy
 ginza
 ja_ginza

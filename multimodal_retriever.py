@@ -116,7 +116,7 @@ def main():
         overflow-y: auto;
     }
     """
-    with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕", delete_cache=(86400, 86400), css=gallery_scroll_css) as demo:
+    with gr.Blocks(title="🐕マルチモーダル・レトリバー🐕", delete_cache=(86400, 86400)) as demo:
         gr.Markdown("# 🐕マルチモーダル・レトリバー🐕")
         gr.Markdown("画像データベースに自然言語で質問することができます。")
         
@@ -500,6 +500,7 @@ def main():
 
     # アプリケーションの起動
     launch_config = config.get_launch_config()
+    launch_config["css"] = gallery_scroll_css
     demo.launch(**launch_config)
 
 if __name__ == "__main__":
