@@ -1,0 +1,7 @@
+# 開発・テスト用の追加依存。本番実行には不要。
+# インストール例: uv pip install -r requirements.txt -r requirements-dev.txt
+# テスト実行例:   uv run --with pytest python -m pytest  もしくは  python -m pytest
+
+-r requirements.txt
+
+pytest>=8,<9
