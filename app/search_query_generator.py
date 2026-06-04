@@ -5,6 +5,10 @@ from .entity_patterns import extract_entities_from_text
 from .fulltext_entity_extractor import FulltextEntityExtractor
 from .global_nlp_service import get_global_nlp_service
 
+FULLTEXT_QUERY_MODE_LEGACY = "legacy"
+FULLTEXT_QUERY_MODE_AGENTIC_EXACT = "agentic_exact"
+
+
 class SearchQueryGenerator:
     def __init__(self, fulltext_entity_extractor=None):
         # グローバルNLPServiceを使用してspaCyモデルを取得（シングルトンパターン）
@@ -158,6 +162,31 @@ class SearchQueryGenerator:
         normalized = FulltextEntityExtractor.normalize_entities(entities)
         exact_terms = [f"{{{self._escape_exact_entity(entity['text'])}}}" for entity in normalized]
         return " OR ".join(exact_terms)
+
+    @staticmethod
+    def is_preformatted_exact_query(query: str) -> bool:
+        """ReAct が組み立て済みの {term} OR {term} 形式か単一 {term} か。"""
+        text = str(query or "").strip()
+        if not text.startswith("{"):
+            return False
+        if " OR " in text:
+            return True
+        return text.endswith("}")
+
+    def resolve_agentic_fulltext_query(self, query: str) -> str:
+        """Agentic fulltext 用: regex 抽出または whole-brace。形態素解析は使わない。"""
+        text = str(query or "").strip()
+        if not text:
+            return ""
+        if self.is_preformatted_exact_query(text):
+            return text
+        entities = extract_entities_from_text(text)
+        if entities:
+            built = self.build_or_exact_query(entities)
+            if built:
+                return built
+        escaped = self._escape_exact_entity(text)
+        return f"{{{escaped}}}"
 
     def generate(self, query):
         """全文検索用のクエリーを生成する関数"""
@@ -427,11 +456,34 @@ class SearchQueryGenerator:
         # print("生成された検索クエリー:", search_query)
         return search_query
     
-    def get_morphological_analysis_details(self, query):
+    def get_morphological_analysis_details(self, query, *, fulltext_query_mode: str = FULLTEXT_QUERY_MODE_LEGACY):
         """形態素解析の詳細結果を取得する関数（マークダウンテーブル形式）"""
         if not query.strip():
             return ""
-        
+
+        if fulltext_query_mode == FULLTEXT_QUERY_MODE_AGENTIC_EXACT:
+            resolved = self.resolve_agentic_fulltext_query(query)
+            entities = extract_entities_from_text(query)
+            lines = [
+                "### Agentic 完全一致検索",
+                "**処理概要:** 分解済みサブクエリを regex 抽出またはサブクエリ全体の `{…}` で Oracle Text に渡します（形態素解析なし）。",
+                "",
+            ]
+            if entities:
+                lines.append("**抽出された固有表現（entity_patterns）:**")
+                for entity in entities:
+                    lines.append(f"- `{entity['text']}` ({entity['type']})")
+                lines.append("")
+            lines.extend(
+                [
+                    "#### 最終検索クエリ",
+                    "```",
+                    resolved or "（空）",
+                    "```",
+                ]
+            )
+            return "\n".join(lines)
+
         morphological_details = []
         original_query = query  # 元のクエリを保存
         keywords = []  # 特殊文字処理で追加されるキーワード

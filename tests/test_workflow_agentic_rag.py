@@ -47,8 +47,16 @@ class FakeSearchService:
         self.image_text_calls = []
         self.image_embedding_calls = []
 
-    def search_by_caption(self, query, search_mode, top_k, vector_threshold, keyword_threshold):
-        self.caption_calls.append((query, search_mode))
+    def search_by_caption(
+        self,
+        query,
+        search_mode,
+        top_k,
+        vector_threshold,
+        keyword_threshold,
+        fulltext_query_mode="legacy",
+    ):
+        self.caption_calls.append((query, search_mode, fulltext_query_mode))
         if "missing" in query:
             return [], query, "", ""
         image_id = 1 if search_mode == "ベクトル検索" else 2
@@ -66,8 +74,16 @@ class FakeSearchService:
 
 
 class SixImageSearchService(FakeSearchService):
-    def search_by_caption(self, query, search_mode, top_k, vector_threshold, keyword_threshold):
-        self.caption_calls.append((query, search_mode))
+    def search_by_caption(
+        self,
+        query,
+        search_mode,
+        top_k,
+        vector_threshold,
+        keyword_threshold,
+        fulltext_query_mode="legacy",
+    ):
+        self.caption_calls.append((query, search_mode, fulltext_query_mode))
         if search_mode == "ベクトル検索":
             return [
                 make_result(1, "1.png", "caption 1", search_mode),
@@ -235,6 +251,26 @@ def test_evidence_prompt_includes_up_to_configured_limit():
 
     assert f"evidence_id: {MAX_EVIDENCE_FOR_LLM_PROMPT}" in prompt
     assert f"evidence_id: {MAX_EVIDENCE_FOR_LLM_PROMPT + 1}" not in prompt
+
+
+def test_workflow_caption_fulltext_uses_agentic_exact_mode():
+    fake_search = FakeSearchService()
+    llm = MagicMock(
+        side_effect=make_shared_pipeline_llm_side_effect(
+            make_sufficient_json("1"),
+            '{"selected_evidence_ids": ["1"], "reason": "選別"}',
+        )
+    )
+    pipeline = WorkflowAgenticRAGPipeline(fake_search, top_k=8, max_iterations=0, llm_text_generator=llm)
+
+    pipeline.run(
+        "https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16",
+        answer_generator=lambda q, selected, docs: "ok",
+    )
+
+    fulltext_calls = [c for c in fake_search.caption_calls if c[1] == "全文検索"]
+    assert fulltext_calls
+    assert all(call[2] == "agentic_exact" for call in fulltext_calls)
 
 
 def test_pipeline_runs_multiple_search_modes_and_orders_evidence():

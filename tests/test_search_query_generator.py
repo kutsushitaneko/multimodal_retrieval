@@ -99,3 +99,45 @@ def test_morphological_details_show_entity_or_search():
     assert "固有表現OR検索" in details
     assert "`ORA-00923`" in details
     assert "{ORA-00923}" in details
+
+
+def test_resolve_agentic_fulltext_query_url_and_error_code():
+    generator = SearchQueryGenerator()
+    url = "https://qiita.com/yuji-arakawa/items/28f30a5434ba429f3f16"
+
+    assert generator.resolve_agentic_fulltext_query(url) == f"{{{url}}}"
+    assert generator.resolve_agentic_fulltext_query("ORA-00923") == "{ORA-00923}"
+
+
+def test_resolve_agentic_fulltext_query_item_id_whole_brace():
+    generator = SearchQueryGenerator()
+    item_id = "28f30a5434ba429f3f16"
+
+    assert generator.resolve_agentic_fulltext_query(item_id) == f"{{{item_id}}}"
+
+
+def test_resolve_agentic_fulltext_query_passthrough_preformatted():
+    generator = SearchQueryGenerator()
+    prebuilt = "{ORA-00923} OR {ORA-00924}"
+
+    assert generator.resolve_agentic_fulltext_query(prebuilt) == prebuilt
+
+
+def test_resolve_agentic_fulltext_query_long_title_whole_brace_when_no_entity():
+    generator = SearchQueryGenerator()
+    title = "Retrieval-Augmented Generation for Large Language Models: A Survey abstract"
+
+    resolved = generator.resolve_agentic_fulltext_query(title)
+    assert resolved == f"{{{title}}}"
+
+
+def test_agentic_morphological_details_section():
+    generator = SearchQueryGenerator()
+    from app.search_query_generator import FULLTEXT_QUERY_MODE_AGENTIC_EXACT
+
+    details = generator.get_morphological_analysis_details(
+        "28f30a5434ba429f3f16",
+        fulltext_query_mode=FULLTEXT_QUERY_MODE_AGENTIC_EXACT,
+    )
+    assert "Agentic 完全一致検索" in details
+    assert "{28f30a5434ba429f3f16}" in details

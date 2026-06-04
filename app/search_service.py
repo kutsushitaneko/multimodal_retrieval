@@ -2,6 +2,9 @@ import array
 import re
 from PIL import Image
 
+from app.search_query_generator import FULLTEXT_QUERY_MODE_AGENTIC_EXACT, FULLTEXT_QUERY_MODE_LEGACY
+
+
 class SearchService:
     def __init__(self, embedding_service, database_service, search_query_generator):
         self.embedding_service = embedding_service
@@ -22,7 +25,15 @@ class SearchService:
             return ""
         return re.sub(r'\n{3,}', '\n\n', str(text))
         
-    def search_by_caption(self, query, search_mode="ベクトル検索", top_k=5, vector_threshold=0.5, keyword_threshold=10):
+    def search_by_caption(
+        self,
+        query,
+        search_mode="ベクトル検索",
+        top_k=5,
+        vector_threshold=0.5,
+        keyword_threshold=10,
+        fulltext_query_mode=FULLTEXT_QUERY_MODE_LEGACY,
+    ):
         """テキストクエリに基づいて画像のキャプションを検索"""
         query = query or ""
         top_k = self.normalize_top_k(top_k)
@@ -45,13 +56,17 @@ class SearchService:
             )
             return results, executed_query, executed_sql, morphological_analysis
             
-        else: # 全文検索
-            # 検索クエリーを生成
-            search_query = self.search_query_generator.generate(query)
+        else:  # 全文検索
+            if fulltext_query_mode == FULLTEXT_QUERY_MODE_AGENTIC_EXACT:
+                search_query = self.search_query_generator.resolve_agentic_fulltext_query(query)
+                morphological_analysis = self.search_query_generator.get_morphological_analysis_details(
+                    query,
+                    fulltext_query_mode=FULLTEXT_QUERY_MODE_AGENTIC_EXACT,
+                )
+            else:
+                search_query = self.search_query_generator.generate(query)
+                morphological_analysis = self.search_query_generator.get_morphological_analysis_details(query)
             executed_query = search_query
-            
-            # 形態素解析の詳細結果を取得
-            morphological_analysis = self.search_query_generator.get_morphological_analysis_details(query)
             
             # 全文検索を実行
             results, executed_sql = self.database_service.search_by_fulltext(

@@ -22,6 +22,7 @@ from app.agentic_rag_common import (
 )
 from app.paths import PROMPT_AGENT_WORKFLOW_DIR, PROMPT_SNIPPETS_DIR
 from app.prompt_loader import load_prompt
+from app.search_query_generator import FULLTEXT_QUERY_MODE_AGENTIC_EXACT
 from app.workflow_aspects import (
     apply_sufficiency_normalization,
     aspect_counts_summary,
@@ -582,6 +583,7 @@ class WorkflowAgenticRAGPipeline:
                 self.top_k,
                 self.vector_threshold,
                 self.keyword_threshold,
+                fulltext_query_mode=FULLTEXT_QUERY_MODE_AGENTIC_EXACT,
             )
             pool.add_many(results, query, "caption_fulltext")
             trace.append(f"{'再' if followup else '初回'}検索 caption_fulltext [{self._elapsed_ms(started_at)}]: {query} -> {len(results)}件")

@@ -287,7 +287,7 @@ or
 主な処理の流れは以下です。
 
 - 質問を最大5件のサブクエリーへ分解し、同時に観点を `material`（コーパスから取得すべき事実・本文）と `operation`（要約・翻訳・言い換えなど、回答 VLM が材料から導出する処理）に分類します（`prompt/agent/workflow/decompose.txt` の `aspects` スキーマ）。マルチホップ質問では、未確定の material は初回検索から除外します。
-- 初回サブクエリーに対して、キャプションベクトル検索、キャプション全文検索、テキストによる画像ベクトル検索を実行します。**各検索のたびに** `EvidencePool.add_many` で結果をプールへマージし、`image_id`（同一画像）単位で evidence を重複排除します。
+- 初回サブクエリーに対して、キャプションベクトル検索、キャプション全文検索、テキストによる画像ベクトル検索を実行します。**各検索のたびに** `EvidencePool.add_many` で結果をプールへマージし、`image_id`（同一画像）単位で evidence を重複排除します。キャプション全文検索は分解済みサブクエリーを `resolve_agentic_fulltext_query` で `{語} OR …` の完全一致に変換して実行します（形態素解析は使いません。`entity_patterns` で拾えない語はサブクエリ全体を1つの `{…}` にします）。
 - 入力画像がある場合は、画像による類似画像ベクトル検索も実行します（結果も同プールへマージ・重複排除）。
 - 十分性判定は、重複排除済みの evidence プールに対して行います。**material 観点**が caption で満たされているかを見ます。operation 観点（和訳など）は、依存する material が揃っていれば `sufficient` とできます（コーパスに訳文が無くても回答生成へ進む）。`missing_aspects` と追加検索は **material 不足のみ**を対象にします。
 - evidence が不足している場合は、取得済み evidence を参照して追加検索クエリーを生成し（生成結果も `_dedupe_queries` で重複排除。中間値 + 不足属性の chained query を優先）、上限回数まで再検索・再判定します。再検索結果も **都度** プールへマージし、既存 evidence との重複は排除されます。
@@ -415,7 +415,7 @@ Controller が使用できる主な Action は以下です。
 - `plan_and_execute_search`: **推奨**。Search Planner モデルが質問分解・ツール選択・ツール別クエリーを計画し、計画どおりに検索を実行します。`action_input` は `{"phase": "initial" | "followup", "notes": "任意"}`。推移的質問の多段推論は Planner がホップ単位で計画し、Controller は evidence を見て再実行を判断します。
 - `multi_search`: （レガシー）複数のクエリー候補と複数の検索 Tool の**直積**で一括検索します。ツールごとに異なるクエリーが必要な場合は `plan_and_execute_search` を使います。
 - `caption_vector_search`: キャプションのテキストベクトル検索を実行します。
-- `caption_fulltext_search`: キャプションの全文検索を実行します。固有表現や完全一致が重要な質問を補完します。
+- `caption_fulltext_search`: キャプションの全文検索を実行します。Planner の `exact_terms` または分解済みクエリーを `{語} OR …` の完全一致で Oracle Text に渡します（`SearchQueryGenerator.generate()` の形態素解析は使いません）。
 - `image_vector_text_search`: テキストクエリーから画像ベクトル検索を実行します。
 - `image_vector_image_search`: アップロード画像から類似画像ベクトル検索を実行します。action_input は `{}` のみ（テキストクエリーや reason は使用しません）。アップロード画像が必須です。
 - `select_evidence`: 既に取得済みの evidence から、最終回答に使う候補を選別して内部状態を更新します。新しい情報は取得しません。追加情報が必要な場合は検索 Action を使います。`answerable`（true=完全回答可、false=情報不足）を必ず指定します。
@@ -601,7 +601,7 @@ sequenceDiagram
 
 ### 全文検索の動作
 
-全文検索は画像キャプションを対象にします。通常の自然文では GiNZA / spaCy による形態素解析と停止語除去により Oracle Text クエリーを生成します。URL、論文ID、IPアドレス、エラーコードなどの固有表現が含まれる場合は、形態素解析より優先して `{ORA-00923} OR {https://example.com}` のような中カッコ完全一致 OR 検索を生成します。
+全文検索は画像キャプションを対象にします。**検索と回答生成**タブの自然文では GiNZA / spaCy による形態素解析と停止語除去により Oracle Text クエリーを生成します（`fulltext_query_mode=legacy`）。URL、論文ID、IPアドレス、エラーコードなどの固有表現が含まれる場合は、形態素解析より優先して `{ORA-00923} OR {https://example.com}` のような中カッコ完全一致 OR 検索を生成します。**Workflow / ReAct** のキャプション全文検索は `agentic_exact` モードで、分解済みクエリーを regex 抽出またはサブクエリ全体の `{…}` に変換してから CONTAINS に渡します。
 
 `FULLTEXT_ENTITY_EXTRACTION_ENABLED=true` の場合は、LLM による固有表現抽出も追加されます。これにより、製品名やサービス名など、ルールだけでは拾いにくい語を全文検索で補完できます。
 
