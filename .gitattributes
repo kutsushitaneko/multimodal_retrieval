@@ -1,0 +1,3 @@
+# シェルスクリプトは常に LF で取得する。
+# core.autocrlf=true の Windows 環境でも CRLF 化されず、Git Bash で実行できるようにするため。
+*.sh text eol=lf
