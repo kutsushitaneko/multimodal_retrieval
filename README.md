@@ -18,7 +18,7 @@
     - キャプションベクトル検索、キャプション全文検索、画像ベクトル検索を統合して evidence を重複排除（`EvidencePool` が `image_id` 単位で都度マージ）
     - Workflow / ReAct 共通: アップロード画像を VLM 回答生成に渡す（検索 evidence がなくても回答を試行。検索結果がある場合は 1 枚目にアップロード画像、2 枚目以降に参照画像）
     - Workflow 専用: 参照対象の特定→属性検索の逐次フロー（Referent-before-attribute / A→X）、初回分解では第1ホップのみ検索、サブクエリー・追加クエリーの文字列重複排除、各検索後に evidence プールへ都度マージ、追加検索では evidence 由来の中間値をクエリーに連鎖、十分性 `sufficient` 以外は回答停止（fail closed）、evidence 選別もテキスト LLM（キャプションのみ参照）
-    - ReAct 専用: 質問タイプ別の初回検索戦略（探索型は multi_search、推移的 A→X は第1ホップのみ、識別子は fulltext は識別子トークンのみ・その他は vector）。識別子・明確な推移的質問にはルールヒントを Controller プロンプトに注入（LLM 呼び出しは増やさない）。`multi_search` の query 重複排除、同一 (tool, query) の重複検索スキップ、各検索後の evidence プール都度マージ、新規 evidence が増えない連続検索の自動打切、マルチホップ向け Controller 指示、Finalize Verifier による早期終了防止（`answerable: false` 時）
+    - ReAct 専用: 初回検索は `plan_and_execute_search`（Search Planner が質問分解・ツール選択・ツール別クエリーを計画・実行）を優先。ルールベース分類は識別子検出のみで、識別子が見つかった場合だけ Controller プロンプトに弱い参考ヒントを注入（推移性は Planner LLM に委譲し、LLM 呼び出しは増やさない）。`multi_search`（レガシー）の query 重複排除、同一 (tool, query) の重複検索スキップ、各検索後の evidence プール都度マージ、新規 evidence が増えない連続検索の自動打切、マルチホップ向け Controller 指示、Finalize Verifier による早期終了防止（`answerable: false` 時）
     - 処理ステップ、所要時間、LLM 入力規模を進捗状況として逐次表示
 - 通常 RAG
     - 検索結果の先頭画像、または選択した1画像を元にした回答生成
@@ -272,7 +272,7 @@ or
 
 ## UIの主な使い方
 
-アプリのタブは、`Workflow Agentic RAG`、`ReAct Agentic RAG`、`検索と回答生成`、`イメージ管理` の順に並びます。
+アプリのタブは、`ReAct Agentic RAG`、`Workflow Agentic RAG`、`検索と回答生成`、`イメージ管理` の順に並びます（以下の説明は機能の理解しやすさを優先し Workflow から記載します）。
 
 ### Workflow Agentic RAG
 
@@ -410,7 +410,7 @@ sequenceDiagram
 
 `ReAct Agentic RAG` タブは、Controller モデルが Thought / Action / Observation を繰り返しながら、必要な検索 Tool （画像ベクトル検索、キャプションベクトル検索、キャプション全文検索）を選択して回答生成まで進めるタブです。質問と任意の入力画像を指定し、`Agentic RAG設定`（検索件数、最大ステップ数、参照する情報の種類、参照ドキュメント数）を設定して `ReAct Agentic RAG 実行` を押します。
 
-`Agentic RAG設定` の項目は Workflow と同様に、検索件数 → 最大ステップ数 → 参照する情報の種類 → 参照ドキュメント数（1〜24、デフォルト 4）→ CoT設定（オン / オフ、デフォルト オン）の順で並びます。`select_evidence` で選べる evidence 件数は `参照ドキュメント数` で制限されます。
+`Agentic RAG設定` の項目は Workflow と同様に、検索件数 → 最大ステップ数（0〜12、デフォルト 8）→ 参照する情報の種類 → 参照ドキュメント数（1〜24、デフォルト 4）→ CoT設定（オン / オフ、デフォルト オン）の順で並びます。`select_evidence` で選べる evidence 件数は `参照ドキュメント数` で制限されます。
 
 Controller が使用できる主な Action は以下です。
 
@@ -442,7 +442,7 @@ ReAct の制御機構:
 
 `参照した画像` アコーディオン内には `画像詳細` サブアコーディオンがあり、ギャラリーで選択した画像のファイル名、イメージID、コサイン類似度、キャプションを表示します。
 
-ReAct Controller は、初回検索では原則 `multi_search` を使い、キャプションベクトル検索、画像ベクトル検索、必要に応じて全文検索を組み合わせます。合理的な検索パターンを出し尽くしても新しい結果が得られない場合は、`select_evidence` → `generate_final_answer` で終了できます。`モデル設定` では、回答生成 VLM と ReAct Controller モデルを個別に選択できます。`進捗状況` には Controller 応答、Action、Observation、検索結果件数、確定保留、最終回答生成までの流れが逐次表示されます。
+ReAct Controller は、初回検索では原則 `plan_and_execute_search`（phase: initial）から開始し、Search Planner がキャプションベクトル検索、画像ベクトル検索、必要に応じて全文検索を計画・実行します。`multi_search` はレガシーで、全 Tool に同一クエリーを適用してよい一括検索の場合のみ使います。合理的な検索パターンを出し尽くしても新しい結果が得られない場合は、`select_evidence` → `generate_final_answer` で終了できます。`モデル設定` では、回答生成 VLM、ReAct Controller モデル、Search Planner モデルを個別に選択できます。`進捗状況` には Controller 応答、Action、Observation、検索結果件数、確定保留、最終回答生成までの流れが逐次表示されます。
 
 #### 処理フロー（フローチャート）
 
